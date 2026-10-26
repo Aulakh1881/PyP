@@ -1,12 +1,12 @@
 # Pyp Master Plan
 
-**One plan, built from three documents:** our merchant plan (`pyp-merchant-plan.md`), your friend's Technical Design (the "TDD"), and his Team Brief.
+**One plan, built from three documents:** the team's merchant plan, the Technical Design (the "TDD", `technical-design.md` in this folder) and the Team Brief. Those first two older plans are kept outside the repo; everything they decided is in here.
 
 Version 1.1 · October 26, 2026 (v1: Oct 25) · PayPal AI Hackathon · submission due **Thursday Nov 12, 12 PM PT** · feature freeze **Tuesday Nov 10**
 
 *Pyp is an independent project, not affiliated with PayPal. Sandbox only. All sample data is DEMO DATA.*
 
-**How to use this document.** This is the single plan to build from. If it disagrees with an older document, this one wins. The long TDD stays the reference for detail (database SQL, prompt templates, API list, test cases). Section 8 is this week's day-by-day plan.
+**How to use this document.** This is the single plan to build from and **the source of truth**. If any other document disagrees with it, this one wins. The long TDD (`technical-design.md`) stays the reference for detail (database SQL, prompt templates, API list, test cases), and the Team Brief is its short version. PDFs of all three are in `pdf/`. Section 8 is this week's day-by-day plan.
 
 ---
 
@@ -47,7 +47,7 @@ All three agree on the core: webhooks and daily checks wake Pyp up, plain code e
 
 **Checked against PayPal's docs, and it holds:**
 - PayPal's idempotency header (`PayPal-Request-Id`) is documented for POST and PUT requests, and PayPal remembers the id for up to 45 days. A retry with the same id returns the original result.
-- Invoice reminders are capped at 2 per day per invoice by PayPal itself. Our own cap of 3 per invoice, at least 3 days apart, sits comfortably inside that.
+- PayPal limits invoice reminders: the remind endpoint says the API caller "can send only 2 reminders in a day" (the docs don't say whether that's per invoice or per account, so we treat it as per account). Our own cap of 3 per invoice, at least 3 days apart, sits inside that, and the policy also counts reminders sent each day.
 - The Disputes API has provide-evidence, accept-claim, send-message, make-offer and accept-offer. Merchants can only *respond* to disputes in live PayPal, but can *create* them in the sandbox, and sandbox-only helpers exist to move a dispute through its stages.
 - Transaction Search: up to 3 years of history, 31-day window per request, up to ~3 hours lag. It has to be enabled in the app settings.
 - Claude for Small Business (announced May 13, 2026) does include a PayPal integration for invoicing and refunds with approval before anything is sent or paid.
