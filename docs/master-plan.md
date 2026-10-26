@@ -2,11 +2,11 @@
 
 **One plan, built from three documents:** the team's merchant plan, the Technical Design (the "TDD", `technical-design.md` in this folder) and the Team Brief. Those first two older plans are kept outside the repo; everything they decided is in here.
 
-Version 1.1 · October 26, 2026 (v1: Oct 25) · PayPal AI Hackathon · submission due **Thursday Nov 12, 12 PM PT** · feature freeze **Tuesday Nov 10**
+Version 1.2 · October 26, 2026 (v1: Oct 25) · PayPal AI Hackathon · submission due **Thursday Nov 12, 12 PM PT** · feature freeze **Tuesday Nov 10**
 
 *Pyp is an independent project, not affiliated with PayPal. Sandbox only. All sample data is DEMO DATA.*
 
-**How to use this document.** This is the single plan to build from and **the source of truth**. If any other document disagrees with it, this one wins. The long TDD (`technical-design.md`) stays the reference for detail (database SQL, prompt templates, API list, test cases), and the Team Brief is its short version. PDFs of all three are in `pdf/`. Section 8 is this week's day-by-day plan.
+**How to use this document.** This is the single plan to build from and **the source of truth**. If any other document disagrees with it, this one wins. The long TDD (`technical-design.md`) stays the reference for detail (database SQL, prompt templates, API list, test cases), and the Team Brief is its short version (kept outside the repo). Section 8 is this week's day-by-day plan.
 
 ---
 
@@ -32,7 +32,7 @@ All three agree on the core: webhooks and daily checks wake Pyp up, plain code e
 | **Scope** | TDD: Collections, Disputes, Insights, Refunds, plus an MCP server. Ours: invoices, disputes, briefing, extras, matchmaking. | Build **Collections, Disputes, and a light Insights**. Park Refunds, the MCP server, payouts, subscriptions, tracking nudge, and merchant matchmaking for the "what's next" slide. See section 4. |
 | **Agent-to-agent** | Ours: still in. TDD: not covered, and says Pyp never contacts buyers itself. | Keep it as a **stretch**, built as a *second Pyp instance acting as the buyer*. Its messages and offers still travel through PayPal's real dispute endpoints, so the TDD's rule that "PayPal sends the messages" stays true. Go/no-go on **Nov 3**. |
 | **Creating invoices** | Ours: "invoice Acme $1,200 net-30" is the flagship request. TDD: only has reminders and cancel. | **Add `invoice.createAndSend`** to Collections (creates a draft, then sends it). Default dial: Ask me. |
-| **PayPal access** | Ours: use PayPal's Agent Toolkit for ready-made tools. TDD: call REST directly (ADR-006). | **TDD wins.** Our safety story depends on exactly one module being able to write to PayPal. The toolkit's tools would bypass it. We keep the toolkit open as a reference for request shapes. |
+| **PayPal access** | Ours: use PayPal's Agent Toolkit for ready-made tools. TDD: call REST directly (ADR-006). | **Reads through PayPal's MCP server, writes through our REST client** (team decision, Oct 26). Skills gather facts and chat looks things up using an allow-list of **read** tools from PayPal's official MCP server, with REST reads for anything it lacks (such as balances). Our safety story depends on exactly one module being able to write to PayPal, so the **executor stays the only writer**, using direct REST with request ids. The model never sees PayPal's write tools. |
 | **Hosting and jobs** | TDD: Vercel + Inngest. Ours: Render (a hackathon partner). | **Host on Render** (web service, Postgres, cron). Keep Inngest for durable jobs if it runs cleanly there; otherwise fall back to a simple Postgres job table plus Render cron. **Test this on Mon–Tue.** |
 | **Partner tools** | Ours: APIMatic, Render, AG Grid. TDD: none. | **Render** (hosting), **AG Grid** (Activity tab), **APIMatic** (give our coding AI accurate PayPal API context while we build). Skip the rest. Check the hackathon rules on whether partner use is judged. |
 | **Interface** | TDD: inbox of cards that flip to show a trace. Ours: chat widget with mascot, activity feed, skills setup. | **All of it.** *Inbox* (cards and trace) is the main screen. *Activity tab* (AG Grid) is the filterable history. *Pyp widget* (bottom-right chat and mascot) is the front door. *Setup screen* is the autonomy dial, which is our Tomodachi-style "choose what your Pyp can do". **Three surfaces** (team decision, Oct 26): the **website** (a public landing page: what Pyp is, the demo video, "Open the demo"); the **dashboard** (the logged-in web app: Inbox, Activity tab, setup screen, Pyp widget and chat); and a **Chrome extension** that opens Pyp in Chrome's **side panel** next to paypal.com or the sandbox site, with a compact inbox and chat on the same backend. The extension never changes PayPal's pages and holds no PayPal keys. |
@@ -61,8 +61,9 @@ All three agree on the core: webhooks and daily checks wake Pyp up, plain code e
 5. Does Inngest run cleanly with the app on Render?
 6. The model prices and SDK version notes in the TDD are unverified by us. Recheck them before quoting any cost number in the pitch.
 7. Hackathon rules: is public repo required, is partner-tool use judged, what must the submission include?
+8. PayPal MCP server: do its read tools cover what our case files need (invoice search, dispute details, transactions)? Which works best from our server on Render: the hosted sandbox server (`https://mcp.sandbox.paypal.com`) or the local package (`npx @paypal/mcp`) with an access token? Can we expose only read tools?
 
-**Pitch note.** PayPal's own MCP server and the Claude PayPal integration both let an assistant do invoicing and refunds *when asked*, with approval. Pyp's difference is that it works **proactively, under standing rules the merchant sets, and shows its reasoning**.
+**Pitch note.** PayPal's own MCP server and the Claude PayPal integration both let an assistant do invoicing and refunds *when asked*, with approval. Pyp's difference is that it works **proactively, under standing rules the merchant sets, and shows its reasoning**. Pyp builds on PayPal's MCP server for reading the account and adds that proactive, rule-checked layer on top.
 
 ---
 
@@ -86,7 +87,7 @@ Every action Pyp takes goes through the same five stages. **Only the Decide step
 1. **Trigger.** A PayPal webhook, the morning sweep, or a chat message.
 2. **Route.** Events and sweeps carry fixed labels, so a lookup table picks the skill. Chat is a sentence, so a Claude "receptionist" call picks the skill using read-only lookups. It can never change anything itself.
 3. **Run the skill** (one run per decision):
-   - **Gather (code):** fetch the facts and write them up as a *case file*.
+   - **Gather (code):** fetch the facts (read tools from PayPal's MCP server, plus our database) and write them up as a *case file*.
    - **Decide (Claude):** one call reads the case file and returns JSON: a summary plus actions chosen from a menu.
    - **Check (code):** three gates.
 4. **Act and show.** The *executor* is the only code that writes to PayPal, and every write carries `PayPal-Request-Id = proposal id`. Every result becomes a card, and every step is a timestamped trace row.
@@ -114,7 +115,7 @@ pyp/
   engine/     registry, run-skill, prompt + schema builders, validator, policy, trace
   skills/     collections/  disputes/  insights/     (one folder per skill)
   gateway/    Claude / Ollama / scripted-test connection, daily budget cap
-  paypal/     read-client (anyone) · write-client (executor ONLY) · webhook-verify
+  paypal/     mcp-read-client (PayPal MCP server, read tools only) · write-client (REST, executor ONLY) · webhook-verify
   executor/   the only place that writes to PayPal
   jobs/       sweeps, execute, undo timers, cleanup
   db/  evals/  docs/
@@ -146,7 +147,7 @@ Each work package (WP) below is sized for **two people to finish in 3–4 days**
 
 | WP | What | People | Done when |
 |---|---|---|---|
-| **WP1** | Sandbox and PayPal clients: seller and buyer sandbox accounts, REST app with Invoicing, Disputes and Transaction Search enabled, OAuth, read client, write client, Postman collection | C + B | Create, send and remind an invoice and create a dispute by script |
+| **WP1** | Sandbox and PayPal clients: seller and buyer sandbox accounts, REST app with Invoicing, Disputes and Transaction Search enabled, OAuth, MCP read client (connect to PayPal's MCP server; allow-list of read tools), REST write client, Postman collection | C + B | Create, send and remind an invoice and create a dispute by script; read them back through the MCP server |
 | **WP2** | Webhooks, database and jobs: webhook intake with signature check and dedupe, 9-table schema, daily sweep, Render deploy | C + B | Simulated PayPal event lands in `events` on a live Render URL |
 | **WP3** | Engine core: registry, run-skill, schema and prompt builders, validator, policy, trace, gateway (Claude + scripted) | B + C | A fake case file produces a validated, policy-checked proposal in tests |
 | **WP4** | Collections skill: case file, commands (createAndSend, sendReminder, scheduleFollowUp, merchant.ask), playbook, first test cases | B + C | Overdue invoice in sandbox → correct proposal |

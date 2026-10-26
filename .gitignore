@@ -1,0 +1,16 @@
+# dependencies and builds
+node_modules/
+.next/
+out/
+dist/
+coverage/
+
+# secrets: never commit these
+.env
+.env.*
+!.env.example
+
+# local tools
+.DS_Store
+*.log
+.mcp-auth/

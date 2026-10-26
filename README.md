@@ -1,1 +1,55 @@
-# PyP
+# Pyp
+
+**The agentic AI that runs your PayPal business, within your rules.** Pyp watches a merchant's PayPal account, notices what needs doing (overdue invoices, new disputes), and either does it or asks first, always within limits the merchant sets.
+
+> *Pyp is an independent hackathon project, not affiliated with or endorsed by PayPal. Sandbox only; all sample data is DEMO DATA.*
+
+PayPal AI Hackathon 2026 · feature freeze **Tue Nov 10** · submission **Thu Nov 12, 12 PM PT**
+
+## Start here
+
+| Document | What it is |
+|---|---|
+| [`docs/master-plan.md`](docs/master-plan.md) | **The source of truth.** Scope, decisions, schedule, roles, work packages. If anything disagrees with it, it wins. |
+| [`docs/technical-design.md`](docs/technical-design.md) | The detail behind the plan: how each part works, the data model, prompts, API list, test cases. |
+
+## The idea in one line
+
+**The AI proposes, code decides.** Code gathers the facts, Claude makes the judgment call and writes the words, and code checks the decision and carries it out. Every step is timestamped, so any action card can be flipped over to show why it happened.
+
+## What we're building
+
+- **Three surfaces on one backend:** a **website** (public landing page), the **dashboard** (Inbox of action cards, Activity tab, setup screen, Pyp widget and chat), and a **Chrome extension** that opens Pyp in Chrome's side panel next to PayPal.
+- **Skills:** Collections (create, send and chase invoices), Disputes (draft evidence, merchant approves), Insights lite (weekly brief). Stretch: Pyp-to-Pyp dispute negotiation.
+- **PayPal:** reads through PayPal's official MCP server (read tools only); writes through our REST client in the executor, the only code that changes anything in PayPal.
+- **Stack:** TypeScript, Next.js on Render, Render Postgres, Claude (Haiku / Sonnet / Opus 5.5) with Ollama for local development, AG Grid for the Activity tab.
+
+## Repository map
+
+| Folder | What lives there | Owner |
+|---|---|---|
+| [`app/`](app/) | Next.js: website, dashboard, API routes, PayPal webhook intake | A (UI), C (API) |
+| [`extension/`](extension/) | Chrome side-panel extension | A + C |
+| [`engine/`](engine/) | Registry, run-skill, prompt and schema builders, validator, policy, trace | B |
+| [`skills/`](skills/) | One folder per skill: `collections/`, `disputes/`, `insights/` | B |
+| [`gateway/`](gateway/) | Model connection (Claude, Ollama, scripted), daily budget cap | B |
+| [`paypal/`](paypal/) | MCP read client, REST write client (executor only), webhook verification | C |
+| [`executor/`](executor/) | The only place that writes to PayPal | C |
+| [`jobs/`](jobs/) | Sweeps, execute, undo timers, cleanup | C |
+| [`db/`](db/) | Schema and migrations (9-table core first) | C |
+| [`evals/`](evals/) | Golden tests and the prompt-injection suite | B |
+| [`docs/`](docs/) | Master plan, technical design, diagrams | All |
+
+Roles: **A** frontend · **B** engine and AI · **C** PayPal and infrastructure (master plan §7).
+
+## Rules for the team
+
+- **Nothing writes to PayPal except the executor.** No exceptions, including "just for the demo".
+- **Code does the maths.** Claude never calculates money.
+- **No secrets in Git.** Keys go in `.env.local` (git-ignored); `.env.example` lists the names.
+- **Sandbox only, DEMO DATA labels, no PayPal logos,** and the disclaimer in the app and the video.
+- **Merge small and often.** Each person works in their own folders.
+
+## Getting started
+
+Setup instructions arrive with the Next.js shell (master plan §8, Mon Oct 26). Until then: copy `.env.example` to `.env.local` and fill in the sandbox values.

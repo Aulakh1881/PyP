@@ -60,7 +60,7 @@ Every time Pyp does anything, the same six steps happen. Only one of them uses A
 |---|---|---|
 | 1. Something happens | PayPal tells us (a webhook), or our daily check finds something (an overdue invoice) | PayPal / our code |
 | 2. Pick the skill | "This is an invoice problem" → the Collections skill | Our code (Claude, if it came from chat) |
-| 3. Gather the facts | Fetch the invoice, the client's history, the merchant's rules, and write them up as a *case file* | Our code |
+| 3. Gather the facts | Fetch the invoice (through PayPal's MCP server), the client's history, the merchant's rules, and write them up as a *case file* | Our code |
 | 4. Decide | Read the case file, choose what to do from a menu of allowed actions, write any message | **Claude** |
 | 5. Check | Is the action still correct? Is Pyp allowed to do it alone, or must it ask? | Our code |
 | 6. Act and record | Call PayPal, update the card, log every step with a timestamp | Our code |
@@ -106,6 +106,8 @@ A **skill** is one job Pyp knows how to do, like a department in a small company
 | **Refunds** | handles refund requests within limits (designed, **parked**: not built for Nov 12) |
 
 Each skill lives in **one folder** that contains everything the department needs: what wakes it up, how to gather its facts, its playbook (instructions for Claude), its menu of allowed actions, the checks for each action, and its tests.
+
+> **Skills + PayPal's MCP server.** Skills don't each write their own PayPal reading code. PayPal already publishes an official **MCP server** that exposes its APIs as tools. Pyp connects to it once, through our `paypal/mcp-read-client`, and skills gather their facts through an **allow-list of its read tools** (list and get invoices, disputes, transactions). Writing is different: the **executor** stays the only code that changes anything in PayPal, using our own REST client with request ids. So a skill = *our* playbook and rules, on top of *PayPal's* read tools (ADR-006).
 
 The **registry** is a single short file that lists every skill:
 
@@ -571,6 +573,7 @@ Level 1 of the C4 model shows Pyp as one box and everything it talks to.
 |---|---|---|
 | **Merchant** | ↔ | Rules, approvals, chat; Pyp shows cards, briefs and traces |
 | **PayPal REST APIs** | Pyp → PayPal | Reads (invoices, disputes, captures, transactions, balances) and writes (create and send invoices, remind, provide evidence, dispute messages and offers). Writes come only from the executor. |
+| **PayPal MCP server** | Pyp → PayPal | Read tools only (our allow-list): invoices, disputes, transactions. Never a write path. |
 | **PayPal Webhooks** | PayPal → Pyp | Signed event notifications, retried up to 25 times over 3 days |
 | **Anthropic Claude API** | Pyp → Claude | Case files and allowed-command menus go out; structured proposals come back. Never PayPal credentials. |
 | **Ollama** (dev only) | Pyp → local model | Same as Claude, on a developer's laptop |
@@ -597,6 +600,7 @@ Level 2 zooms into Pyp: the deployable pieces and how they talk.
 | **Webhook intake** | Verify signature on the raw body, dedupe by event id, store, enqueue, reply 200 fast | Must answer within a few seconds or PayPal retries. |
 | **Queue functions** | Durable background work: `runSkill`, `executeProposal`, sweeps, undo timers, approval expiry, reconcile | Inngest if it runs cleanly with the app on Render; otherwise a Postgres job table plus Render cron. Either way: retries, cron, one-at-a-time per merchant. |
 | **Agent engine** | Skill registry, case-file builders, prompt and schema builders, validator, policy engine | Pure TypeScript; the heart of Pyp (Sections 7–8). |
+| **PayPal MCP read client** | Connects to PayPal's official MCP server; exposes only an allow-list of read tools to case-file builders, the validator and chat | Hosted sandbox server (`https://mcp.sandbox.paypal.com`) or the local `@paypal/mcp` package; picked on day one (Section 16.3). REST reads fill any gaps. |
 | **Model gateway** | One `AgentClient` port with adapters for Claude, Ollama and a scripted replayer; spend ledger; stall timers | Swapping models touches one adapter file. |
 | **Executor** | The only code path that writes to PayPal; idempotency keys; error mapping | The only module that imports the PayPal write client. |
 | **Postgres** | Single source of truth: events, runs, proposals, traces, rules, activity log | Render Postgres. |
@@ -617,7 +621,8 @@ Level 2 zooms into Pyp: the deployable pieces and how they talk.
 | Model SDK | **Vercel AI SDK** (structured output and tool loops) behind our own `AgentClient` port | A library, not tied to Vercel hosting. The team already used it in Whizzy; provider-neutral; Ollama and Anthropic providers available |
 | Models | **Claude Haiku 5.5 / Sonnet 5.5 / Opus 5.5**; **Ollama** locally | Section 7.7 |
 | Validation | **Zod** schemas → JSON Schema | One definition drives the model's schema, the validator and TypeScript types |
-| PayPal | **Direct REST calls** through our own small client, with our own commands | Pinned to public endpoints; no dependency on an AI-framework version; the PayPal Agent Toolkit stays a reference only (ADR-006, reaffirmed Oct 26) |
+| PayPal reads | **PayPal's MCP server** (read tools only, through our allow-list) + REST for gaps | Official PayPal tooling for reading the account; less code for us; a stronger "built on PayPal" story (ADR-006) |
+| PayPal writes | **Direct REST calls** through our own small client, executor only | Request ids per call, our error mapping, one writer (ADR-006) |
 | Evals | Vitest goldens + Promptfoo red-team suite | Section 14 |
 
 > **Verify on day 1:** the exact AI SDK function names for structured output, and Ollama's support for the JSON-schema features we use (`anyOf`, `enum`). The validator re-checks everything anyway, so a weak local model fails safe.
@@ -761,7 +766,7 @@ Gateway duties, all carried over from Whizzy:
 
 ### 7.8 Chat: a small, read-only tool loop
 
-Chat questions are open-ended ("why was October slower?"), so chat is the one place the model gets tools, and only **read** tools: `searchInvoices`, `getInvoice`, `listDisputes`, `getDispute`, `searchTransactions`, `getBalances`, `searchActivityLog`. The loop is capped at 6 steps and 20,000 tokens.
+Chat questions are open-ended ("why was October slower?"), so chat is the one place the model gets tools, and only **read** tools: `searchInvoices`, `getInvoice`, `listDisputes`, `getDispute`, `searchTransactions`, `getBalances`, `searchActivityLog`. Most are thin wrappers over PayPal MCP read tools. The model gets **our** wrappers, never PayPal's raw tool list, so it can't see or call a PayPal write tool. The loop is capped at 6 steps and 20,000 tokens.
 
 When the merchant asks for an action ("chase Acme, but gently"), the chat model doesn't call a write tool, because none exists. It calls `proposeActions`, which runs the relevant skill with the merchant's instruction attached. The result goes through the normal pipeline and appears as a card inside the chat. **Chat can suggest anything and execute nothing.**
 
@@ -879,9 +884,9 @@ The executor is the **only** module that imports the PayPal write client (a lint
 
 ### 9.5 PayPal APIs used
 
-Pyp uses OAuth 2.0, **Invoicing v2** (Collections), **Disputes v1** (Disputes), **Payments v2** and **Orders v2** (captures, orders and tracking for dispute case files), **Transaction Search** and **Balances** (Insights), and **Webhooks**. Every endpoint is listed in Appendix D.
+**Reads** go through PayPal's official MCP server (an allow-list of its read tools); **writes** go through our REST client in the executor. Underneath, both use the same public APIs: OAuth 2.0, **Invoicing v2** (Collections), **Disputes v1** (Disputes), **Payments v2** and **Orders v2** (captures, orders and tracking for dispute case files), **Transaction Search** and **Balances** (Insights), and **Webhooks**. Every endpoint is listed in Appendix D.
 
-The **PayPal Agent Toolkit** (`@paypal/agent-toolkit`) is a useful reference implementation, but Pyp calls REST directly with its own commands (ADR-006; the team reaffirmed this on Oct 26). The toolkit's tools are built for handing to a model, and we deliberately don't hand PayPal tools to the model. The toolkit also lacks dispute-evidence tools and depends on an older AI SDK major version.
+**Why not use the MCP server for writes too?** Its write tools (create invoice, send reminder, accept claim and so on) would give us a second path that changes PayPal, without our per-call request ids, and it has no dispute-evidence or offer tools anyway. The executor stays the one writer (ADR-001, ADR-006). The PayPal Agent Toolkit (`@paypal/agent-toolkit`), which the MCP server is built from, stays a reference for request shapes.
 
 ---
 
@@ -1003,7 +1008,7 @@ The trace is the same data the developers debug with, so the "why" view the judg
 ### 12.1 Principles
 
 1. **The model is untrusted output.** Everything it returns is validated as if typed by a stranger.
-2. **Least privilege by construction.** The model has no write tools; chat has read tools only; one module holds write credentials.
+2. **Least privilege by construction.** The model has no write tools; chat has read tools only (our wrappers over an allow-list of PayPal MCP read tools); one module writes to PayPal.
 3. **Defence in depth on money.** Schema enums, then validator checks on live state, then the policy dial and limits, then idempotent execution, then the activity log.
 4. **Secrets never cross into the model zone.** No keys, tokens or full buyer PII in prompts, traces or logs.
 
@@ -1106,7 +1111,7 @@ New abilities arrive as skills (Section 7.2). The **"what's next" slide**, all o
 
 ![MCP in two directions](diagrams/11_mcp_two_directions.svg)
 
-- **(A) Pyp uses MCP sources (designed).** A case-file builder can pull read-only facts from outside MCP servers, such as shipping tracking or storefront order notes, to strengthen dispute evidence. Facts are labeled with their source and are **never** a write path.
+- **(A) Pyp uses MCP sources (built: PayPal's MCP server).** Case-file builders and chat read the PayPal account through PayPal's official MCP server, limited to an allow-list of read tools. Later, other MCP sources such as shipping tracking or storefront order notes could strengthen dispute evidence. Facts are labeled with their source, and an MCP source is **never** a write path.
 - **(B) Pyp is an MCP server (parked; not built for Nov 12).** Other AI apps can call Pyp's tools: `get_overview`, `list_cards`, `run_skill`, `propose_action`. Every request enters the same validator and policy engine with `actor = mcp:<client>`. **Outside agents can ask; only the merchant approves.** They never see PayPal credentials and can't approve their own requests.
 
 > **The pitch:** *every AI wants access to your money. Pyp is the one door they all go through, and it's guarded by your rules.*
@@ -1124,7 +1129,7 @@ New abilities arrive as skills (Section 7.2). The **"what's next" slide**, all o
 | 003 | Chat uses a read-only tool loop; actions become proposals | Chat with write tools behind confirmation prompts |
 | 004 | Per-command autonomy dial with limits and `neverAuto` | One global autonomy mode |
 | 005 | Skills as plug-ins in a registry | One large prompt covering all jobs |
-| 006 | Direct PayPal REST behind our own client, with our own commands (reaffirmed Oct 26) | PayPal Agent Toolkit tools handed to the model, or used inside the executor |
+| 006 | Reads through PayPal's MCP server (read allow-list); writes through our own REST client in the executor | PayPal tools handed to the model; MCP write tools; the toolkit inside the executor |
 | 007 | Model gateway port (Claude, Ollama, scripted) | Calling one provider's SDK throughout |
 | 008 | Render (web service, Postgres, cron) + Inngest or a Postgres job table | Vercel + Inngest; AWS |
 | 009 | Auto means "after an undo window" | Immediate execution with a cosmetic undo |
@@ -1156,6 +1161,7 @@ These match the Master Plan's open list (§3). Verify before building on them:
 5. Does Inngest run cleanly with the app on Render?
 6. Model prices and SDK version notes in this document: recheck before quoting any cost.
 7. Hackathon rules: partner-tool judging and the exact submission contents. (Our saved rules summary says a public repo with an open-source license file, a public video under 3 minutes, and a working demo are required.)
+8. PayPal MCP server: do its read tools cover our case files (invoice search, dispute details, transactions)? Hosted sandbox server or local `@paypal/mcp` package from Render, and how does each authenticate from a server (the hosted one involves a PayPal login and consent)? Can we limit it to read tools, or do we only filter on our side?
 
 Design-only questions: which Partner Referrals features a partner like Pyp would get (production only), and whether the 60 s undo window feels right in the demo.
 
@@ -1192,7 +1198,7 @@ Aligned with the Master Plan v1:
 - **Chat:** a minimal chat early, in week 2 (Section 7.8).
 - **Data:** a 9-table core first (Section 10).
 - **Credentials:** one demo merchant, keys in environment variables (ADR-011).
-- **PayPal access:** direct REST with our own commands, reaffirmed (ADR-006).
+- **PayPal access:** reads through PayPal's MCP server (read allow-list), writes through our REST client in the executor (ADR-006).
 - **Build plan:** replaced by the Master Plan's schedule (Section 16.4).
 
 ---
@@ -1236,12 +1242,12 @@ Each record follows the standard ADR shape: context, decision, consequences, alt
 - **Consequences:** Adding a skill doesn't touch the engine. Each skill's evals live with it.
 - **Alternatives:** One big prompt with every capability. It gets worse as it grows and can't be tested in isolation.
 
-### ADR-006 · Direct PayPal REST, not the Agent Toolkit as model tools
+### ADR-006 · Reads through PayPal's MCP server, writes through our REST client
 
 - **Context:** `@paypal/agent-toolkit` 1.11.0 offers 46 tool functions but no dispute-evidence tool, and depends on AI SDK v4 while v7 is current.
-- **Decision:** A small typed REST client of our own: reads for case-file builders, writes only in the executor.
-- **Consequences:** Full control over idempotency, retries and error mapping; no framework version lock. The toolkit stays a useful reference for request shapes.
-- **Status:** Reaffirmed Oct 26 (Master Plan §2). We also considered using the toolkit's functions *inside* the executor (which wouldn't bypass the one-writer rule) and chose direct REST with our own commands for simplicity: one PayPal client, request ids set per call, no AI SDK v4 dependency.
+- **Decision (updated Oct 26):** Case-file builders, the validator's live re-checks and chat read the account through **PayPal's official MCP server**, using only an allow-list of its read tools, with REST reads for gaps such as balances. All writes go through a small typed REST client of our own, imported only by the executor.
+- **Consequences:** We build on PayPal's own AI tooling for reading, with less code to write. Writes keep full control over idempotency, retries and error mapping. The model never sees PayPal's tool list, only our read wrappers. The toolkit stays a reference for request shapes.
+- **History:** Draft 1 chose direct REST for reads and writes. On Oct 26 the team kept direct REST for writes (we had also considered the toolkit's functions inside the executor) and moved reads to PayPal's MCP server (Master Plan §2).
 
 ### ADR-007 · Model gateway port
 
@@ -1399,6 +1405,8 @@ Parameter schemas are written in Zod and generated per case file. `enum(...)` li
 ---
 
 ## Appendix D. PayPal API and webhook reference
+
+**Reads** in this table are made through PayPal's MCP server where it has a matching read tool, and through REST otherwise. **Writes** are always our REST calls from the executor.
 
 | Area | Endpoint | Use in Pyp |
 |---|---|---|
@@ -1643,7 +1651,8 @@ pyp/
     agent-client.ts          the port
     anthropic.ts ollama.ts scripted.ts spend-ledger.ts
   paypal/
-    read-client.ts           used by case files
+    mcp-read-client.ts       PayPal MCP server, read-tool allow-list (case files, validator, chat)
+    read-client.ts           REST reads for gaps (e.g. balances)
     write-client.ts          imported ONLY by executor (lint-enforced)
     webhook-verify.ts
   executor/                  idempotent writes
@@ -1728,6 +1737,7 @@ Pyp calls Claude only for judgment (deciding what to do) and wording (writing me
 
 - Google-style design docs: [Industrial Empathy, "Design Docs at Google"](https://www.industrialempathy.com/posts/design-doc-a-design-doc/)
 - arc42 and C4: [arc42 introduction (INNOQ)](https://www.innoq.com/en/blog/brief-introduction-to-arc42/) · [arc42 Design Decisions](https://arc42-template.atlassian.net/wiki/spaces/7SE/pages/1637038/9.+Design+Decisions) · [Comparing architecture documentation models](https://dev.to/adityasatrio/comparing-software-architecture-documentation-models-and-when-to-use-them-495n)
+- PayPal MCP server: [developer.paypal.com/tools/mcp-server](https://developer.paypal.com/tools/mcp-server/)
 - PayPal: [Invoicing v2](https://developer.paypal.com/docs/invoicing/) · [Disputes v1](https://developer.paypal.com/docs/api/customer-disputes/v1/) · [Payments v2](https://developer.paypal.com/docs/api/payments/v2/) · [Transaction Search](https://developer.paypal.com/docs/api/transaction-search/v1/) · [Webhooks](https://developer.paypal.com/api/rest/webhooks/) · [Idempotency](https://developer.paypal.com/api/rest/reference/idempotency/) · [Partner Referrals v2 features](https://developer.paypal.com/api/partner-referrals/v2/definitions/rest_endpoint_features_enum_list/)
 - Late payment data: [Bonsai, Jan 2026](https://www.hellobonsai.com/blog/late-freelance-payment)
 - Security: [OWASP Top 10 for LLM Applications 2025](https://genai.owasp.org/llm-top-10/)
