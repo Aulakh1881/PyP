@@ -8,6 +8,6 @@ The Chrome extension (Manifest V3). It opens Pyp in Chrome's **side panel** next
 
 Rules:
 - It never draws on or changes PayPal's pages.
-- It calls **only** our API, with a revocable session token. It holds no PayPal keys.
+- It calls **only** our API, with a revocable extension token. It holds no PayPal keys.
 - It asks for as few permissions as possible.
 - "Screenshot this page" is not planned for Nov 12 (it would capture PayPal pages full of personal data); see `docs/TODO.md`.

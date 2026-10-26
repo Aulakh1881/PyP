@@ -1,8 +1,8 @@
 # Pyp Master Plan
 
-**One plan, built from three documents:** the team's merchant plan, the Technical Design (the "TDD", `technical-design.md` in this folder) and the Team Brief. Those first two older plans are kept outside the repo; everything they decided is in here.
+**One plan, built from three documents:** the team's merchant plan, the Technical Design (the "TDD") and the Team Brief. The merchant plan and the Team Brief are kept outside the repo; `technical-design.md` (now Draft 2.2) is in this folder. In section 2, "TDD" means its Draft 1, before it was aligned with this plan.
 
-Version 1.3 · October 26, 2026 (v1: Oct 25) · PayPal AI Hackathon · submission due **Thursday Nov 12, 12 PM PT** · feature freeze **Tuesday Nov 10**
+Version 1.4 · October 26, 2026 (v1: Oct 25) · PayPal AI Hackathon · submission due **Thursday Nov 12, 12 PM PT** · feature freeze **Tuesday Nov 10**
 
 *Pyp is an independent project, not affiliated with PayPal. Sandbox only. All sample data is DEMO DATA.*
 
@@ -29,7 +29,7 @@ All three agree on the core: webhooks and daily checks wake Pyp up, plain code e
 
 | Topic | What the documents said | Decision |
 |---|---|---|
-| **Scope** | TDD: Collections, Disputes, Insights, Refunds, plus an MCP server. Ours: invoices, disputes, briefing, extras, matchmaking. | Build **Collections, Disputes, and a light Insights**. Park Refunds, the MCP server, payouts, subscriptions, tracking nudge, and merchant matchmaking for the "what's next" slide. See section 4. |
+| **Scope** | TDD: Collections, Disputes, Insights, Refunds, plus an MCP server. Ours: invoices, disputes, briefing, extras, matchmaking. | Build **Collections, Disputes, and a light Insights**. Park Refunds, Pyp as an MCP server, payouts, subscriptions, tracking nudge, and merchant matchmaking for the "what's next" slide. See section 4. |
 | **Agent-to-agent** | Ours: still in. TDD: not covered, and says Pyp never contacts buyers itself. | Keep it as a **stretch**, built as a *second Pyp instance acting as the buyer*. Its messages and offers still travel through PayPal's real dispute endpoints, so the TDD's rule that "PayPal sends the messages" stays true. Go/no-go on **Nov 3**. |
 | **Creating invoices** | Ours: "invoice Acme $1,200 net-30" is the flagship request. TDD: only has reminders and cancel. | **Add `invoice.createAndSend`** to Collections (creates a draft, then sends it). Default dial: Ask me. |
 | **PayPal access** | Ours: use PayPal's Agent Toolkit for ready-made tools. TDD: call REST directly (ADR-006). | **Reads through PayPal's MCP server, writes through our REST client** (team decision, Oct 26). Skills gather facts and chat looks things up using an allow-list of **read** tools from PayPal's official MCP server, with REST reads for anything it lacks (such as balances). Our safety story depends on exactly one module being able to write to PayPal, so the **executor stays the only writer**, using direct REST with request ids. The model never sees PayPal's write tools. |
@@ -54,13 +54,13 @@ All three agree on the core: webhooks and daily checks wake Pyp up, plain code e
 - Bonsai's finding that 29% of freelance invoices are paid late is accurate.
 
 **Still open. Verify before building on them:**
-1. Does `/remind` accept `PayPal-Request-Id` in practice? (Docs say yes for POST in general. Test it. If not, dedupe in our own database.)
+1. Do `/remind`, create-invoice and `/send` accept `PayPal-Request-Id` in practice, including a `:step` suffix? (Docs say yes for POST in general. Test it. If not, dedupe in our own database.)
 2. Can a *buyer-side* agent call the customer-side dispute endpoints with its own sandbox credentials? (Decides the agent-to-agent stretch.)
 3. Do the sandbox-only dispute helpers work for a standard sandbox app? (Needed to script the dispute demo.)
 4. Exact values for dispute evidence types and offer types, and the multipart format for provide-evidence.
 5. Does Inngest run cleanly with the app on Render?
 6. The model prices and SDK version notes in the TDD are unverified by us. Recheck them before quoting any cost number in the pitch.
-7. Hackathon rules: is public repo required, is partner-tool use judged, what must the submission include?
+7. Hackathon rules: is public repo required, is partner-tool use judged, what must the submission include? (Our saved summary says: public repo, open-source license, public video under 3 minutes, working demo. Confirm on Devpost; see `TODO.md`.)
 8. PayPal MCP server: do its read tools cover what our case files need (invoice search, dispute details, transactions)? Which works best from our server on Render: the hosted sandbox server (`https://mcp.sandbox.paypal.com`) or the local package (`npx @paypal/mcp`) with an access token? Can we expose only read tools? **Desk check (Oct 26, from the published `@paypal/mcp` 1.8.1 package and PayPal's docs; still to test live):** use the **local package**, started with **read tools only** (`--tools=invoices.list,invoices.get,disputes.list,disputes.get,transactions.list,orders.get,shipment.get`), so the MCP process itself can't write. It takes a fixed access token, so start it with a fresh token per job run (tokens expire after a few hours). Gaps: `invoices.list` only pages (no overdue or status filter), so the overdue sweep uses REST `search-invoices`; balances and capture details also use REST. Pin the package version, since it pulls `@paypal/agent-toolkit@latest`. The hosted server involves a PayPal login and consent, which suits a desktop AI app better than our server.
 
 **Pitch note.** PayPal's own MCP server and the Claude PayPal integration both let an assistant do invoicing and refunds *when asked*, with approval. Pyp's difference is that it works **proactively, under standing rules the merchant sets, and shows its reasoning**. Pyp builds on PayPal's MCP server for reading the account and adds that proactive, rule-checked layer on top.
@@ -71,10 +71,10 @@ All three agree on the core: webhooks and daily checks wake Pyp up, plain code e
 
 | Priority | What |
 |---|---|
-| **Must** | Webhook intake with signature check · daily overdue sweep · Collections (create and send, remind, follow-up, ask merchant) · the three gates (menu, validator, policy) · autonomy dial · undo window · executor with request ids · inbox cards with flip-to-trace · activity log · kill switch · Disputes (evidence draft → approve → submit) · minimal chat · Pyp widget and mascot |
-| **Should** | Activity tab (AG Grid) · Insights weekly brief · quarantine call for buyer text · injection test suite · setup screen polish · Render deployment with live link · website (landing page) · Chrome extension (side panel) |
-| **Could** | Pyp-to-Pyp dispute negotiation (go/no-go Nov 3) · client memory (who pays late) · tone learning from edits · cash-flow question in chat |
-| **Parked** | Refunds skill · MCP server · payouts · subscriptions · tracking nudge · merchant matchmaking · multi-merchant onboarding · encrypted credential storage |
+| **Must** | Webhook intake with signature check · daily overdue sweep · Collections (create and send, remind, follow-up, ask merchant) · the three gates (menu, validator, policy) · autonomy dial · undo window · executor with request ids · inbox cards with flip-to-trace · activity log · kill switch · Disputes (evidence draft → approve → submit, with the quarantine call for buyer text) · basic injection tests · minimal chat · Pyp widget and mascot |
+| **Should** | Activity tab (AG Grid) · Insights weekly brief · full injection test suite (15+ attacks) · setup screen polish · Render deployment with live link · website (landing page) · Chrome extension (side panel) |
+| **Could** | Pyp-to-Pyp dispute negotiation (go/no-go Nov 3) · client memory (who pays late) · tone learning from edits · promotions to Auto (with evidence) · `invoice.suggestAutoReminders` · cash-flow question in chat |
+| **Parked** | Refunds skill · Pyp as an MCP server · payouts · subscriptions · tracking nudge · merchant matchmaking · multi-merchant onboarding · encrypted credential storage |
 
 Three people, about 18 days. The TDD is a full design, not a minimum. We build the thin slice first and add depth only after the slice works.
 
@@ -90,7 +90,7 @@ Every action Pyp takes goes through the same five stages. **Only the Decide step
    - **Gather (code):** fetch the facts (read tools from PayPal's MCP server, plus our database) and write them up as a *case file*.
    - **Decide (Claude):** one call reads the case file and returns JSON: a summary plus actions chosen from a menu.
    - **Check (code):** three gates.
-4. **Act and show.** The *executor* is the only code that writes to PayPal, and every write carries `PayPal-Request-Id = proposal id`. Every result becomes a card, and every step is a timestamped trace row.
+4. **Act and show.** The *executor* is the only code that writes to PayPal, and every write carries `PayPal-Request-Id = proposal id` (or `<proposal id>:<step>` for a command that writes twice). Every result becomes a card, and every step is a timestamped trace row.
 5. **Remember.** One Postgres database. It stores Pyp's own records, never a copy of the PayPal account.
 
 **The three gates:**
@@ -152,15 +152,15 @@ Each work package (WP) below is sized for **two people to finish in 3–4 days**
 | **WP1** | Sandbox and PayPal clients: seller and buyer sandbox accounts, REST app with Invoicing, Disputes and Transaction Search enabled, OAuth, MCP read client (connect to PayPal's MCP server; allow-list of read tools), REST write client, Postman collection | C + B | Create, send and remind an invoice and create a dispute by script; read them back through the MCP server |
 | **WP2** | Webhooks, database and jobs: webhook intake with signature check and dedupe, 9-table schema, daily sweep, Render deploy | C + B | Simulated PayPal event lands in `events` on a live Render URL |
 | **WP3** | Engine core: registry, run-skill, schema and prompt builders, validator, policy, trace, gateway (Claude + scripted) | B + C | A fake case file produces a validated, policy-checked proposal in tests |
-| **WP4** | Collections skill: case file, commands (createAndSend, sendReminder, scheduleFollowUp, merchant.ask), playbook, first test cases | B + C | Overdue invoice in sandbox → correct proposal |
+| **WP4** | Collections skill: case file, commands (createAndSend, sendReminder, scheduleFollowUp, cancel (never Auto), merchant.ask), playbook, first test cases | B + C | Overdue invoice in sandbox → correct proposal |
 | **WP5** | UI shell: inbox of cards, flip to trace, live updates, fake data first | A + C | Cards render from the real cards endpoint |
 | **WP6** | Executor and approvals: approve/dismiss/undo endpoints, undo window, one-tap lock, re-check before sending | C + A | Approve button sends one real sandbox reminder, even on double-tap |
 | **WP7** | Disputes skill with quarantine call, evidence draft, approval card | B + C | Sandbox dispute → draft card → evidence submitted |
 | **WP8** | Pyp widget and minimal chat: mascot, open animation, sentence → Collections run → card in chat | A + B | "Invoice Acme $1,200 net-30" produces an approval card |
 | **WP9** | Activity tab (AG Grid), setup screen (dial and limits), kill switch | A + C | Merchant can change a dial and see its effect |
 | **WP10** | Insights lite: weekly brief with numbers computed in code, Claude only words them | B + A | Brief numbers match code totals exactly |
-| **WP12** | Website and Chrome extension: landing page with the demo video; side panel showing inbox cards and chat from the live API | A + C | Side panel next to sandbox.paypal.com shows live cards and approves one |
 | **WP11** | Hardening: test suite, injection attacks, seeded demo data, demo video | All | Gates green; demo rehearsed twice |
+| **WP12** | Website and Chrome extension: landing page with the demo video; side panel showing inbox cards and chat from the live API | A + C | Side panel next to sandbox.paypal.com shows live cards and approves one |
 | **WP-S** | Stretch: buyer-side Pyp and negotiation through dispute messages and offers | B + C | Two Pyps settle a sandbox dispute with a human approval at each side |
 
 ---
@@ -169,7 +169,7 @@ Each work package (WP) below is sized for **two people to finish in 3–4 days**
 
 **Goal for Sunday Nov 1:** Collections works end to end on the sandbox. Overdue invoice → case file → Claude → three gates → card → approval → real sandbox reminder → trace on the back of the card.
 
-**Tonight (Sun Oct 25), 30 minutes as a team:** read section 2 and section 3 together, confirm the decisions, and agree who owns what.
+**Sun Oct 25 (done), 30 minutes as a team:** read section 2 and section 3 together, confirm the decisions, and agree who owns what.
 
 | Day | A (frontend) | B (engine and AI) | C (PayPal and infra) |
 |---|---|---|---|
@@ -222,10 +222,10 @@ Each work package (WP) below is sized for **two people to finish in 3–4 days**
 
 ---
 
-## 12. Decisions the team needs to confirm tonight
+## 12. Decisions confirmed Oct 25–26 (revisit if needed)
 
 1. Render for hosting, with Inngest or a Postgres job table for background work (section 2).
-2. The scope in section 4, especially parking Refunds and the MCP server.
+2. The scope in section 4, especially parking Refunds and Pyp as an MCP server.
 3. Roles A, B and C, and who takes which.
 4. Nov 3 as the go/no-go date for Pyp-to-Pyp.
 5. Who reads the hackathon rules for submission requirements and partner-tool judging.

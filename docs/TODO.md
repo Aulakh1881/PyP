@@ -30,11 +30,18 @@ Desk check done Oct 26 from the published `@paypal/mcp` 1.8.1 package and PayPal
 - [ ] **A read-only sandbox app for the MCP server:** the MCP process gets a token that can write; see whether a second sandbox app with fewer features is possible. *Owner: C*
 - [ ] **Judges and the demo sign-in:** do judges get the demo password (Approve writes to the sandbox only)? *Owner: team lead*
 - [ ] **"Screenshot this page" in the extension:** not planned for Nov 12; revisit after the core works. *Owner: A*
+- [ ] **Where the job worker loop runs:** inside the web service process (working default, paid instance) or a separate Render Background Worker. Tied to the Render plan. *Owner: C*
+- [ ] **Free-text answers for `merchant.ask`** (for example typing a new client's email); today a question card has buttons only. *Owner: B + A*
+- [ ] **Undo window length:** is 60 s right for the demo? *Owner: A*
 - [ ] **Pyp-to-Pyp:** confirm the buyer side can send messages and accept or deny offers, and which dispute stages allow `make-offer` (before the Nov 3 go/no-go). *Owner: B + C*
 
 ## Other checks from the Master Plan (§3)
 
-- [ ] `/remind` accepts `PayPal-Request-Id` in practice (item 1)
+- [ ] `/remind`, create-invoice and `/send` accept `PayPal-Request-Id`, including a `:step` suffix (item 1)
+- [ ] Webhook self-check: what webhook id do simulator events carry, and how does the sandbox check accept it? (design §9.2) *Owner: C*
+- [ ] AI SDK structured-output function names, and whether Ollama follows `anyOf` / `enum` schemas (design §6.2) *Owner: B*
+- [ ] Does PayPal expose its own auto-reminder history, or do we count only Pyp's reminders? (design B.1) *Owner: C*
+- [ ] Set the Render cron UTC hour for 08:00 merchant-local after US daylight saving ends Nov 1 (design §9.3) *Owner: C*
 - [ ] A buyer-side agent can use the customer-side dispute endpoints with its own sandbox credentials (item 2; decides Pyp-to-Pyp on Nov 3)
 - [ ] Sandbox-only dispute helpers work for a standard app (item 3)
 - [ ] Dispute evidence and offer type values, and the provide-evidence upload format (item 4)

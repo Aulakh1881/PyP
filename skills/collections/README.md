@@ -6,4 +6,4 @@ Gets the merchant paid. Triggers: the daily overdue sweep, chat ("Invoice Acme $
 
 Creating an invoice from chat: code parses amounts and terms and lists known clients; Claude only picks among them; code computes the due date; an unknown client means `merchant.ask` (the design, Appendix B.1a).
 
-Commands: `invoice.createAndSend`, `invoice.sendReminder`, `invoice.scheduleFollowUp`, `invoice.suggestAutoReminders`, `invoice.cancel` (never Auto), `merchant.ask`.
+Commands: `invoice.createAndSend`, `invoice.sendReminder`, `invoice.scheduleFollowUp`, `invoice.suggestAutoReminders` (Could), `invoice.cancel` (never Auto), `merchant.ask`.

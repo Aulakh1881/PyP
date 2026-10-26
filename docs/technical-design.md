@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | **Document** | Technical design document (TDD) and architecture blueprint |
-| **Status** | Draft 2.1 · aligned with the Master Plan v1.3 (Oct 26) |
+| **Status** | Draft 2.2 · aligned with the Master Plan v1.4 (Oct 26) |
 | **Date** | October 26, 2026 (Draft 1: October 24) |
 | **Audience** | The Pyp team first; Section 1 doubles as the judge-facing summary |
 | **Event** | PayPal AI Hackathon 2026 · submission due Nov 12, 2026, 12 PM PT |
@@ -265,7 +265,7 @@ const menu = skill.commands.filter(cmd => cmd.available(caseFile, rules));
 ```ts
 async function checkSendReminder(p, { read, db }) {
   const inv = await read.getInvoice(p.invoiceId);                // fresh, not from the case file
-  if (inv.status === "PAID") return fail("Already paid");
+  if (["PAID", "MARKED_AS_PAID", "CANCELLED"].includes(inv.status)) return fail("No longer unpaid");
   if (await db.daysSinceLastReminder(p.invoiceId) < 3) return fail("Reminded too recently");
   if (!p.note.includes(formatMoney(inv.amount))) return fail("Note doesn't state the correct amount"); // same formatter the case file uses
   return ok();
@@ -292,7 +292,7 @@ function decide(cmd, rules, merchant) {
 1. **Lock the tap.** The approve endpoint runs one database update: "set status to *approved* only if it is still *awaiting approval*." A double tap, or two open browser tabs, can approve only once.
 2. **Queue it.** A background job (`executeProposal`) takes over, so Maya's screen never waits on PayPal.
 3. **Re-check reality.** Fetch the invoice or dispute again. If it changed (paid, closed), mark the proposal `obsolete` and say why on the card.
-4. **Call PayPal with a request id.** Every write carries the header `PayPal-Request-Id: <proposal id>`.
+4. **Call PayPal with a request id.** Every write carries the header `PayPal-Request-Id: <proposal id>` (or `<proposal id>:<step>` for a command that writes twice, Section 9.4).
 5. **Handle the result:**
    - **Success:** the card turns green, and the activity log records it with PayPal's reference.
    - **Timeout or PayPal server error:** retry with **the same request id**. PayPal recognizes the id and returns the original result instead of acting twice. This is how "never two reminders, never two invoices" is guaranteed even when the network misbehaves.
@@ -466,7 +466,7 @@ The design rests on one idea:
 2. **Disputes.** A buyer opens a dispute. Pyp gathers the evidence, drafts the response, and puts it in front of the merchant before the deadline.
 3. **Pyp talks to Pyp** (stretch, go/no-go Nov 3). A buyer-side Pyp and the merchant's Pyp negotiate a dispute through PayPal's real dispute messages and offers.
 
-Insights is built light (a weekly brief). Refunds, the MCP server, payouts, subscriptions, a tracking nudge and merchant matchmaking are **parked** for the "what's next" slide.
+Insights is built light (a weekly brief). Refunds, Pyp as an MCP server, payouts, subscriptions, a tracking nudge and merchant matchmaking are **parked** for the "what's next" slide.
 
 ---
 
@@ -497,7 +497,7 @@ Insights is built light (a weekly brief). Refunds, the MCP server, payouts, subs
 | # | Goal | How we'll know (measurable) |
 |---|---|---|
 | G1 | **Collections works end to end** on the PayPal sandbox | Overdue invoice → card → PayPal reminder, with no human step when the dial is Auto. p95 under 15 s, not counting the undo window. |
-| G2 | **No unauthorized writes, by construction** | 100% of PayPal writes go through the single executor, carry a `PayPal-Request-Id`, and have an activity-log row. A test fails the build if any other module imports the write client. |
+| G2 | **No unauthorized writes, by construction** | 100% of PayPal writes go through the single executor, carry a `PayPal-Request-Id` (the proposal id, or `<proposal id>:<step>`), and have an activity-log row. A test fails the build if any other module imports the write client. |
 | G3 | **The model's answers are well formed** | ≥ 99% schema-valid on the golden set with Claude; ≥ 90% with the local Ollama model (the validator rejects the rest safely). |
 | G4 | **Prompt injection can't move money** | 0 attacks in the injection suite reach a PayPal write (hard gate). |
 | G5 | **Pyp is extensible** | Disputes and Insights are added by touching only `skills/` and one registry line. Reviewed in the pull requests. |
@@ -662,7 +662,7 @@ Each skill exports a `SkillDef`: its triggers, model tier, case-file builder, pr
 The case file is the model's entire view of the world, assembled by code. Following Whizzy's `<screen>` with numbered `<seg>` ids, everything the model may refer to carries a stable id, and commands may point only at those ids.
 
 ```xml
-<case-file skill="collections" generated-at="2026-10-28T09:00:01Z">
+<case-file skill="collections" generated-at="2026-10-28T15:00:01Z">   <!-- 08:00 in Los Angeles -->
   <merchant name="Maya Ortiz Design" tone="warm, brief" currency="USD"/>
   <invoice id="INV-0042" number="0042" status="UNPAID" amount="1200.00"
            due="2026-10-21" days-overdue="7" recipient="sam@acme.example"/>
@@ -707,7 +707,7 @@ The model's whole answer is one JSON object:
 The schema is **generated per run** from the filtered menu. Each allowed command becomes one branch of an `anyOf`, and id fields become `enum`s of the ids in this case file. For example, `invoiceId` can only be `"INV-0042"`, and `tone` can only be `friendly | firm | final`. The model can't invent a command, a target, or a tone that isn't offered. An empty `actions` array is always allowed ("nothing to do").
 
 **Actions are data, not tool calls.** The model doesn't *do* anything. It writes down what it would do. That gives three properties:
-1. **One call per decision.** Cheaper, faster and more predictable than a tool loop. About $0.01 per Collections run, against about $0.11 for the tool-loop design in our research guide (Section 13.4).
+1. **One call per decision.** Cheaper, faster and more predictable than a tool loop. About $0.01 per Collections run (our estimate in Section 13.4), against roughly ten times that for a tool loop (research notes, Appendix L).
 2. **It works on small local models.** Ollama models are much better at producing schema-constrained JSON than at multi-step tool use.
 3. **Every action passes the same gate.** Proposals from skills, chat and (later) MCP all enter the same validator and policy engine.
 
@@ -754,8 +754,8 @@ The engine depends only on an `AgentClient` port (contract in Appendix B.0). Thr
 | Tier | Claude model (demo) | Used for | Price per 1M tokens (input / output), **unverified: recheck before quoting (Master Plan §3, item 6)** |
 |---|---|---|---|
 | fast | **Haiku 5.5** (`claude-haiku-5-5`) | Quarantine, triage, Insights wording | $0.10 / $0.50 |
-| main | **Sonnet 5.5** (`claude-sonnet-5-5`) | Collections, chat | $2 / $10 (cache reads $0.20) |
-| deep | **Opus 5.5** (`claude-opus-5-5`) | Disputes (weighing evidence) | $4 / $20 (cache reads $0.20) |
+| main | **Sonnet 5.5** (`claude-sonnet-5-5`) | Collections, chat | $2 / $10 (cache reads ~10% of input) |
+| deep | **Opus 5.5** (`claude-opus-5-5`) | Disputes (weighing evidence) | $4 / $20 (cache reads ~10% of input) |
 | (dev) | Ollama local model | Every tier on a laptop | free |
 
 Gateway duties, all carried over from Whizzy:
@@ -787,10 +787,10 @@ The policy engine is plain, deterministic code. The model never sees it and can'
 
 | Command | Risk | Default dial | Can it be set to Auto? | Default limits |
 |---|---|---|---|---|
-| `invoice.createAndSend` | message | Ask me | Yes | the card states the exact client, amount and due date |
+| `invoice.createAndSend` | message | Ask me | **No** (it starts from typed chat text, so it's always a tap) | the card states the exact client, amount and due date |
 | `invoice.sendReminder` | message | Ask me | **Yes** | max 3 per invoice; ≥ 3 days apart; tone `final` always asks; PayPal allows only 2 remind calls a day |
 | `invoice.scheduleFollowUp` | internal | Auto | Yes | — |
-| `invoice.suggestAutoReminders` | config | Ask me | No | — |
+| `invoice.suggestAutoReminders` (Could) | config | Ask me | No | — |
 | `invoice.cancel` | money | Ask me | **Never** | — |
 | `dispute.provideEvidence` | money | Ask me | **Never** | — |
 | `dispute.sendMessage` | message | Ask me | Yes | 1 per day per dispute |
@@ -823,7 +823,7 @@ An email can't be unsent. So "Auto" doesn't mean "immediately": it means **"afte
 
 ### 8.4 Promotions and memory of preferences
 
-- After 5 consecutive approvals of the same command with no edits, Pyp offers to move it to Auto. It shows the evidence and never promotes without the tap.
+- (Could) After 5 consecutive approvals of the same command with no edits, Pyp offers to move it to Auto. It shows the evidence and never promotes without the tap.
 - Edits teach tone (Could, not in the Nov 12 core). If the merchant softens three reminders in a row, the tone guide in the cached prompt is updated to "warmer" (stored per merchant, versioned).
 
 ### 8.5 The proposal lifecycle
@@ -878,7 +878,7 @@ All sweeps fan out one job per merchant with a concurrency key, so one merchant'
 The executor is the **only** module that imports the PayPal write client (a lint rule and a unit test enforce this; goal G2). For each approved or scheduled proposal:
 
 1. **Load the proposal and re-fetch live state.** If the `check()` now fails, mark it `obsolete` and say why on the card.
-2. **Call PayPal with `PayPal-Request-Id = proposal.id`.** PayPal remembers the id for up to 45 days and returns the original result if the request is repeated, so a retry can never send two reminders or two invoices. Requests to the same target are serialized.
+2. **Call PayPal with `PayPal-Request-Id = proposal.id`.** PayPal remembers the id for a period that varies by API (up to 45 days) and returns the original result if the request is repeated, so a retry can never send two reminders or two invoices. Requests to the same target are serialized.
 
 **Commands with more than one write** (only `invoice.createAndSend`: create the draft, then send it) use `<proposal id>:<step>` as the request id (`…:create`, `…:send`). The executor stores the draft's invoice id in `executions`, so a retry resumes at `send` instead of creating a second draft.
 3. **Map the result.** 2xx means `executed`. A retryable error (429, 5xx, timeout) means a queue retry with backoff and *the same* request id. A business error (422, e.g. "invoice already paid") means `failed`, with a plain-English reason on the card.
@@ -904,7 +904,7 @@ Postgres is the single source of truth. The model has no memory of its own betwe
 
 | Table | Week 1 | Purpose | Key columns |
 |---|---|---|---|
-| `merchants` | ✓ | One business (one seeded row) | id, name, timezone, currency, kill_switch, undo_window_s |
+| `merchants` | ✓ | One business (one seeded row) | id, name, timezone, currency, kill_switch, undo_window_s, extension_token_hash |
 | `rules` | ✓ | The dial and limits | merchant_id, command_id, dial (off/ask/auto), limits_json |
 | `events` | ✓ | Every inbound webhook or sweep | id (PayPal event id or `sweep:…`), type, resource_id, raw_json, status |
 | `runs` | ✓ | One skill run | id, skill, subject_ref, trigger_event_id, model, case_file_xml, output_json, usage_json, cost_usd, status |
@@ -959,7 +959,7 @@ interface Card {
   skill: 'collections' | 'disputes' | 'insights';
   proposalId?: string;        // one card per proposal; info cards have none
   state: 'scheduled' | 'awaiting_approval' | 'executing' | 'executed' | 'failed'
-       | 'blocked' | 'obsolete' | 'undone' | 'info';
+       | 'blocked' | 'obsolete' | 'undone' | 'info';   // dismissed or expired cards leave the Inbox but stay in the Activity tab
   front: {
     eyebrow: string;          // "COLLECTIONS · AUTO"
     title: string;            // "Reminder sent to Acme Studio"
@@ -988,7 +988,7 @@ interface TraceStep {
   at: string;                 // ISO timestamp with milliseconds
   kind: 'trigger' | 'fetch' | 'case_file' | 'model' | 'check'
       | 'policy' | 'wait' | 'paypal' | 'merchant';
-  label: string;              // "Check: last reminder 9 days ago (≥ 3)"
+  label: string;              // "Check: never reminded (minimum gap 3 days)"
   ok?: boolean;               // drives ✓ / ✗
   detail?: unknown;           // expandable: case file, raw model output, PayPal response (redacted)
 }
@@ -1004,8 +1004,8 @@ The trace is the same data the developers debug with, so the "why" view the judg
 | `GET /api/cards/{id}/trace` | Back of the card |
 | `POST /api/cards/{id}/approve` | Body: optional `edits`. Re-validates, then enqueues execution |
 | `POST /api/cards/{id}/dismiss` | Rejects the proposal; optional reason (feeds learning) |
-| `POST /api/cards/{id}/undo` | Cancels a scheduled proposal, or reverses if supported |
-| `POST /api/cards/{id}/answer` | Body: `{ optionIndex }`. Answers a `merchant.ask` card; the choice may start a new skill run with it as the merchant's instruction |
+| `POST /api/cards/{id}/undo` | Cancels a scheduled proposal (no PayPal write is reversible in the Nov 12 scope) |
+| `POST /api/cards/{id}/answer` | Body: `{ optionIndex }` (free-text answers are **TBD**, see B.1a). Answers a `merchant.ask` card; the choice may start a new skill run with it as the merchant's instruction |
 | `POST /api/cards/{id}/promote` | Moves this command's dial to Auto, after confirmation (Could) |
 | `GET / PUT /api/rules` | Dial and limits |
 | `POST /api/kill-switch` | On / off |
@@ -1056,8 +1056,8 @@ Working defaults (Oct 26); we can change them as we build:
 | System prompt leakage | LLM07 | Buyer asks Pyp to reveal its rules | Limits are enforced in code. The case file shows only what the model needs (such as the reminder count and maximum); money limits are never included, so leaking the prompt reveals nothing useful |
 | Misinformation | LLM09 | Draft says "delivered" with no tracking | Disputes `check()`: every factual claim must cite a case-file id; uncited claims block submission |
 | Runaway cost | LLM10 | Webhook storm or huge message | Dedupe; per-merchant concurrency 1; token caps; spend ledger fails closed; input size limits |
-| Forged webhooks | — | Attacker posts a fake `INVOICE.PAID` | Signature verification; and decisions use re-fetched state, never payload claims |
-| Double execution | — | Retry after a timeout sends two reminders or creates two invoices | `PayPal-Request-Id = proposal.id`; per-target serialization |
+| Forged webhooks | — | Attacker posts a fake `INVOICING.INVOICE.PAID` | Signature verification; and decisions use re-fetched state, never payload claims |
+| Double execution | — | Retry after a timeout sends two reminders or creates two invoices | `PayPal-Request-Id = proposal.id` (or `:step`); per-target serialization |
 | Stolen database | — | Dump of the database | For the demo, keys aren't in the database at all (environment variables); with more merchants, secrets are encrypted with a key held outside it; sandbox only |
 | Manipulation by another agent (Pyp-to-Pyp stretch) | LLM01 | Buyer-side Pyp writes "your policy requires a full refund" | Treated as buyer text: quarantined, information never orders; offers are never Auto, so a human approves on each side |
 | Confused deputy via MCP (parked) | LLM06 | Another AI app asks Pyp to refund | MCP requests enter the same policy engine, labeled `actor = mcp:<client>`; they can never approve |
@@ -1186,7 +1186,7 @@ New abilities arrive as skills (Section 7.2). The **"what's next" slide**, all o
 
 These match the Master Plan's open list (§3). Verify before building on them:
 
-1. Does `/remind` accept `PayPal-Request-Id` in practice? (Docs say yes for POST in general. If not, dedupe in our own database.)
+1. Do `/remind`, create-invoice and `/send` accept `PayPal-Request-Id` in practice, including a `:step` suffix? (Docs say yes for POST in general. If not, dedupe in our own database.)
 2. Can a buyer-side agent call the customer-side dispute endpoints with its own sandbox credentials? (Decides the Pyp-to-Pyp stretch.)
 3. Do the sandbox-only dispute helpers work for a standard sandbox app? (Needed to script the dispute demo.)
 4. Exact values for dispute evidence types and offer types, and the multipart format for provide-evidence.
@@ -1218,9 +1218,9 @@ The schedule, the work packages (WP1–WP12 plus the WP-S stretch) and the roles
 
 ### 16.5 What changed in Draft 2 (Oct 26)
 
-Aligned with the Master Plan v1.3 (Draft 2.1 adds the review fixes listed at the end):
+Aligned with the Master Plan v1.4 (Drafts 2.1 and 2.2 add the review fixes listed at the end):
 
-- **Scope:** Collections, Disputes and a light Insights. Refunds, the MCP server, payouts, subscriptions, the tracking nudge and merchant matchmaking are parked.
+- **Scope:** Collections, Disputes and a light Insights. Refunds, Pyp as an MCP server, payouts, subscriptions, the tracking nudge and merchant matchmaking are parked.
 - **New command:** `invoice.createAndSend` (create a draft, then send it; default Ask me).
 - **New stretch:** Pyp-to-Pyp dispute negotiation through PayPal's real dispute endpoints (Appendix B.5, ADR-012), go/no-go Nov 3.
 - **Hosting:** Render (web service, Postgres, cron), with Inngest or a Postgres job table (ADR-008).
@@ -1232,6 +1232,8 @@ Aligned with the Master Plan v1.3 (Draft 2.1 adds the review fixes listed at the
 - **Credentials:** one demo merchant, keys in environment variables (ADR-011).
 - **PayPal access:** reads through PayPal's MCP server (read allow-list), writes through our REST client in the executor (ADR-006).
 - **Build plan:** replaced by the Master Plan's schedule (Section 16.4).
+
+**Draft 2.2 (Oct 26, second review):** "Pyp as an MCP server" wording; `createAndSend` can't be Auto; `merchant.ask` free text marked TBD; `extension_token_hash` column; request-id suffix everywhere; worker-loop location TBD; small fixes to times, prices, statuses and labels.
 
 **Draft 2.1 (Oct 26, after an expert review):** three surfaces and WP12 throughout; sign-in and the extension token (11.4); website and extension (11.5); creating an invoice from chat (B.1a); client history before `client_profiles` exists; cards link to one proposal; `merchant.ask` answers; multi-write request ids; which code reads PayPal and what "read-only" means; Render limits; buyer-side commands for Pyp-to-Pyp; Could-tier items labeled; refund leftovers removed; glossary and tests extended.
 
@@ -1293,7 +1295,7 @@ Each record follows the standard ADR shape: context, decision, consequences, alt
 - **Context:** Render is a hackathon partner (its prize is hosting credits) and offers a web service, Postgres and cron in one place.
 - **Decision:** Next.js as a Render web service; Render Postgres; Render cron for sweeps. Keep Inngest for durable jobs if it runs cleanly there; otherwise use a simple Postgres job table plus Render cron. Test on Mon–Tue (Oct 26–27).
 - **Consequences:** Public webhook URL and a live link for judges. Long-running work is split into queue steps, which the design does anyway.
-- **Render limits to plan for (verify current terms):** free web services sleep when idle (bad for the 2 s webhook reply and live demos), and free Postgres may expire before judging ends. Plan on paid instances, possibly covered by Render's partner credits; the team decides (docs/TODO.md). Render cron only starts the daily and nightly sweeps; undo timers and execution run in a worker loop (or Inngest), not in cron.
+- **Render limits to plan for (verify current terms):** free web services sleep when idle (bad for the 2 s webhook reply and live demos), and free Postgres may expire before judging ends. Plan on paid instances, possibly covered by Render's partner credits; the team decides (docs/TODO.md). Render cron only starts the daily and nightly sweeps; undo timers and execution run in a worker loop (or Inngest), not in cron. **TBD:** whether that loop runs inside the web service process (working default, on a paid instance so it doesn't sleep) or a separate Render Background Worker (docs/TODO.md).
 - **Alternatives:** Vercel + Inngest (Draft 1's choice); AWS (more setup and cost for an 18-day build).
 
 ### ADR-009 · Auto means "after an undo window"
@@ -1379,7 +1381,7 @@ interface AgentClient {                       // the port (engine depends on thi
 1. The receptionist calls `runSkill("collections", "new-invoice:<chat message id>", <the sentence>)`.
 2. **Code builds the case file:** known clients (name, email, id) from recent PayPal invoices, plus the merchant's sentence as merchant text. A small parser in code pulls out money amounts and terms and gives each an id (`amt_1`, `net_30`).
 3. **Claude only chooses:** `clientId`, `amountRef`, `terms` and the wording. **Code computes the due date** from the terms.
-4. If the client isn't known (no email) or no amount parses, the only allowed command is `merchant.ask` ("What's NewCo's email?").
+4. If the client isn't known (no email) or no amount parses, the only allowed command is `merchant.ask` ("I don't have NewCo's email yet. Add them as a client in PayPal, then ask again?"). **TBD:** a free-text answer (such as typing the email) isn't supported yet; how `merchant.ask` collects text is in docs/TODO.md.
 5. The card states the exact client, amount and due date. The merchant approves, and the executor creates the draft, then sends it (two request ids, Section 9.4).
 
 ### B.2 Disputes
@@ -1431,7 +1433,7 @@ Parameter schemas are written in Zod and generated per case file. `enum(...)` li
 
 | Command | Params | Executes |
 |---|---|---|
-| `invoice.createAndSend` | `clientId: enum(caseFile.clientIds)`, `items: { description: string ≤ 200, amountRef: enum(caseFile.amountIds) }[] ≤ 10`, `terms: enum(DUE_ON_RECEIPT, NET_15, NET_30, NET_45)`, `note: string ≤ 500` | `POST /v2/invoicing/invoices` (draft), then `POST /v2/invoicing/invoices/{id}/send`. Two writes with request ids `<proposal id>:create` and `<proposal id>:send` (Section 9.4) |
+| `invoice.createAndSend` | `clientId: enum(caseFile.clientIds)`, `items: { description: string ≤ 200, amountRef: enum(caseFile.amountIds) }[] ≤ 10`, `terms: enum(caseFile.termIds)` (each maps to PayPal's `payment_term_type`, such as `NET_30`), `note: string ≤ 500` | `POST /v2/invoicing/invoices` (draft), then `POST /v2/invoicing/invoices/{id}/send`. Two writes with request ids `<proposal id>:create` and `<proposal id>:send` (Section 9.4) |
 | `invoice.sendReminder` | `invoiceId: enum(caseFile.invoiceIds)`, `tone: enum(friendly, firm, final)`, `subject: string ≤ 120`, `note: string ≤ 500` | `POST /v2/invoicing/invoices/{id}/remind` (subject and note in the notification body) |
 | `invoice.scheduleFollowUp` | `invoiceId: enum`, `inDays: int 1–14` | Internal (queue timer) |
 | `invoice.suggestAutoReminders` (optional) | `invoiceId: enum` | Card only; the merchant turns on PayPal's auto-reminders |
@@ -1569,6 +1571,7 @@ create table merchants (
   name text not null, timezone text not null default 'America/Los_Angeles',
   currency char(3) not null default 'USD',
   kill_switch boolean not null default false,
+  extension_token_hash text,                      -- Section 11.4; null until the extension is connected
   undo_window_s int not null default 60 check (undo_window_s between 0 and 600),
   created_at timestamptz not null default now()
 );
@@ -1597,7 +1600,7 @@ create table runs (
   status text not null, started_at timestamptz default now(), ended_at timestamptz
 );
 create table proposals (
-  id uuid primary key default gen_random_uuid(),   -- also the PayPal-Request-Id
+  id uuid primary key default gen_random_uuid(),   -- also the PayPal-Request-Id (plus :step for multi-write commands)
   run_id uuid references runs(id), merchant_id uuid references merchants(id),
   command_id text not null, params_json jsonb not null, why text,
   decision text check (decision in ('auto','ask','block')), policy_rule text,
