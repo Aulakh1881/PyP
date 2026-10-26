@@ -2,7 +2,7 @@
 
 **One plan, built from three documents:** the team's merchant plan, the Technical Design (the "TDD", `technical-design.md` in this folder) and the Team Brief. Those first two older plans are kept outside the repo; everything they decided is in here.
 
-Version 1.2 · October 26, 2026 (v1: Oct 25) · PayPal AI Hackathon · submission due **Thursday Nov 12, 12 PM PT** · feature freeze **Tuesday Nov 10**
+Version 1.3 · October 26, 2026 (v1: Oct 25) · PayPal AI Hackathon · submission due **Thursday Nov 12, 12 PM PT** · feature freeze **Tuesday Nov 10**
 
 *Pyp is an independent project, not affiliated with PayPal. Sandbox only. All sample data is DEMO DATA.*
 
@@ -35,7 +35,7 @@ All three agree on the core: webhooks and daily checks wake Pyp up, plain code e
 | **PayPal access** | Ours: use PayPal's Agent Toolkit for ready-made tools. TDD: call REST directly (ADR-006). | **Reads through PayPal's MCP server, writes through our REST client** (team decision, Oct 26). Skills gather facts and chat looks things up using an allow-list of **read** tools from PayPal's official MCP server, with REST reads for anything it lacks (such as balances). Our safety story depends on exactly one module being able to write to PayPal, so the **executor stays the only writer**, using direct REST with request ids. The model never sees PayPal's write tools. |
 | **Hosting and jobs** | TDD: Vercel + Inngest. Ours: Render (a hackathon partner). | **Host on Render** (web service, Postgres, cron). Keep Inngest for durable jobs if it runs cleanly there; otherwise fall back to a simple Postgres job table plus Render cron. **Test this on Mon–Tue.** |
 | **Partner tools** | Ours: APIMatic, Render, AG Grid. TDD: none. | **Render** (hosting), **AG Grid** (Activity tab), **APIMatic** (give our coding AI accurate PayPal API context while we build). Skip the rest. Check the hackathon rules on whether partner use is judged. |
-| **Interface** | TDD: inbox of cards that flip to show a trace. Ours: chat widget with mascot, activity feed, skills setup. | **All of it.** *Inbox* (cards and trace) is the main screen. *Activity tab* (AG Grid) is the filterable history. *Pyp widget* (bottom-right chat and mascot) is the front door. *Setup screen* is the autonomy dial, which is our Tomodachi-style "choose what your Pyp can do". **Three surfaces** (team decision, Oct 26): the **website** (a public landing page: what Pyp is, the demo video, "Open the demo"); the **dashboard** (the logged-in web app: Inbox, Activity tab, setup screen, Pyp widget and chat); and a **Chrome extension** that opens Pyp in Chrome's **side panel** next to paypal.com or the sandbox site, with a compact inbox and chat on the same backend. The extension never changes PayPal's pages and holds no PayPal keys. |
+| **Interface** | TDD: inbox of cards that flip to show a trace. Ours: chat widget with mascot, activity feed, skills setup. | **All of it.** *Inbox* (cards and trace) is the main screen. *Activity tab* (AG Grid) is the filterable history. *Pyp widget* (bottom-right chat and mascot) is the front door. *Setup screen* is the autonomy dial, which is our Tomodachi-style "choose what your Pyp can do". **Three surfaces** (team decision, Oct 26): the **website** (a public landing page: what Pyp is, the demo video, "Open the demo"); the **dashboard** (the logged-in web app: Inbox, Activity tab, setup screen, Pyp widget and chat); and a **Chrome extension** that opens Pyp in Chrome's **side panel** next to paypal.com or the sandbox site, with a compact inbox and chat on the same backend. The extension never changes PayPal's pages and holds no PayPal keys. **Working defaults (Oct 26; revisit as we build):** the dashboard uses one demo sign-in (a password and a session cookie); the extension connects with a token issued from the setup screen; the extension is a small separate build that reuses the dashboard's React components (no iframe). |
 | **Chat timing** | TDD: chat arrives Nov 6–9. Ours: chat is the hook. | Build a **minimal chat early** (week 2): sentence in, Collections skill runs, card out. Read-only lookups and polish come later. |
 | **Database** | TDD: 13 tables. | Build a **9-table core first**, add the rest only when a feature needs it (section 6). |
 | **Credentials** | TDD: encrypted per-merchant keys. | One demo merchant: keys in environment variables. Add encryption only if we show more than one merchant. |
@@ -101,7 +101,7 @@ Every action Pyp takes goes through the same five stages. **Only the Decide step
 | Validator | Is it still correct against fresh PayPal data? | After Claude answers |
 | Policy | Is Pyp allowed to do it alone? Result: auto, ask, or block | Before acting |
 
-**The dial.** Per action: Off, Ask me, or Auto, plus limits. Some actions are never Auto: submitting dispute evidence, making offers, accepting claims, cancelling invoices. Auto means "after a 60-second undo window." Approval is always a tap on a button that states the exact action and amount, never a typed message.
+**The dial.** Per action: Off, Ask me, or Auto, plus limits. A question to the merchant (`merchant.ask`) is always a card, never Auto. Some actions are never Auto: submitting dispute evidence, making offers, accepting claims, cancelling invoices. Auto means "after a 60-second undo window." Approval is always a tap on a button that states the exact action and amount, never a typed message.
 
 **Untrusted text.** Buyer messages go through a separate Claude call that has no actions and just extracts facts, and are wrapped as `<untrusted-buyer-text>` in the main call. Messages from another Pyp are treated the same way: information, never orders.
 
@@ -129,6 +129,8 @@ A lint rule and a test fail the build if anything other than the executor import
 ## 6. Data: build the core first
 
 **Week-1 tables (9):** `merchants` (one seeded row), `rules`, `events`, `runs`, `proposals`, `executions`, `trace_steps`, `cards`, `activity_log`.
+
+**Before the later tables exist** (working default, Oct 26): client history is computed live from PayPal's invoice search, and merchant notes ("check is in the mail") come from seeded demo data.
 
 **Add later, when a feature needs it:** `client_profiles` (who pays late, merchant notes), `preferences` (tone learning), `spend_ledger` (start with a simple daily counter), `paypal_connections` (encrypted keys).
 

@@ -24,6 +24,14 @@ Desk check done Oct 26 from the published `@paypal/mcp` 1.8.1 package and PayPal
 - [ ] Gaps that use REST reads instead: the overdue sweep (`invoices.list` only pages, with no status or due-date filter, so use `POST /v2/invoicing/search-invoices`), balances, capture details.
 - [ ] Decide whether the hosted server (`https://mcp.sandbox.paypal.com`) is worth showing at all. It involves a PayPal login and consent, which fits a desktop AI app better than our server.
 
+## Decisions to make as we build
+
+- [ ] **Render plan:** free web services sleep when idle and free Postgres may expire before judging ends (verify current terms). Use paid instances, possibly covered by Render's partner credits? *Owner: C*
+- [ ] **A read-only sandbox app for the MCP server:** the MCP process gets a token that can write; see whether a second sandbox app with fewer features is possible. *Owner: C*
+- [ ] **Judges and the demo sign-in:** do judges get the demo password (Approve writes to the sandbox only)? *Owner: team lead*
+- [ ] **"Screenshot this page" in the extension:** not planned for Nov 12; revisit after the core works. *Owner: A*
+- [ ] **Pyp-to-Pyp:** confirm the buyer side can send messages and accept or deny offers, and which dispute stages allow `make-offer` (before the Nov 3 go/no-go). *Owner: B + C*
+
 ## Other checks from the Master Plan (§3)
 
 - [ ] `/remind` accepts `PayPal-Request-Id` in practice (item 1)
