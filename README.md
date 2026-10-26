@@ -12,6 +12,7 @@ PayPal AI Hackathon 2026 · feature freeze **Tue Nov 10** · submission **Thu No
 |---|---|
 | [`docs/master-plan.md`](docs/master-plan.md) | **The source of truth.** Scope, decisions, schedule, roles, work packages. If anything disagrees with it, it wins. |
 | [`docs/technical-design.md`](docs/technical-design.md) | The detail behind the plan: how each part works, the data model, prompts, API list, test cases. |
+| [`docs/TODO.md`](docs/TODO.md) | Loose ends to close before submission (license file, MCP server checks). |
 
 ## The idea in one line
 

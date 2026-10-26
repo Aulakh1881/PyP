@@ -1,0 +1,34 @@
+# TODO
+
+Open tasks that aren't code. The [Master Plan](master-plan.md) is the source of truth; this list tracks loose ends. Tick items off in the same commit that finishes them.
+
+Roles: **A** frontend · **B** engine and AI · **C** PayPal and infrastructure.
+
+## Before submission (Nov 12, 12 PM PT)
+
+- [ ] **Add an open-source license file** at the repo root (for example MIT). Our saved summary of the hackathon rules says the public repo must show an open-source license. The team picks the license. *Owner: team lead*
+- [ ] **Make the repo public** before submitting (the rules call for a public repository; it's private now). *Owner: team lead*
+- [ ] **Re-read the official rules** on the Devpost page: submission contents, partner-tool judging, video length (under 3 minutes). Master Plan §3, item 7. *Owner: team lead*
+- [ ] **Re-check the PayPal newsroom** for anything that overlaps Pyp before the pitch is final.
+
+## PayPal MCP server (Master Plan §3, item 8)
+
+Desk check done Oct 26 from the published `@paypal/mcp` 1.8.1 package and PayPal's MCP page. Still to confirm live in the sandbox (WP1, owner C):
+
+- [ ] Start the local server with **read tools only** and a sandbox access token:
+      `npx -y @paypal/mcp@1.8.1 --tools=invoices.list,invoices.get,disputes.list,disputes.get,transactions.list,orders.get,shipment.get`
+      (with `PAYPAL_ACCESS_TOKEN` and `PAYPAL_ENVIRONMENT=SANDBOX` set). Confirm no write tool shows up in its tool list.
+- [ ] Call each read tool against seeded sandbox data and save sample responses for case-file builders.
+- [ ] Confirm the token handling: the server takes a fixed access token, so `paypal/mcp-read-client` starts it with a fresh token per job run (or restarts it before the token expires).
+- [ ] Pin versions: `@paypal/mcp` depends on `@paypal/agent-toolkit@latest`. Pin both in our lockfile.
+- [ ] Gaps that use REST reads instead: the overdue sweep (`invoices.list` only pages, with no status or due-date filter, so use `POST /v2/invoicing/search-invoices`), balances, capture details.
+- [ ] Decide whether the hosted server (`https://mcp.sandbox.paypal.com`) is worth showing at all. It involves a PayPal login and consent, which fits a desktop AI app better than our server.
+
+## Other checks from the Master Plan (§3)
+
+- [ ] `/remind` accepts `PayPal-Request-Id` in practice (item 1)
+- [ ] A buyer-side agent can use the customer-side dispute endpoints with its own sandbox credentials (item 2; decides Pyp-to-Pyp on Nov 3)
+- [ ] Sandbox-only dispute helpers work for a standard app (item 3)
+- [ ] Dispute evidence and offer type values, and the provide-evidence upload format (item 4)
+- [ ] Inngest runs cleanly on Render, or we switch to a Postgres job table + Render cron (item 5)
+- [ ] Recheck model prices before quoting any cost (item 6)
