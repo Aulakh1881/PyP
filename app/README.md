@@ -12,4 +12,4 @@ The Next.js app (App Router). One codebase, three parts:
 
 API routes never call PayPal's write client. Approvals go to the queue, and the executor does the writing.
 
-> Scaffolding note: `create-next-app` refuses a folder that already has files. Scaffold in a temporary folder and move the files in, keeping these READMEs.
+The Next.js project itself (package.json, configs) sits at the repo root, so this folder is the App Router folder: `page.tsx` is the landing page and `api/health/route.ts` is Render's health check.

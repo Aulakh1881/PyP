@@ -14,3 +14,8 @@ coverage/
 .DS_Store
 *.log
 .mcp-auth/
+
+# next.js and typescript generated files
+next-env.d.ts
+*.tsbuildinfo
+*.pem

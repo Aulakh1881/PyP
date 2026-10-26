@@ -53,4 +53,21 @@ Roles: **A** frontend · **B** engine and AI · **C** PayPal and infrastructure 
 
 ## Getting started
 
-Setup instructions arrive with the Next.js shell (master plan §8, Mon Oct 26). Until then: copy `.env.example` to `.env.local` and fill in the sandbox values.
+Needs Node 22 or later.
+
+```bash
+npm install
+cp .env.example .env.local   # fill in the sandbox values; never commit this file
+npm run dev                  # http://localhost:3000 (health check: /api/health)
+```
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Next.js dev server |
+| `npm run check` | Lint, typecheck and tests: run before you push |
+| `npm test` | Vitest, including the write-boundary test (`evals/boundary.test.ts`) |
+| `npm run build` | Production build, as Render runs it |
+
+One Next.js project lives at the repo root. `app/` is the App Router folder (pages and API routes); the other folders are plain TypeScript, imported with the `@/` alias (for example `@/engine/policy`). CI runs the same checks on every push and pull request.
+
+The write boundary is enforced twice: ESLint (`no-restricted-imports`) and a test both fail if anything outside `executor/` imports `paypal/write-client`.

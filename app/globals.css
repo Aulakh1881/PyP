@@ -1,0 +1,40 @@
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --muted: #5f6368;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+    --muted: #a0a4a8;
+  }
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100vh;
+  color: var(--foreground);
+  background: var(--background);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.placeholder {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 4rem 1rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.disclaimer {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
