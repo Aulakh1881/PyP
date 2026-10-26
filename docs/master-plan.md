@@ -2,7 +2,7 @@
 
 **One plan, built from three documents:** our merchant plan (`pyp-merchant-plan.md`), your friend's Technical Design (the "TDD"), and his Team Brief.
 
-Version 1 · October 25, 2026 · PayPal AI Hackathon · submission due **Thursday Nov 12, 12 PM PT** · feature freeze **Tuesday Nov 10**
+Version 1.1 · October 26, 2026 (v1: Oct 25) · PayPal AI Hackathon · submission due **Thursday Nov 12, 12 PM PT** · feature freeze **Tuesday Nov 10**
 
 *Pyp is an independent project, not affiliated with PayPal. Sandbox only. All sample data is DEMO DATA.*
 
@@ -35,7 +35,7 @@ All three agree on the core: webhooks and daily checks wake Pyp up, plain code e
 | **PayPal access** | Ours: use PayPal's Agent Toolkit for ready-made tools. TDD: call REST directly (ADR-006). | **TDD wins.** Our safety story depends on exactly one module being able to write to PayPal. The toolkit's tools would bypass it. We keep the toolkit open as a reference for request shapes. |
 | **Hosting and jobs** | TDD: Vercel + Inngest. Ours: Render (a hackathon partner). | **Host on Render** (web service, Postgres, cron). Keep Inngest for durable jobs if it runs cleanly there; otherwise fall back to a simple Postgres job table plus Render cron. **Test this on Mon–Tue.** |
 | **Partner tools** | Ours: APIMatic, Render, AG Grid. TDD: none. | **Render** (hosting), **AG Grid** (Activity tab), **APIMatic** (give our coding AI accurate PayPal API context while we build). Skip the rest. Check the hackathon rules on whether partner use is judged. |
-| **Interface** | TDD: inbox of cards that flip to show a trace. Ours: chat widget with mascot, activity feed, skills setup. | **All of it.** *Inbox* (cards and trace) is the main screen. *Activity tab* (AG Grid) is the filterable history. *Pyp widget* (bottom-right chat and mascot) is the front door. *Setup screen* is the autonomy dial, which is our Tomodachi-style "choose what your Pyp can do". |
+| **Interface** | TDD: inbox of cards that flip to show a trace. Ours: chat widget with mascot, activity feed, skills setup. | **All of it.** *Inbox* (cards and trace) is the main screen. *Activity tab* (AG Grid) is the filterable history. *Pyp widget* (bottom-right chat and mascot) is the front door. *Setup screen* is the autonomy dial, which is our Tomodachi-style "choose what your Pyp can do". **Three surfaces** (team decision, Oct 26): the **website** (a public landing page: what Pyp is, the demo video, "Open the demo"); the **dashboard** (the logged-in web app: Inbox, Activity tab, setup screen, Pyp widget and chat); and a **Chrome extension** that opens Pyp in Chrome's **side panel** next to paypal.com or the sandbox site, with a compact inbox and chat on the same backend. The extension never changes PayPal's pages and holds no PayPal keys. |
 | **Chat timing** | TDD: chat arrives Nov 6–9. Ours: chat is the hook. | Build a **minimal chat early** (week 2): sentence in, Collections skill runs, card out. Read-only lookups and polish come later. |
 | **Database** | TDD: 13 tables. | Build a **9-table core first**, add the rest only when a feature needs it (section 6). |
 | **Credentials** | TDD: encrypted per-merchant keys. | One demo merchant: keys in environment variables. Add encryption only if we show more than one merchant. |
@@ -71,7 +71,7 @@ All three agree on the core: webhooks and daily checks wake Pyp up, plain code e
 | Priority | What |
 |---|---|
 | **Must** | Webhook intake with signature check · daily overdue sweep · Collections (create and send, remind, follow-up, ask merchant) · the three gates (menu, validator, policy) · autonomy dial · undo window · executor with request ids · inbox cards with flip-to-trace · activity log · kill switch · Disputes (evidence draft → approve → submit) · minimal chat · Pyp widget and mascot |
-| **Should** | Activity tab (AG Grid) · Insights weekly brief · quarantine call for buyer text · injection test suite · setup screen polish · Render deployment with live link |
+| **Should** | Activity tab (AG Grid) · Insights weekly brief · quarantine call for buyer text · injection test suite · setup screen polish · Render deployment with live link · website (landing page) · Chrome extension (side panel) |
 | **Could** | Pyp-to-Pyp dispute negotiation (go/no-go Nov 3) · client memory (who pays late) · tone learning from edits · cash-flow question in chat |
 | **Parked** | Refunds skill · MCP server · payouts · subscriptions · tracking nudge · merchant matchmaking · multi-merchant onboarding · encrypted credential storage |
 
@@ -109,7 +109,8 @@ Every action Pyp takes goes through the same five stages. **Only the Decide step
 **Folders:**
 ```
 pyp/
-  app/        website + API routes (cards, approve, rules, chat, webhooks)
+  app/        website (landing) + dashboard + API routes (cards, approve, rules, chat, webhooks)
+  extension/  Chrome side panel (Manifest V3): compact inbox + chat, calls our API only
   engine/     registry, run-skill, prompt + schema builders, validator, policy, trace
   skills/     collections/  disputes/  insights/     (one folder per skill)
   gateway/    Claude / Ollama / scripted-test connection, daily budget cap
@@ -137,7 +138,7 @@ Retention, unchanged from the TDD: case files and raw model answers trimmed afte
 ## 7. Team and work packages
 
 **Roles** (ownership by folder):
-- **A, frontend:** `app/` UI. Widget and mascot, inbox cards, trace flip, setup screen, Activity tab.
+- **A, frontend:** `app/` UI and `extension/`. Widget and mascot, inbox cards, trace flip, setup screen, Activity tab, website, Chrome extension.
 - **B, engine and AI:** `engine/`, `skills/`, `gateway/`, prompts, tests.
 - **C, PayPal and infrastructure:** `paypal/`, `executor/`, `jobs/`, `db/`, webhooks, Render deployment, sandbox accounts.
 
@@ -155,6 +156,7 @@ Each work package (WP) below is sized for **two people to finish in 3–4 days**
 | **WP8** | Pyp widget and minimal chat: mascot, open animation, sentence → Collections run → card in chat | A + B | "Invoice Acme $1,200 net-30" produces an approval card |
 | **WP9** | Activity tab (AG Grid), setup screen (dial and limits), kill switch | A + C | Merchant can change a dial and see its effect |
 | **WP10** | Insights lite: weekly brief with numbers computed in code, Claude only words them | B + A | Brief numbers match code totals exactly |
+| **WP12** | Website and Chrome extension: landing page with the demo video; side panel showing inbox cards and chat from the live API | A + C | Side panel next to sandbox.paypal.com shows live cards and approves one |
 | **WP11** | Hardening: test suite, injection attacks, seeded demo data, demo video | All | Gates green; demo rehearsed twice |
 | **WP-S** | Stretch: buyer-side Pyp and negotiation through dispute messages and offers | B + C | Two Pyps settle a sandbox dispute with a human approval at each side |
 
@@ -187,7 +189,7 @@ Each work package (WP) below is sized for **two people to finish in 3–4 days**
 | Oct 26 – Nov 1 | **Week 1:** foundations and Collections end to end (section 8) |
 | Nov 2 – Nov 6 | Disputes (WP7) · Pyp widget and minimal chat (WP8) · setup screen and kill switch (WP9) |
 | **Nov 3** | **Go/no-go on Pyp-to-Pyp** (WP-S), decided by what the sandbox verification found |
-| Nov 6 – Nov 9 | Insights lite (WP10) · Activity tab · injection suite · seeded demo data |
+| Nov 6 – Nov 9 | Insights lite (WP10) · Activity tab · website and Chrome extension (WP12) · injection suite · seeded demo data |
 | Nov 8 – Nov 10 | Hardening, rehearsal, record video |
 | **Nov 10** | **Feature freeze.** After this: fixes, tests, video, README only. |
 | Nov 11 | Submission checklist; dry run of the whole demo from a clean browser |
