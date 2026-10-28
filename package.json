@@ -14,11 +14,9 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "npm run lint && npm run typecheck && npm test",
-    "eval:live": "PYP_LIVE=1 vitest run evals/live"
+    "check": "npm run lint && npm run typecheck && npm test"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.3.0",
     "next": "16.4.3",
     "react": "19.3.0",
     "react-dom": "19.3.0",

@@ -40,9 +40,7 @@ Desk check done Oct 26 from the published `@paypal/mcp` 1.8.1 package and PayPal
 
 - [ ] `/remind`, create-invoice and `/send` accept `PayPal-Request-Id`, including a `:step` suffix (item 1)
 - [ ] Webhook self-check: what webhook id do simulator events carry, and how does the sandbox check accept it? (design §9.2) *Owner: C*
-- [x] Structured-output API shape: `output_config.format` with a JSON schema through the official SDK; limits enforced in code (design §6.2)
-- [ ] Run `npm run eval:live` once with a real `ANTHROPIC_API_KEY` to confirm the API accepts our generated schema end to end *Owner: B*
-- [ ] Whether Ollama models follow our `anyOf` / `enum` schemas (`PYP_MODEL_PROVIDER=ollama npm run eval:live`) *Owner: B*
+- [ ] AI SDK structured-output function names, and whether Ollama follows `anyOf` / `enum` schemas (design §6.2) *Owner: B*
 - [ ] Does PayPal expose its own auto-reminder history, or do we count only Pyp's reminders? (design B.1) *Owner: C*
 - [ ] Set the Render cron UTC hour for 08:00 merchant-local after US daylight saving ends Nov 1 (design §9.3) *Owner: C*
 - [ ] A buyer-side agent can use the customer-side dispute endpoints with its own sandbox credentials (item 2; decides Pyp-to-Pyp on Nov 3)
