@@ -44,7 +44,7 @@ describe("Collections", () => {
   it("paid while the model was thinking: the fresh check rejects it", async () => {
     const world = { ...overdue, freshInvoices: { [acmeInvoice.id]: { ...acmeInvoice, status: "PAID" as const } } };
     const { result } = await run(world, [friendlyReminder()]);
-    expect(result.proposals[0]).toMatchObject({ status: "rejected", check: { ok: false, reason: expect.stringContaining("PAID") } });
+    expect(result.proposals[0]).toMatchObject({ status: "invalid", check: { ok: false, reason: expect.stringContaining("PAID") } });
   });
 
   it("reminded yesterday: sendReminder isn't offered", async () => {
@@ -77,14 +77,14 @@ describe("Collections", () => {
 
   it("a note with the wrong amount is rejected", async () => {
     const { result } = await run(overdue, [friendlyReminder({ note: "Hi Sam, invoice 0042 for $1,000.00 is overdue." })]);
-    expect(result.proposals[0].status).toBe("rejected");
+    expect(result.proposals[0].status).toBe("invalid");
     expect(result.proposals[0].check.reason).toContain("$1,200.00");
   });
 
   it("a note with a link is rejected", async () => {
     const note = "Hi Sam, invoice 0042 for $1,200.00 is overdue. Pay here: https://evil.example";
     const { result } = await run(overdue, [friendlyReminder({ note })]);
-    expect(result.proposals[0]).toMatchObject({ status: "rejected", check: { reason: "Reminders can't contain links" } });
+    expect(result.proposals[0]).toMatchObject({ status: "invalid", check: { reason: "Reminders can't contain links" } });
   });
 
   it("partially paid: the note must name the remaining balance", async () => {
@@ -92,7 +92,7 @@ describe("Collections", () => {
     const world = { invoices: { [acmeInvoice.id]: partial } };
     const { result, agent } = await run(world, [friendlyReminder()]);
     expect(agent.requests[0].turn).toContain('amount-due="$450.00"');
-    expect(result.proposals[0].status).toBe("rejected");
+    expect(result.proposals[0].status).toBe("invalid");
   });
 
   it("invoice under dispute: no reminder on the menu", async () => {
@@ -151,5 +151,70 @@ describe("Collections", () => {
     const { result } = await run(overdue, [friendlyReminder()]);
     expect(result.trace.map((s) => s.stage)).toEqual(["trigger", "gather", "menu", "decide", "validate", "policy"]);
     expect(result.trace.every((s) => s.at === "2026-10-28T15:00:00.000Z")).toBe(true);
+  });
+
+  it("two reminders in one answer: only the first counts, so the last reminder can't slip through on Auto", async () => {
+    const r = rules({ commands: { "invoice.sendReminder": { dial: "auto" } } });
+    const world = { ...overdue, reminders: { [acmeInvoice.id]: { count: 1, lastSentAt: "2026-10-20T16:00:00Z" } } };
+    const twice = { ...friendlyReminder(), actions: [...friendlyReminder().actions, ...friendlyReminder({ tone: "firm" }).actions] };
+    const { result } = await run(world, [twice], r);
+    expect(result.proposals.map((p) => p.status)).toEqual(["scheduled", "invalid"]);
+    expect(result.proposals[1].check.reason).toBe("Only one invoice.sendReminder per run");
+  });
+
+  it("the note can't add amounts, other invoices or bare links", async () => {
+    const notes = [
+      "Hi Sam, invoice 0042 for $1,200.00 plus a $150.00 late fee is overdue.",
+      "Hi Sam, invoice 0042 for $1,200.00 is overdue, and so is invoice 0043.",
+      "Hi Sam, invoice 0042 for $1,200.00 is overdue. Pay at evil.example/pay",
+      "Hi Sam, invoice 0042 for $1,200.00 is overdue. Questions? billing@evil.example",
+    ];
+    for (const note of notes) {
+      const { result } = await run(overdue, [friendlyReminder({ note })]);
+      expect(result.proposals[0].status, note).toBe("invalid");
+    }
+  });
+
+  it("the invoice number must appear on its own, not inside another number", async () => {
+    const { result } = await run(overdue, [friendlyReminder({ note: "Hi Sam, invoice 00421 for $1,200.00 is overdue." })]);
+    expect(result.proposals[0].check.reason).toContain("0042");
+  });
+
+  it("the subject is checked too", async () => {
+    const answer = friendlyReminder();
+    (answer.actions[0].params as { subject: string }).subject = "Invoice 0042: $9,999.00 overdue";
+    const { result } = await run(overdue, [answer]);
+    expect(result.proposals[0].status).toBe("invalid");
+  });
+
+  it("a normal note with a date and year passes, and the card gets code's values", async () => {
+    const note = "Hi Sam, invoice 0042 for $1,200.00 was due Oct 21, 2026. Thanks so much. Maya Ortiz Design";
+    const { result } = await run(overdue, [friendlyReminder({ note })]);
+    expect(result.proposals[0].status).toBe("awaiting_approval");
+    expect(result.proposals[0].resolved).toMatchObject({ invoiceNumber: "0042", amountDueDisplay: "$1,200.00", recipientEmail: "sam@acme.example", reminderNumber: 1 });
+  });
+
+  it("if a limit can't be checked, it's a card, never Auto", async () => {
+    const r = rules({ commands: { "invoice.sendReminder": { dial: "auto" } } });
+    const ctx = context(overdue, r);
+    ctx.db.remindCallsToday = async () => {
+      throw new Error("db down");
+    };
+    const result = await runSkill({ skill: collections, subject, ctx, agent: new ScriptedAgentClient([friendlyReminder()]), trigger: "test" });
+    expect(result.proposals[0]).toMatchObject({ status: "awaiting_approval", policy: { rule: "limit_error" } });
+  });
+
+  it("a long chat instruction about an invoice is cut, with a notice", async () => {
+    const agent = new ScriptedAgentClient([friendlyReminder()]);
+    await runSkill({ skill: collections, subject, ctx: context(overdue), agent, trigger: "chat", instruction: "x".repeat(200_000) });
+    expect(agent.requests[0].turn.length).toBeLessThan(10_000);
+    expect(agent.requests[0].turn).toContain("[truncated by Pyp:");
+  });
+
+  it("a cut-off answer is retried with more room; a malformed one is retried with the reason", async () => {
+    const cut = await run(overdue, [{ raw: '{"title":', stopReason: "max_tokens" }, friendlyReminder()]);
+    expect(cut.agent.requests.map((r) => r.maxOutputTokens)).toEqual([8000, 16000]);
+    const bad = await run(overdue, ["not json", friendlyReminder()]);
+    expect(bad.agent.requests[1].turn).toContain("<retry-note>Your previous answer was unusable: The answer wasn't valid JSON");
   });
 });

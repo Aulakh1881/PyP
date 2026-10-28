@@ -10,6 +10,7 @@ import { formatMoney, toCents } from "@/engine/format";
 import type { CaseFile, CommandDef } from "@/engine/types";
 import { fail, ok } from "@/engine/validator";
 import type { CollectionsFacts, NewInvoiceFacts } from "../case-file";
+import { hasLink, onlyAmounts } from "../content-checks";
 import { centsToDecimal, mentionsClient } from "../request-parser";
 
 export interface CreateAndSendParams {
@@ -18,8 +19,6 @@ export interface CreateAndSendParams {
   terms: string;
   note: string;
 }
-
-const LINK = /https?:\/\/|www\./i;
 
 export const createAndSend: CommandDef<CreateAndSendParams, CollectionsFacts> = {
   id: "invoice.createAndSend",
@@ -41,7 +40,11 @@ export const createAndSend: CommandDef<CreateAndSendParams, CollectionsFacts> = 
       terms: z.enum(cf.ids.termIds as [string, ...string[]]),
       note: z.string().max(500).describe("Optional short note to the client, under 500 characters. Can be empty."),
     }),
-  available: (cf) => cf.facts.mode === "new-invoice" && cf.facts.mentionedClientIds.length > 0 && cf.facts.amounts.length > 0,
+  available: (cf) =>
+    cf.facts.mode === "new-invoice" &&
+    cf.facts.mentionedClientIds.length > 0 &&
+    cf.facts.amounts.length > 0 &&
+    cf.facts.problems.length === 0,
   risk: "message",
 
   check: async (p, ctx) => {
@@ -58,7 +61,15 @@ export const createAndSend: CommandDef<CreateAndSendParams, CollectionsFacts> = 
     const refs = p.items.map((i) => i.amountRef);
     if (new Set(refs).size !== refs.length) return fail("The same amount is used on two lines");
     if (p.items.some((i) => !i.description.trim())) return fail("Every line needs a description");
-    if (p.items.some((i) => LINK.test(i.description)) || LINK.test(p.note)) return fail("Invoices can't contain links");
+    // Text may only repeat amounts that are on the invoice: a line amount or the total.
+    const lines = refs.map((r) => toCents(facts.amounts.find((a) => a.id === r)!.value));
+    const allowed = [...lines, lines.reduce((s, c) => s + c, 0n)];
+    const texts = [...p.items.map((i) => i.description), p.note];
+    for (const t of texts) {
+      const problem = onlyAmounts(t, allowed);
+      if (problem) return fail(problem);
+      if (hasLink(t)) return fail("Invoices can't contain links");
+    }
     return ok();
   },
 

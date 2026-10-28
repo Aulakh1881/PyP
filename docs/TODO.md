@@ -4,6 +4,23 @@ Open tasks that aren't code. The [Master Plan](master-plan.md) is the source of 
 
 Roles: **A** frontend · **B** engine and AI · **C** PayPal and infrastructure.
 
+## Built so far (role B, on PRs #2–#4)
+
+- Engine core (WP3): registry, `runSkill`, schema and prompt builders, validator, policy, trace, money and XML helpers.
+- Model gateway: Claude (official SDK, structured output, refusal fallbacks, stall timers), Ollama (`qwen3:4b`) and scripted adapters; in-memory spend cap.
+- Collections against fakes: `sendReminder`, `scheduleFollowUp`, `createAndSend` from chat, `merchant.ask`. 7 live cases pass on `qwen3:4b`.
+- The write boundary: lint rule, test and CI (a Master Plan §8 item for C, done with the skeleton).
+
+## Engine work still open (role B)
+
+- [ ] `invoice.cancel` (Must, never Auto) and `invoice.suggestAutoReminders` (Could)
+- [ ] Standing down on `INVOICING.INVOICE.PAID` / `CANCELLED` without a model call (design §9.2)
+- [ ] Client history in the overdue case file, once C's reads can search invoices
+- [ ] A structured "client replied, hold off" note, so code (not only the model) stops reminders
+- [ ] Quarantine call for buyer text (design §7.6), Disputes (WP7), the chat receptionist (WP8)
+- [ ] Prompt-injection tests (G4 gate), golden prompt snapshots
+- [ ] Keep a streamed summary in the trace when an answer can't be used (design §7.7)
+
 ## Before submission (Nov 12, 12 PM PT)
 
 - [ ] **Add an open-source license file** at the repo root (for example MIT). Our saved summary of the hackathon rules says the public repo must show an open-source license. The team picks the license. *Owner: team lead*

@@ -1,6 +1,7 @@
 // Pulls money amounts and payment terms out of a merchant's chat sentence
 // (design B.1a step 2). Plain code, no model: the model may only pick among
-// what this finds, by id.
+// what this finds, by id. Anything it can't read with certainty becomes a
+// problem, and a request with problems can only be answered with a question.
 
 import { formatMoney, toCents } from "@/engine/format";
 import type { Client } from "@/engine/types";
@@ -26,40 +27,92 @@ export const ALL_TERMS: ParsedTerm[] = [
   ...[10, 15, 30, 45, 60, 90].map((d) => ({ id: `net_${d}`, type: `NET_${d}` as TermType, days: d })),
 ];
 
-// "$1,200", "$1200.50", "$ 450", "$1.2k"
-const DOLLAR_PREFIX = /\$\s?((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?)(\s?k\b)?/gi;
-// "1200 USD", "1,200 dollars", "1.2k usd"
-const WORD_SUFFIX = /\b((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?)(\s?k)?\s?(?:usd|dollars?|bucks)\b/gi;
+/** Larger amounts are almost certainly a typo; ask instead. */
+export const MAX_AMOUNT_CENTS = 100_000_000n; // 1,000,000.00
 
-export function parseAmounts(text: string, currency: string): ParsedAmount[] {
+const NUMBER = String.raw`(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?`;
+// "$1,200", "€450.50", "$ 450", "$1.2k"
+const SYMBOL_PREFIX = new RegExp(String.raw`([$€£])\s?(${NUMBER})(\s?k\b)?`, "gi");
+// "1200 USD", "1,200 dollars", "1.2k eur"
+const WORD_SUFFIX = new RegExp(String.raw`\b(${NUMBER})(\s?k)?\s?(usd|eur|gbp|cad|aud|dollars?|bucks)\b`, "gi");
+
+const SYMBOLS: Record<string, string> = { "€": "EUR", "£": "GBP" };
+/** Currencies a bare "$" or "dollars" can mean: the merchant's own if it's a dollar, else USD. */
+const DOLLAR_CURRENCIES = ["USD", "CAD", "AUD", "NZD", "SGD", "HKD"];
+
+export interface AmountParse {
+  amounts: ParsedAmount[];
+  /** Things the merchant typed that look like money but can't be used as is. */
+  problems: string[];
+}
+
+export function parseAmounts(text: string, currency: string): AmountParse {
   const found: { index: number; end: number; cents: bigint; writtenAs: string }[] = [];
-  for (const re of [DOLLAR_PREFIX, WORD_SUFFIX]) {
+  const problems: string[] = [];
+  const dollar = DOLLAR_CURRENCIES.includes(currency) ? currency : "USD";
+
+  const scan = (re: RegExp, numberAt: number, kAt: number, unitAt: number) => {
     for (const m of text.matchAll(re)) {
       const index = m.index ?? 0;
       const end = index + m[0].length;
       if (found.some((f) => index < f.end && end > f.index)) continue; // "$1,200 USD" matches both patterns
-      let cents = toCents(m[1].replace(/,/g, ""));
-      if (m[2]) cents *= 1000n;
+      const writtenAs = m[0].trim();
+      const before = text.slice(0, index);
+      const after = text.slice(end);
+      // "$1,20", "$1.2.3", "$1200.999", "$1,2000", "1,20 dollars": the number goes on past what we read.
+      if (/^[.,]?\d/.test(after) || /[\d.,]$/.test(before)) {
+        problems.push(`I couldn't read "${writtenAs}${/^[\d.,]+/.exec(after)?.[0] ?? ""}" as an amount`);
+        continue;
+      }
+      if (/-\s?$/.test(before)) {
+        problems.push(`"-${writtenAs}" is negative; invoices can't have negative amounts`);
+        continue;
+      }
+      const unit = m[unitAt].toLowerCase();
+      const unitCurrency = SYMBOLS[unit] ?? (["$", "dollar", "dollars", "bucks"].includes(unit) ? dollar : unit.toUpperCase());
+      if (unitCurrency !== currency) {
+        problems.push(`"${writtenAs}" is in ${unitCurrency}, but your invoices are in ${currency}`);
+        continue;
+      }
+      let cents = toCents(m[numberAt].replace(/,/g, ""));
+      if (m[kAt]) cents *= 1000n;
       if (cents <= 0n) continue;
-      found.push({ index, end, cents, writtenAs: m[0].trim() });
+      if (cents > MAX_AMOUNT_CENTS) {
+        problems.push(`"${writtenAs}" is larger than Pyp will invoice in one line`);
+        continue;
+      }
+      found.push({ index, end, cents, writtenAs });
     }
-  }
-  return found
+  };
+  scan(SYMBOL_PREFIX, 2, 3, 1);
+  scan(WORD_SUFFIX, 1, 2, 3);
+
+  const amounts = found
     .sort((a, b) => a.index - b.index)
     .map((f, i) => {
       const value = centsToDecimal(f.cents);
       return { id: `amt_${i + 1}`, value, display: formatMoney(value, currency), writtenAs: f.writtenAs };
     });
+  return { amounts, problems };
 }
 
-export function parseTerms(text: string): ParsedTerm[] {
+export interface TermsParse {
+  terms: ParsedTerm[];
+  /** Terms the merchant named that PayPal's standard terms don't cover. */
+  problems: string[];
+}
+
+export function parseTerms(text: string): TermsParse {
   const out = new Map<string, ParsedTerm>();
+  const problems: string[] = [];
   if (/\b(?:due\s+)?(?:on|upon)\s+receipt\b/i.test(text)) out.set("due_on_receipt", ALL_TERMS[0]);
-  for (const m of text.matchAll(/\b(?:net[\s-]?(\d{2})|due\s+in\s+(\d{2})\s+days)\b/gi)) {
-    const term = ALL_TERMS.find((t) => t.days === Number(m[1] ?? m[2]) && t.days > 0);
+  for (const m of text.matchAll(/\b(?:net[\s-]?(\d{1,3})|(?:due|payable)\s+(?:in|within)\s+(\d{1,3})\s+days)\b/gi)) {
+    const days = Number(m[1] ?? m[2]);
+    const term = ALL_TERMS.find((t) => t.days === days && t.days > 0);
     if (term) out.set(term.id, term);
+    else problems.push(`"${m[0]}" isn't one of PayPal's standard terms (due on receipt, or net 10, 15, 30, 45, 60 or 90)`);
   }
-  return [...out.values()];
+  return { terms: [...out.values()], problems };
 }
 
 /** YYYY-MM-DD plus whole days. */
@@ -69,17 +122,36 @@ export function addDays(isoDate: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Words that don't identify a business on their own ("Acme Studio" is matched by "acme"). */
 const GENERIC = new Set(["the", "and", "inc", "llc", "ltd", "co", "corp", "company", "studio", "studios", "design", "group", "shop", "store"]);
 
-/** Did the merchant's sentence name this client (by name, business or email)? */
+/** A plausible email address. Clients without one can't be invoiced. */
+export const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Did the merchant's sentence name this client? By the full email, every
+ * distinctive word of the business name, or the person's full name. A single
+ * shared word isn't enough: "Bill Acme" must not match a client called Bill Jones.
+ */
 export function mentionsClient(text: string, client: Client): boolean {
+  if (!EMAIL.test(client.email)) return false;
   const lower = text.toLowerCase();
-  if (lower.includes(client.email.toLowerCase())) return true;
-  const words = `${client.name ?? ""} ${client.businessName ?? ""}`
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((w) => w.length >= 3 && !GENERIC.has(w));
-  return words.some((w) => new RegExp(`\\b${w}\\b`).test(lower));
+  if (new RegExp(`(?<![\\w.+-])${escapeRegExp(client.email.toLowerCase())}(?![\\w-]|\\.\\w)`, "u").test(lower)) return true;
+  // Emails are matched whole above; their parts ("acme" in "notsam@acme.example.org") don't count as words.
+  const words = new Set(tokens(lower.replace(/\S+@\S+/g, " ")));
+  const business = tokens(client.businessName ?? "");
+  const distinctive = business.filter((w) => !GENERIC.has(w));
+  const matchesAll = (ws: string[]) => ws.length > 0 && ws.every((w) => words.has(w));
+  return matchesAll(distinctive.length ? distinctive : business) || matchesAll(tokens(client.name ?? ""));
+}
+
+/** Lowercase words, Unicode-aware, so "Ramírez" is one word, not "ram" and "rez". */
+function tokens(s: string): string[] {
+  return s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export function centsToDecimal(cents: bigint): string {

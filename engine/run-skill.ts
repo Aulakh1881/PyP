@@ -24,8 +24,15 @@ import type {
   Usage,
 } from "./types";
 import { checkActions, parseResponse } from "./validator";
+import { esc } from "./xml";
 
-export type ProposalStatus = "awaiting_approval" | "scheduled" | "blocked" | "rejected";
+/**
+ * awaiting_approval: a card for the merchant. scheduled: runs on Auto after the
+ * undo window. blocked: the policy said no. invalid: the action failed its
+ * check, so it never reaches the merchant or PayPal. (The merchant dismissing a
+ * card is "rejected", a later state owned by the job layer; design §11.)
+ */
+export type ProposalStatus = "awaiting_approval" | "scheduled" | "blocked" | "invalid";
 
 export interface Proposal {
   action: ProposedAction;
@@ -65,6 +72,10 @@ export interface RunInput<F> {
 }
 
 const MAX_ATTEMPTS = 2; // the first answer, plus one retry if it doesn't parse (design §7.7)
+
+/** A cut-off answer is retried with this much more room, up to the cap. */
+const RETRY_TOKEN_FACTOR = 2;
+const MAX_OUTPUT_TOKENS_CAP = 16_000;
 
 export async function runSkill<F>(input: RunInput<F>): Promise<RunResult<F>> {
   const { skill, subject, ctx, agent } = input;
@@ -115,24 +126,31 @@ export async function runSkill<F>(input: RunInput<F>): Promise<RunResult<F>> {
   const schema = buildResponseSchema(menu, cf);
   const system = buildSystemPrompt(skill, ctx.merchant);
   const task = input.task ?? skill.task?.(subject) ?? `Decide what to do about ${subject.kind} ${subject.id} now.`;
-  const turn = buildTurnPrompt(cf, menu, ctx.rules, task, cf.includesInstruction ? undefined : input.instruction);
+  let turn: string;
+  try {
+    turn = buildTurnPrompt(cf, menu, ctx.rules, task, cf.includesInstruction ? undefined : input.instruction);
+  } catch (err) {
+    return failed(`Couldn't build the prompt: ${(err as Error).message}`);
+  }
   result.system = system;
   result.turn = turn;
 
   let response: ModelResponse | null = null;
   let lastProblem = "";
+  let maxOutputTokens = skill.model.maxOutputTokens ?? 8000;
+  let attemptTurn = turn;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS && !response; attempt++) {
     let answer: { text: string; model: string; usage: Usage; stopReason: StopReason };
     try {
       answer = await collect(
         agent.complete({
           system,
-          turn,
+          turn: attemptTurn,
           schema: schema.json,
           fullSchema: schema.fullJson,
           tier: skill.model.tier,
           effort: skill.model.effort,
-          maxOutputTokens: skill.model.maxOutputTokens ?? 8000,
+          maxOutputTokens,
           signal: input.signal,
           purpose: skill.id,
         }),
@@ -150,8 +168,12 @@ export async function runSkill<F>(input: RunInput<F>): Promise<RunResult<F>> {
       response = parsed.response;
       trace.step("decide", response.title, { model: answer.model, confidence: response.confidence, actions: response.actions.length });
     } else {
-      lastProblem = answer.stopReason === "max_tokens" ? "The answer was cut off" : parsed.reason;
+      const cutOff = answer.stopReason === "max_tokens";
+      lastProblem = cutOff ? "The answer was cut off" : parsed.reason;
       trace.step("decide", `Unusable answer (attempt ${attempt}): ${lastProblem}`);
+      // Don't retry the same way: give a cut-off answer more room, and tell the model what was wrong.
+      if (cutOff) maxOutputTokens = Math.min(maxOutputTokens * RETRY_TOKEN_FACTOR, MAX_OUTPUT_TOKENS_CAP);
+      else attemptTurn = `${turn}\n<retry-note>Your previous answer was unusable: ${esc(parsed.reason)}. Answer again with one JSON object matching the schema.</retry-note>`;
     }
   }
   if (!response) return failed(`No usable answer: ${lastProblem}`);
@@ -160,28 +182,49 @@ export async function runSkill<F>(input: RunInput<F>): Promise<RunResult<F>> {
   // Gate 2: the validator
   const checkCtx = { ...ctx, caseFile: cf };
   const checked = await checkActions(response.actions, menu, checkCtx);
+  // One action per command per run. Duplicates are checked against the same
+  // state, so two reminders in one answer would each pass the limits (§8.1).
+  const seen = new Set<string>();
+  for (const c of checked) {
+    if (seen.has(c.action.command)) c.check = { ok: false, reason: `Only one ${c.action.command} per run` };
+    seen.add(c.action.command);
+  }
   const askedMerchant = response.questionForMerchant !== null || response.actions.some((a) => a.command === "merchant.ask");
 
   // Gate 3: the policy
   for (const { action, cmd, check } of checked) {
     if (!check.ok) {
-      trace.step("validate", `${action.command} rejected: ${check.reason}`);
-      result.proposals.push({ action, resolved: null, check, policy: null, status: "rejected" });
+      trace.step("validate", `${action.command} invalid: ${check.reason}`);
+      result.proposals.push({ action, resolved: null, check, policy: null, status: "invalid" });
+      continue;
+    }
+    let resolved: Record<string, unknown> | null;
+    try {
+      resolved = cmd.resolve ? cmd.resolve(action.params, cf) : null;
+    } catch (err) {
+      const failedCheck = { ok: false, reason: `Couldn't resolve exact values: ${(err as Error).message}` };
+      trace.step("validate", `${action.command} invalid: ${failedCheck.reason}`);
+      result.proposals.push({ action, resolved: null, check: failedCheck, policy: null, status: "invalid" });
       continue;
     }
     trace.step("validate", `${action.command} passed checks`);
-    const policy = await decide({
-      cmd,
-      params: action.params,
-      skill,
-      rules: ctx.rules,
-      confidence: response.confidence,
-      askedMerchant: askedMerchant && action.command !== "merchant.ask",
-      ctx: checkCtx,
-    });
+    let policy: PolicyResult;
+    try {
+      policy = await decide({
+        cmd,
+        params: action.params,
+        skill,
+        rules: ctx.rules,
+        confidence: response.confidence,
+        askedMerchant: askedMerchant && action.command !== "merchant.ask",
+        ctx: checkCtx,
+      });
+    } catch (err) {
+      // Fail toward the merchant: if a limit can't be checked, it's a card, never Auto.
+      policy = { decision: "ask", rule: "limit_error", reason: `Couldn't check limits: ${(err as Error).message}` };
+    }
     trace.step("policy", `${action.command}: ${policy.decision} (${policy.reason})`, { rule: policy.rule });
     const status: ProposalStatus = policy.decision === "auto" ? "scheduled" : policy.decision === "ask" ? "awaiting_approval" : "blocked";
-    const resolved = cmd.resolve ? cmd.resolve(action.params, cf) : null;
     result.proposals.push({ action, resolved, check, policy, status });
   }
   if (checked.length === 0) trace.step("policy", "Nothing to do");

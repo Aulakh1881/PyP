@@ -1,10 +1,10 @@
 # Pyp Master Plan
 
-**One plan, built from three documents:** the team's merchant plan, the Technical Design (the "TDD") and the Team Brief. The merchant plan and the Team Brief are kept outside the repo; `technical-design.md` (now Draft 2.2) is in this folder. In section 2, "TDD" means its Draft 1, before it was aligned with this plan.
+**One plan, built from three documents:** the team's merchant plan, the Technical Design (the "TDD") and the Team Brief. The merchant plan and the Team Brief are kept outside the repo; `technical-design.md` (now Draft 2.3) is in this folder. In section 2, "TDD" means its Draft 1, before it was aligned with this plan.
 
-Version 1.4 · October 26, 2026 (v1: Oct 25) · PayPal AI Hackathon · submission due **Thursday Nov 12, 12 PM PT** · feature freeze **Tuesday Nov 10**
+Version 1.5 · October 28, 2026 (v1: Oct 25) · PayPal AI Hackathon · submission due **Thursday Nov 12, 12 PM PT** · feature freeze **Tuesday Nov 10**
 
-*Pyp is an independent project, not affiliated with PayPal. Sandbox only. All sample data is DEMO DATA.*
+*Pyp is an independent project, not affiliated with or endorsed by PayPal. Sandbox only. All sample data is DEMO DATA.*
 
 **How to use this document.** This is the single plan to build from and **the source of truth**. If any other document disagrees with it, this one wins. The long TDD (`technical-design.md`) stays the reference for detail (database SQL, prompt templates, API list, test cases), and the Team Brief is its short version (kept outside the repo). Section 8 is this week's day-by-day plan.
 
@@ -31,7 +31,7 @@ All three agree on the core: webhooks and daily checks wake Pyp up, plain code e
 |---|---|---|
 | **Scope** | TDD: Collections, Disputes, Insights, Refunds, plus an MCP server. Ours: invoices, disputes, briefing, extras, matchmaking. | Build **Collections, Disputes, and a light Insights**. Park Refunds, Pyp as an MCP server, payouts, subscriptions, tracking nudge, and merchant matchmaking for the "what's next" slide. See section 4. |
 | **Agent-to-agent** | Ours: still in. TDD: not covered, and says Pyp never contacts buyers itself. | Keep it as a **stretch**, built as a *second Pyp instance acting as the buyer*. Its messages and offers still travel through PayPal's real dispute endpoints, so the TDD's rule that "PayPal sends the messages" stays true. Go/no-go on **Nov 3**. |
-| **Creating invoices** | Ours: "invoice Acme $1,200 net-30" is the flagship request. TDD: only has reminders and cancel. | **Add `invoice.createAndSend`** to Collections (creates a draft, then sends it). Default dial: Ask me. |
+| **Creating invoices** | Ours: "invoice Acme $1,200 net-30" is the flagship request. TDD: only has reminders and cancel. | **Add `invoice.createAndSend`** to Collections (creates a draft, then sends it). Always Ask me: it is never Auto. |
 | **PayPal access** | Ours: use PayPal's Agent Toolkit for ready-made tools. TDD: call REST directly (ADR-006). | **Reads through PayPal's MCP server, writes through our REST client** (team decision, Oct 26). Skills gather facts and chat looks things up using an allow-list of **read** tools from PayPal's official MCP server, with REST reads for anything it lacks (such as balances). Our safety story depends on exactly one module being able to write to PayPal, so the **executor stays the only writer**, using direct REST with request ids. The model never sees PayPal's write tools. |
 | **Hosting and jobs** | TDD: Vercel + Inngest. Ours: Render (a hackathon partner). | **Host on Render** (web service, Postgres, cron). Keep Inngest for durable jobs if it runs cleanly there; otherwise fall back to a simple Postgres job table plus Render cron. **Test this on Mon–Tue.** |
 | **Partner tools** | Ours: APIMatic, Render, AG Grid. TDD: none. | **Render** (hosting), **AG Grid** (Activity tab), **APIMatic** (give our coding AI accurate PayPal API context while we build). Skip the rest. Check the hackathon rules on whether partner use is judged. |
@@ -59,7 +59,7 @@ All three agree on the core: webhooks and daily checks wake Pyp up, plain code e
 3. Do the sandbox-only dispute helpers work for a standard sandbox app? (Needed to script the dispute demo.)
 4. Exact values for dispute evidence types and offer types, and the multipart format for provide-evidence.
 5. Does Inngest run cleanly with the app on Render?
-6. The model prices and SDK version notes in the TDD are unverified by us. Recheck them before quoting any cost number in the pitch.
+6. The model prices in the TDD are unverified by us. Recheck them before quoting any cost number in the pitch. (The SDK request shape was checked against the installed `@anthropic-ai/sdk` on Oct 28.)
 7. Hackathon rules: is public repo required, is partner-tool use judged, what must the submission include? (Our saved summary says: public repo, open-source license, public video under 3 minutes, working demo. Confirm on Devpost; see `TODO.md`.)
 8. PayPal MCP server: do its read tools cover what our case files need (invoice search, dispute details, transactions)? Which works best from our server on Render: the hosted sandbox server (`https://mcp.sandbox.paypal.com`) or the local package (`npx @paypal/mcp`) with an access token? Can we expose only read tools? **Desk check (Oct 26, from the published `@paypal/mcp` 1.8.1 package and PayPal's docs; still to test live):** use the **local package**, started with **read tools only** (`--tools=invoices.list,invoices.get,disputes.list,disputes.get,transactions.list,orders.get,shipment.get`), so the MCP process itself can't write. It takes a fixed access token, so start it with a fresh token per job run (tokens expire after a few hours). Gaps: `invoices.list` only pages (no overdue or status filter), so the overdue sweep uses REST `search-invoices`; balances and capture details also use REST. Pin the package version, since it pulls `@paypal/agent-toolkit@latest`. The hosted server involves a PayPal login and consent, which suits a desktop AI app better than our server.
 
@@ -101,7 +101,7 @@ Every action Pyp takes goes through the same five stages. **Only the Decide step
 | Validator | Is it still correct against fresh PayPal data? | After Claude answers |
 | Policy | Is Pyp allowed to do it alone? Result: auto, ask, or block | Before acting |
 
-**The dial.** Per action: Off, Ask me, or Auto, plus limits. A question to the merchant (`merchant.ask`) is always a card, never Auto. Some actions are never Auto: submitting dispute evidence, making offers, accepting claims, cancelling invoices. Auto means "after a 60-second undo window." Approval is always a tap on a button that states the exact action and amount, never a typed message.
+**The dial.** Per action: Off, Ask me, or Auto, plus limits. A question to the merchant (`merchant.ask`) is always a card, never Auto. Some actions are never Auto: creating and sending an invoice, submitting dispute evidence, making offers, accepting claims, cancelling invoices. The last reminder an invoice is allowed always asks too. Auto means "after a 60-second undo window." Approval is always a tap on a button that states the exact action and amount, never a typed message.
 
 **Untrusted text.** Buyer messages go through a separate Claude call that has no actions and just extracts facts, and are wrapped as `<untrusted-buyer-text>` in the main call. Messages from another Pyp are treated the same way: information, never orders.
 
@@ -222,10 +222,11 @@ Each work package (WP) below is sized for **two people to finish in 3–4 days**
 
 ---
 
-## 12. Decisions confirmed Oct 25–26 (revisit if needed)
+## 12. Decisions confirmed Oct 25–28 (revisit if needed)
 
 1. Render for hosting, with Inngest or a Postgres job table for background work (section 2).
 2. The scope in section 4, especially parking Refunds and Pyp as an MCP server.
 3. Roles A, B and C, and who takes which.
 4. Nov 3 as the go/no-go date for Pyp-to-Pyp.
 5. Who reads the hackathon rules for submission requirements and partner-tool judging.
+6. **Oct 28 (while building the engine):** the official Anthropic SDK instead of the Vercel AI SDK, since we host on Render; server-side refusal fallbacks on Sonnet and Opus; Ollama with `qwen3:4b` for free local development; code, not the model, decides which clients a chat sentence names, and anything code can't read with certainty becomes a question; the last allowed reminder always asks. Details in TDD §16.5, Draft 2.3.

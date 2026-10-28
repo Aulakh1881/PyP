@@ -37,3 +37,5 @@ history is computed live from PayPal, merchant notes come from seeded demo
 data, and the spend cap sums today's `runs.cost_usd` against
 `SPEND_CAP_USD`. If Inngest does not run on Render, add the `jobs` table
 described in the design's Section 10.
+
+**The engine contract** (what runs hand over, proposal ids, `resolved`, re-checking before a write): [`engine/README.md`](../engine/README.md#the-contract-for-owners-a-and-c).

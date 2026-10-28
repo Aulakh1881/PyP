@@ -16,6 +16,14 @@ export const GUARDRAILS = `<guardrails>
 </guardrails>
 <response-format>One JSON object matching the provided schema. Nothing else.</response-format>`;
 
+/** Longest merchant instruction put in a prompt (Appendix G: "200 KB message → truncated with notice"). */
+export const MAX_INSTRUCTION_CHARS = 1000;
+
+/** Cut text to `max` characters, saying so, so the model knows it didn't see everything. */
+export function truncate(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max)} [truncated by Pyp: ${text.length - max} more characters]`;
+}
+
 export function buildSystemPrompt<F>(skill: SkillDef<F>, merchant: Merchant): string {
   return `${skill.prompt.system(merchant).trim()}\n${GUARDRAILS}`;
 }
@@ -37,7 +45,7 @@ export function buildTurnPrompt<F>(
 
   const parts = [cf.xml, `<commands>\n${commands}\n</commands>`];
   // A merchant's own words from chat. Trusted (they are the merchant), but still escaped.
-  if (instruction) parts.push(`<merchant-instruction>${esc(instruction)}</merchant-instruction>`);
+  if (instruction) parts.push(`<merchant-instruction>${esc(truncate(instruction, MAX_INSTRUCTION_CHARS))}</merchant-instruction>`);
   parts.push(`<task>${esc(task)}</task>`);
   return parts.join("\n");
 }

@@ -10,7 +10,18 @@ export function formatMoney(amount: string, currency: string): string {
   const frac = (abs % 100n).toString().padStart(2, "0");
   const symbol = currency === "USD" ? "$" : "";
   const suffix = currency === "USD" ? "" : ` ${currency}`;
-  return `${sign}${symbol}${whole}.${frac}${suffix}`;
+  // JPY and friends have no minor unit: "1,200 JPY", not "1,200.00 JPY".
+  const decimals = minorDigits(currency) === 0 ? "" : `.${frac}`;
+  return `${sign}${symbol}${whole}${decimals}${suffix}`;
+}
+
+/** Digits after the decimal point for a currency (2 for USD, 0 for JPY). */
+export function minorDigits(currency: string): number {
+  try {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency }).resolvedOptions().maximumFractionDigits ?? 2;
+  } catch {
+    return 2; // not an ISO code; PayPal would reject it anyway
+  }
 }
 
 /** A PayPal decimal string as integer cents. Throws on anything that isn't a plain decimal. */

@@ -6,4 +6,6 @@ Gets the merchant paid. Triggers: the daily overdue sweep, chat ("Invoice Acme $
 
 Creating an invoice from chat: code parses amounts and terms and lists known clients; Claude only picks among them; code computes the due date; an unknown client means `merchant.ask` (the design, Appendix B.1a).
 
-Commands: `invoice.createAndSend`, `invoice.sendReminder`, `invoice.scheduleFollowUp`, `invoice.suggestAutoReminders` (Could), `invoice.cancel` (never Auto), `merchant.ask`.
+Commands built: `invoice.createAndSend` (never Auto), `invoice.sendReminder`, `invoice.scheduleFollowUp`, `merchant.ask`. Not built yet: `invoice.cancel` (never Auto), `invoice.suggestAutoReminders` (Could).
+
+Code reads the request (`request-parser.ts`) and checks what the model writes (`content-checks.ts`): no amounts that aren't on the invoice, no other invoice numbers, no links of any form.

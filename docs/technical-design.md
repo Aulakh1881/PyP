@@ -5,8 +5,8 @@
 | | |
 |---|---|
 | **Document** | Technical design document (TDD) and architecture blueprint |
-| **Status** | Draft 2.2 · aligned with the Master Plan v1.4 (Oct 26) |
-| **Date** | October 26, 2026 (Draft 1: October 24) |
+| **Status** | Draft 2.3 · aligned with the Master Plan v1.5 (Oct 28) |
+| **Date** | October 28, 2026 (Draft 1: October 24) |
 | **Audience** | The Pyp team first; Section 1 doubles as the judge-facing summary |
 | **Event** | PayPal AI Hackathon 2026 · submission due Nov 12, 2026, 12 PM PT |
 | **Disclaimer** | Pyp is an independent project, not affiliated with or endorsed by PayPal. Sandbox only; all sample data is DEMO DATA. |
@@ -341,15 +341,16 @@ export const sendReminder: CommandDef<SendReminderParams> = {
   id: "invoice.sendReminder",
   description: "Send PayPal's reminder email for an unpaid invoice, with your subject and note.",
   aiRule: "Use when the invoice is overdue and the minimum gap since the last reminder has passed.",
-  params: (cf) => z.object({ invoiceId: z.enum(cf.invoiceIds), tone: z.enum(["friendly", "firm", "final"]),
+  params: (cf) => z.object({ invoiceId: z.enum(cf.ids.invoiceIds), tone: z.enum(["friendly", "firm", "final"]),
                              subject: z.string().max(120), note: z.string().max(500) }),
-  available: (cf, rules) => cf.remindersSent < rules.maxReminders && cf.status !== "PAID",
+  available: (cf, rules) => cf.facts.reminders.sent < reminderLimits(rules).maxPerInvoice && /* unpaid, not disputed, gap passed */ …,
   risk: "message",
-  check: checkSendReminder,                                         // the validator from 0.10
-  execute: (p, paypal, requestId) =>
-    paypal.post(`/v2/invoicing/invoices/${p.invoiceId}/remind`,
-                { subject: p.subject, note: p.note }, { requestId }),
+  check: async (p, ctx) => { /* the validator from 0.10: fresh read, limits, exact amount and number, no links */ },
+  overLimit: async (p, rule, ctx) => { /* the last allowed reminder, a "final" tone, PayPal's 2 a day → ask */ },
+  resolve: (p, cf) => ({ invoiceNumber, amountDueDisplay, recipientEmail, subject: p.subject, note: p.note /* … */ }),
 };
+// The executor (owner C), not the command, calls POST /v2/invoicing/invoices/{id}/remind
+// with the resolved values and the proposal id as PayPal-Request-Id.
 ```
 
 5. **`prompt.ts`**: the playbook in plain English ("1st friendly, 2nd firm, 3rd final; hold off if the client said payment is coming").
@@ -625,7 +626,7 @@ Level 2 zooms into Pyp: the deployable pieces and how they talk.
 | PayPal writes | **Direct REST calls** through our own small client, executor only | Request ids per call, our error mapping, one writer (ADR-006) |
 | Evals | Vitest goldens + Promptfoo red-team suite | Section 14 |
 
-> **Structured outputs (checked Oct 28):** the Claude API accepts `anyOf`, `const`, `enum` and `additionalProperties: false`, but not length, number or array-size limits (`maxLength`, `maximum`, `maxItems`). `engine/schema-builder.ts` strips those from the schema it sends, and the validator enforces them in code with Zod. **Still to verify:** how well Ollama models follow `anyOf` / `enum` schemas. The validator re-checks everything anyway, so a weak local model fails safe.
+> **Structured outputs (checked Oct 28):** the Claude API accepts `anyOf`, `const`, `enum` and `additionalProperties: false`, but not length, number or array-size limits (`maxLength`, `maximum`, `maxItems`). `engine/schema-builder.ts` strips those from the schema it sends, and the validator enforces them in code with Zod. **Ollama (checked Oct 28):** it gets the full schema, limits included, and enforces them while generating; `qwen3:4b` follows the `anyOf` / `enum` schema and passes all 7 live Collections cases (results in `gateway/README.md`). Every field description also states its limit, for every model.
 
 ---
 
@@ -754,14 +755,15 @@ The engine depends only on an `AgentClient` port (contract in Appendix B.0). Thr
 | Tier | Claude model (demo) | Used for | Price per 1M tokens (input / output), **unverified: recheck before quoting (Master Plan §3, item 6)** |
 |---|---|---|---|
 | fast | **Haiku 5.5** (`claude-haiku-5-5`) | Quarantine, triage, Insights wording | $0.10 / $0.50 |
-| main | **Sonnet 5.5** (`claude-sonnet-5-5`) | Collections, chat | $2 / $10 (cache reads ~10% of input) |
-| deep | **Opus 5.5** (`claude-opus-5-5`) | Disputes (weighing evidence) | $4 / $20 (cache reads ~10% of input) |
+| main | **Sonnet 5.5** (`claude-sonnet-5-5`) | Collections, chat | $2 / $10 (cache reads $0.20, 10% of input) |
+| deep | **Opus 5.5** (`claude-opus-5-5`) | Disputes (weighing evidence) | $4 / $20 (cache reads $0.20, 5% of input) |
 | (dev) | Ollama local model | Every tier on a laptop | free |
 
 Gateway duties, all carried over from Whizzy:
 - **Spend ledger:** reserve an estimate before each call, settle with real usage after, and **fail closed** if the daily cap would be exceeded or the ledger can't be reached.
-- **Stall timers:** abort if there's no first chunk in 45 s, or no next chunk in 20 s.
-- **Salvage:** if the final JSON doesn't parse, keep any streamed summary for the trace, take no actions, and retry once.
+- **Stall timers:** abort if there's no first chunk in 45 s, or no next chunk in 20 s. (Built for Claude; the Ollama adapter is dev-only and has none.)
+- **Retry:** if the final JSON doesn't parse, take no actions and retry once: with more output room if the answer was cut off, else with the problem stated. *(Keeping a streamed summary for the trace: not built yet.)*
+- **Refusals:** Sonnet and Opus calls turn on server-side fallbacks (`fallbacks: "default"`), so a safety-classifier refusal is retried on a suitable model by the API. Haiku has none. A refusal that still comes back fails the run; nothing is proposed.
 - **Scripted adapter:** replays recorded model outputs. It makes tests deterministic, and the demo can run with no network if it has to.
 
 ### 7.8 Chat: a small, read-only tool loop
@@ -806,12 +808,15 @@ The policy engine is plain, deterministic code. The model never sees it and can'
 Evaluated in order; the first rule that fires wins:
 
 1. Kill switch on → **block**
-2. Dial for this command is Off → **block**
-3. Command is on the skill's `neverAuto` list → **ask**
-4. Over a limit (amount, per-day count, per-client cooldown, max per invoice) → **ask**, with the limit named
-5. Model confidence `low`, or it asked the merchant a question → **ask**
-6. Dial is Ask me → **ask**
-7. Dial is Auto → **auto** (scheduled after the undo window)
+2. The command is `merchant.ask` (a question) → **ask**, always
+3. Dial for this command is Off → **block**
+4. Command is on the skill's `neverAuto` list → **ask**
+5. Over a limit (amount, per-day count, per-client cooldown, max per invoice) → **ask**, with the limit named. If a limit can't be checked (the database is down), also **ask** (`limit_error`)
+6. Model confidence `low`, or it asked the merchant a question → **ask**
+7. Dial is Ask me → **ask**
+8. Dial is Auto → **auto** (scheduled after the undo window)
+
+Before the rules run, the engine keeps **one action per command per run**. Every action in an answer is checked against the same state, so two reminders in one answer would otherwise each pass the limits.
 
 Each decision is stored with `policy_rule`, so the card can say *"Asked you because: offers always need your approval."*
 
@@ -908,7 +913,7 @@ Postgres is the single source of truth. The model has no memory of its own betwe
 | `rules` | ✓ | The dial and limits | merchant_id, command_id, dial (off/ask/auto), limits_json |
 | `events` | ✓ | Every inbound webhook or sweep | id (PayPal event id or `sweep:…`), type, resource_id, raw_json, status |
 | `runs` | ✓ | One skill run | id, skill, subject_ref, trigger_event_id, model, case_file_xml, output_json, usage_json, cost_usd, status |
-| `proposals` | ✓ | One proposed command | id, run_id, command_id, params_json, why, decision (auto/ask/block), policy_rule, status, valid_until, decided_by, edit_diff |
+| `proposals` | ✓ | One proposed command | id, run_id, command_id, params_json, resolved_json, why, decision (auto/ask/block), policy_rule, status, valid_until, decided_by, edit_diff |
 | `executions` | ✓ | One PayPal write attempt | id, proposal_id, paypal_request_id, http_status, paypal_debug_id, response_json, attempt |
 | `trace_steps` | ✓ | The back of the card | id, run_id, proposal_id, at (ms precision), kind, label, detail_json, ok |
 | `cards` | ✓ | What the inbox shows: one card per proposal, plus info cards | id, merchant_id, run_id, proposal_id (null for info cards), skill, state, front_json, created_at |
@@ -918,7 +923,7 @@ Postgres is the single source of truth. The model has no memory of its own betwe
 | `spend_ledger` | later | Model budget (a simple daily counter until then) | merchant_id, day, reserved_usd, settled_usd, cap_usd |
 | `paypal_connections` | later | Encrypted credentials (only for more than one merchant) | merchant_id, env (sandbox), client_id, secret_ciphertext, webhook_id |
 
-**Proposal statuses:** `proposed → validated → awaiting_approval | scheduled → executing → executed | failed`, plus `invalid`, `blocked`, `rejected`, `expired`, `obsolete`, `undone`.
+**Proposal statuses:** `proposed → validated → awaiting_approval | scheduled → executing → executed | failed`, plus `invalid`, `blocked`, `rejected`, `expired`, `obsolete`, `undone`. The engine returns the first four it can know (`awaiting_approval`, `scheduled`, `blocked`, `invalid` = failed its check); `rejected` means the merchant dismissed the card, set later by the job layer. The engine's proposals carry no id: the job layer assigns one on insert, and it becomes the `PayPal-Request-Id`. `resolved_json` holds the command's `resolve()` output, the exact values the card shows and the executor sends. The full contract is in `engine/README.md`.
 
 **The actor field** has one spelling, from an enum: `pyp | merchant | rule | mcp:<client>`. (Whizzy ended up with two spellings for the same actor; this avoids repeating that.)
 
@@ -1174,7 +1179,7 @@ New abilities arrive as skills (Section 7.2). The **"what's next" slide**, all o
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
 | Sandbox dispute endpoints don't behave as documented | Medium | High (Disputes demo) | Test on day 1–2; fall back to a recorded sandbox run in the scripted adapter, clearly labeled |
-| Ollama models can't follow the `anyOf` schema | Medium | Low | The validator catches it; develop against Haiku where needed |
+| Ollama models can't follow the `anyOf` schema | ~~Medium~~ Resolved Oct 28 | Low | `qwen3:4b` passes 7/7 live cases with the full schema; the validator re-checks anyway |
 | Webhooks hard to receive in local dev | High | Low | Deploy to Render early (WP2) + webhook simulator; scripted events |
 | Inngest doesn't run cleanly on Render | Medium | Medium | Test Mon–Tue; fall back to a Postgres job table + Render cron |
 | A buyer-side agent can't use the customer-side dispute endpoints with its own sandbox credentials | Medium | Medium (stretch only) | Go/no-go on Nov 3; the core Disputes demo doesn't depend on it |
@@ -1232,6 +1237,8 @@ Aligned with the Master Plan v1.4 (Drafts 2.1 and 2.2 add the review fixes liste
 - **Credentials:** one demo merchant, keys in environment variables (ADR-011).
 - **PayPal access:** reads through PayPal's MCP server (read allow-list), writes through our REST client in the executor (ADR-006).
 - **Build plan:** replaced by the Master Plan's schedule (Section 16.4).
+
+**Draft 2.3 (Oct 28, while building the engine):** the official Anthropic SDK instead of the Vercel AI SDK (we host on Render); server-side refusal fallbacks on Sonnet and Opus; Ollama `qwen3:4b` for local development (full schema with limits); code decides which clients a chat sentence names (`named-in-request`), and amounts or terms code can't read lead to a question; the last allowed reminder always asks; one action per command per run; reminder and invoice text may not add other amounts, invoice numbers or links of any form; proposal status `invalid` for a failed check, and `resolved_json`; §8.2 lists the `merchant.ask` rule; B.0 points at the real types.
 
 **Draft 2.2 (Oct 26, second review):** "Pyp as an MCP server" wording; `createAndSend` can't be Auto; `merchant.ask` free text marked TBD; `extension_token_hash` column; request-id suffix everywhere; worker-loop location TBD; small fixes to times, prices, statuses and labels.
 
@@ -1325,40 +1332,41 @@ Each record follows the standard ADR shape: context, decision, consequences, alt
 
 ### B.0 Core contracts
 
+The real types live in **`engine/types.ts`**, and `engine/README.md` explains the contract owners A and C build against (storing runs, proposal ids, `resolved`, the executor). This is the short version:
+
 ```ts
-// The contract every skill implements (engine-owned types; names are ours).
-interface SkillDef {
+interface SkillDef<F> {
   id: 'collections' | 'disputes' | 'insights' | (string & {});
-  triggers: { events?: PayPalEventType[]; sweeps?: Cron[]; chat?: boolean };
-  model: { tier: 'fast' | 'main' | 'deep'; effort?: 'low' | 'medium' | 'high' };
-  buildCaseFile(ctx: SkillContext, subject: SubjectRef): Promise<CaseFile>;
-  commands: CommandDef<any>[];          // the full menu; filtered per run
-  prompt: { system: string };           // role, playbook, tone guide (cached)
-  policy: { defaults: DialDefaults; neverAuto: CommandId[] };
+  triggers: { events?: string[]; sweeps?: string[]; chat?: boolean };
+  model: { tier: 'fast' | 'main' | 'deep'; effort?: 'low' | 'medium' | 'high'; maxOutputTokens?: number };
+  buildCaseFile(ctx: SkillContext, subject: SubjectRef, instruction?: string): Promise<CaseFile<F>>;
+  task?(subject: SubjectRef): string;          // the <task> line
+  commands: CommandDef<any, F>[];              // the full menu; filtered per run
+  prompt: { system(merchant: Merchant): string };   // role, playbook, tone guide (cached)
+  policy: { defaults: Record<CommandId, CommandRule>; neverAuto: CommandId[] };
 }
 
-interface CommandDef<P> {
-  id: `${string}.${string}`;            // e.g. 'invoice.sendReminder'
-  description: string;                  // shown to the model in <commands>
-  aiRule: string;                       // when to use it, in one or two sentences
-  params: (cf: CaseFile) => ZodType<P>; // built per case: real ids become enums
-  available: (cf: CaseFile, rules: MerchantRules) => boolean;
-  risk: 'read' | 'internal' | 'config' | 'message' | 'money';   // feeds policy defaults
-  check: (p: P, ctx: { read: PayPalReadHelpers; db: Db }) => Promise<CheckResult>;   // re-fetches fresh PayPal data
-  execute?: (p: P, paypal: PayPalWriteClient, requestId: string) => Promise<ExecResult>;
-  undo?: (exec: ExecResult) => Promise<void>;      // only if truly reversible
+interface CommandDef<P, F> {
+  id: `${string}.${string}`;                   // e.g. 'invoice.sendReminder'
+  description: string;                         // shown to the model in <commands>
+  aiRule: string;                              // when to use it, in one or two sentences
+  params(cf: CaseFile<F>): ZodType<P>;         // built per case: real ids become enums
+  available(cf: CaseFile<F>, rules: MerchantRules): boolean;
+  state?(cf: CaseFile<F>, rules: MerchantRules): string | undefined;   // e.g. "sent=1 of max 3"
+  risk: 'read' | 'internal' | 'config' | 'message' | 'money';
+  check(p: P, ctx: CheckContext<F>): Promise<CheckResult>;   // fresh PayPal reads via ctx.read, Pyp's records via ctx.db
+  overLimit?(p: P, rule: CommandRule, ctx: CheckContext<F>): Promise<string | null>;
+  resolve?(p: P, cf: CaseFile<F>): Record<string, unknown>;  // exact values for the card and the executor
+  // execute() and undo() belong to the executor (owner C), keyed by command id.
 }
-```
 
-```ts
-interface AgentClient {                       // the port (engine depends on this only)
-  complete(req: {
-    system: CachedText; turn: string;
-    schema: JSONSchema; tier: 'fast' | 'main' | 'deep'; effort?: Effort;
-    maxOutputTokens: number; signal: AbortSignal;
-  }): AsyncIterable<GatewayEvent>;            // chunk… then done{usage, stopReason}
+interface CompletionRequest {                  // the AgentClient port: complete(req) → AsyncIterable<GatewayEvent>
+  system: string; turn: string;                // system is cached: no timestamps or run ids
+  schema: JSONSchema; fullSchema?: JSONSchema; // fullSchema keeps length limits (Ollama only)
+  tier: 'fast' | 'main' | 'deep'; effort?: Effort; maxOutputTokens: number;
+  signal?: AbortSignal; purpose: string;       // purpose labels logs and the spend ledger
 }
-// adapters: anthropicClient (eval + demo) · ollamaClient (local dev) · scriptedClient (tests, offline demo)
+// adapters: AnthropicAgentClient (eval + demo) · OllamaAgentClient (local dev) · ScriptedAgentClient (tests, offline demo)
 ```
 
 ### B.1 Collections (hero)
@@ -1381,7 +1389,7 @@ interface AgentClient {                       // the port (engine depends on thi
 1. The receptionist calls `runSkill("collections", "new-invoice:<chat message id>", <the sentence>)`.
 2. **Code builds the case file:** known clients (name, email, id) from recent PayPal invoices, plus the merchant's sentence as merchant text. A small parser in code pulls out money amounts and terms and gives each an id (`amt_1`, `net_30`). **Code also matches the sentence against client names, businesses and emails** and marks the matches `named-in-request`; only those ids are offered (added Oct 28, after a 4B local model invoiced the wrong client).
 3. **Claude only chooses:** `clientId` (among the named clients), `amountRef`, `terms` and the wording. **Code computes the due date** from the terms, and the total from the amounts.
-4. If the client isn't known (no email) or no amount parses, the only allowed command is `merchant.ask` ("I don't have NewCo's email yet. Add them as a client in PayPal, then ask again?"). **TBD:** a free-text answer (such as typing the email) isn't supported yet; how `merchant.ask` collects text is in docs/TODO.md.
+4. If the client isn't known (no email) or no amount parses, **or code can't read an amount or term with certainty** (`$1,20`, `-$50`, `€500` for a USD merchant, `net 7`; listed in the case file's `<problems>`), the only allowed command is `merchant.ask` ("I don't have NewCo's email yet. Add them as a client in PayPal, then ask again?"). **TBD:** a free-text answer (such as typing the email) isn't supported yet; how `merchant.ask` collects text is in docs/TODO.md.
 5. The card states the exact client, amount and due date. The merchant approves, and the executor creates the draft, then sends it (two request ids, Section 9.4).
 
 ### B.2 Disputes
@@ -1529,6 +1537,8 @@ You decide what to propose about ONE unpaid invoice. You cannot act; you propose
 ```
 
 ### E.3 Generated response schema (shape)
+
+This is the full schema, which Ollama gets. Claude gets the same schema without the length, size and number limits (`maxLength`, `maxItems`, `minimum`…), which its API doesn't accept; Zod enforces them in code (§6.2).
 
 ```json
 {
@@ -1689,21 +1699,25 @@ create index on cards (merchant_id, state, created_at desc);
 
 ```
 pyp/
-  app/                       Next.js routes: website (public), dashboard, /api
+  app/                       Next.js routes: website (public), dashboard, /api (api/health/ exists today)
     api/webhooks/paypal/     intake
     api/cards/ api/rules/ api/kill-switch/ api/chat/ api/stream/ api/activity/ api/login/ api/extension/token/
   engine/
     registry.ts              skills list (one line per skill)
-    run-skill.ts             gather → propose → check → decide → act
+    types.ts                 the contracts (Appendix B.0, engine/README.md)
+    run-skill.ts             gather → menu → decide (model) → check → policy
     schema-builder.ts        commands → anyOf JSON Schema
     prompt-builder.ts        cached system + turn prompt
-    validator.ts  policy.ts  trace.ts
+    validator.ts  policy.ts  trace.ts  format.ts  xml.ts
+    commands/merchant-ask.ts the question every skill can ask
   skills/
     collections/  disputes/  insights/          (refunds/ parked)
-      skill.ts case-file.ts prompt.ts policy.ts commands/*.ts evals/*
+      skill.ts case-file.ts prompt.ts policy.ts commands/*.ts evals/*.test.ts evals/fixtures.ts
+      (collections also: request-parser.ts content-checks.ts)
   gateway/
-    agent-client.ts          the port
-    anthropic.ts ollama.ts scripted.ts spend-ledger.ts
+    index.ts                 createAgentClient(env): picks the adapter
+    anthropic.ts ollama.ts scripted.ts
+    budget.ts models.ts      spend ledger and cap; model ids and prices
   paypal/
     mcp-read-client.ts       PayPal MCP server, read-tool allow-list (case files, validator, chat)
     read-client.ts           REST reads for gaps (e.g. balances)
@@ -1714,7 +1728,7 @@ pyp/
                              (Inngest functions, or job-table workers + Render cron)
   db/                        schema.sql, migrations, queries
   extension/                 Chrome side panel (Manifest V3): manifest, panel UI, API client
-  evals/                     promptfoo red-team config, goldens runner
+  evals/                     boundary.test.ts, live/ (real-model checks); later the red-team suite
   docs/                      master-plan.md, technical-design.md, diagrams/
 ```
 

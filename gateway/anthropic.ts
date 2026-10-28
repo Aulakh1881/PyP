@@ -26,6 +26,7 @@ export class AnthropicAgentClient implements AgentClient {
     const model = this.models[req.tier];
     const abort = new AbortController();
     const onOuterAbort = () => abort.abort(req.signal?.reason);
+    if (req.signal?.aborted) throw new Error("Cancelled before the call started");
     req.signal?.addEventListener("abort", onOuterAbort, { once: true });
 
     let stalled = false;
