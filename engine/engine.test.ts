@@ -35,7 +35,8 @@ describe("schema builder", () => {
   async function schemaFor() {
     const ctx = context({ invoices: { [acmeInvoice.id]: acmeInvoice } });
     const cf = await buildCollectionsCaseFile(ctx, { kind: "invoice", id: acmeInvoice.id });
-    return buildResponseSchema(collections.commands, cf);
+    const menu = collections.commands.filter((c) => c.available(cf, ctx.rules));
+    return buildResponseSchema(menu, cf);
   }
 
   it("sends only keywords the Claude API accepts", async () => {
@@ -44,6 +45,12 @@ describe("schema builder", () => {
       expect(text).not.toContain(`"${banned}"`);
     }
     expect(text).toContain('"additionalProperties":false');
+  });
+
+  it("keeps the limits in the full schema for providers that enforce them, and tells the model in descriptions", async () => {
+    const schema = await schemaFor();
+    expect(JSON.stringify(schema.fullJson)).toContain('"maxLength":200');
+    expect((schema.json as any).properties.title.description).toContain("under 80 characters");
   });
 
   it("makes real ids the only allowed values", async () => {

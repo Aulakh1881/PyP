@@ -788,7 +788,7 @@ The policy engine is plain, deterministic code. The model never sees it and can'
 | Command | Risk | Default dial | Can it be set to Auto? | Default limits |
 |---|---|---|---|---|
 | `invoice.createAndSend` | message | Ask me | **No** (it starts from typed chat text, so it's always a tap) | the card states the exact client, amount and due date |
-| `invoice.sendReminder` | message | Ask me | **Yes** | max 3 per invoice; ≥ 3 days apart; tone `final` always asks; PayPal allows only 2 remind calls a day |
+| `invoice.sendReminder` | message | Ask me | **Yes** | max 3 per invoice; ≥ 3 days apart; tone `final` **and the last allowed reminder** always ask (the second doesn't trust the tone label); PayPal allows only 2 remind calls a day |
 | `invoice.scheduleFollowUp` | internal | Auto | Yes | — |
 | `invoice.suggestAutoReminders` (Could) | config | Ask me | No | — |
 | `invoice.cancel` | money | Ask me | **Never** | — |
@@ -1379,8 +1379,8 @@ interface AgentClient {                       // the port (engine depends on thi
 *"Invoice Acme $1,200, net 30."*
 
 1. The receptionist calls `runSkill("collections", "new-invoice:<chat message id>", <the sentence>)`.
-2. **Code builds the case file:** known clients (name, email, id) from recent PayPal invoices, plus the merchant's sentence as merchant text. A small parser in code pulls out money amounts and terms and gives each an id (`amt_1`, `net_30`).
-3. **Claude only chooses:** `clientId`, `amountRef`, `terms` and the wording. **Code computes the due date** from the terms.
+2. **Code builds the case file:** known clients (name, email, id) from recent PayPal invoices, plus the merchant's sentence as merchant text. A small parser in code pulls out money amounts and terms and gives each an id (`amt_1`, `net_30`). **Code also matches the sentence against client names, businesses and emails** and marks the matches `named-in-request`; only those ids are offered (added Oct 28, after a 4B local model invoiced the wrong client).
+3. **Claude only chooses:** `clientId` (among the named clients), `amountRef`, `terms` and the wording. **Code computes the due date** from the terms, and the total from the amounts.
 4. If the client isn't known (no email) or no amount parses, the only allowed command is `merchant.ask` ("I don't have NewCo's email yet. Add them as a client in PayPal, then ask again?"). **TBD:** a free-text answer (such as typing the email) isn't supported yet; how `merchant.ask` collects text is in docs/TODO.md.
 5. The card states the exact client, amount and due date. The merchant approves, and the executor creates the draft, then sends it (two request ids, Section 9.4).
 

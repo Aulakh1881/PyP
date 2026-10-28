@@ -2,7 +2,7 @@
 // change here, nowhere else (ADR-007).
 //
 //   PYP_MODEL_PROVIDER=anthropic   Claude (needs ANTHROPIC_API_KEY)
-//   PYP_MODEL_PROVIDER=ollama      local model (needs OLLAMA_MODEL; OLLAMA_BASE_URL optional)
+//   PYP_MODEL_PROVIDER=ollama      local model (needs OLLAMA_MODEL; OLLAMA_BASE_URL, OLLAMA_THINK optional)
 //   unset                          anthropic if ANTHROPIC_API_KEY is set, else ollama
 
 import type { AgentClient } from "@/engine/types";
@@ -29,7 +29,8 @@ export function createAgentClient(
   }
   if (provider === "ollama") {
     if (!env.OLLAMA_MODEL) throw new Error("Set OLLAMA_MODEL (for example qwen3:8b) or ANTHROPIC_API_KEY");
-    return new OllamaAgentClient(env.OLLAMA_MODEL, env.OLLAMA_BASE_URL);
+    const think = env.OLLAMA_THINK === "true" ? true : env.OLLAMA_THINK === "default" ? null : false;
+    return new OllamaAgentClient(env.OLLAMA_MODEL, { baseUrl: env.OLLAMA_BASE_URL, think });
   }
   throw new Error(`Unknown PYP_MODEL_PROVIDER: ${provider}`);
 }

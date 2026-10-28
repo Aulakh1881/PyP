@@ -120,8 +120,9 @@ describe("Ollama adapter", () => {
       return new Response(body);
     }) as unknown as typeof fetch;
 
-    const done = await collect(new OllamaAgentClient("qwen3:8b", "http://localhost:11434", fakeFetch).complete(req));
-    expect(sent).toMatchObject({ model: "qwen3:8b", format: { type: "object" }, stream: true });
+    const done = await collect(new OllamaAgentClient("qwen3:8b", { fetchImpl: fakeFetch }).complete(req));
+    expect(sent).toMatchObject({ model: "qwen3:8b", format: { type: "object" }, stream: true, think: false, options: { num_ctx: 8192, temperature: 0 } });
+    expect(sent.messages[0].content).toContain('<json-schema>{"type":"object"}</json-schema>');
     expect(done).toMatchObject({ text: '{"a":1}', model: "ollama:qwen3:8b", stopReason: "end", usage: { inputTokens: 50, outputTokens: 7 } });
   });
 });
