@@ -352,7 +352,7 @@ export const sendReminder: CommandDef<SendReminderParams> = {
 };
 ```
 
-5. **`prompt.md`**: the playbook in plain English ("1st friendly, 2nd firm, 3rd final; hold off if the client said payment is coming").
+5. **`prompt.ts`**: the playbook in plain English ("1st friendly, 2nd firm, 3rd final; hold off if the client said payment is coming").
 6. **`policy.ts`**: defaults: reminders start on "Ask me", max 3, at least 3 days apart. (PayPal's own remind endpoint also says the API caller "can send only 2 reminders in a day", so the daily count is checked too.)
 7. **`evals/`**: test cases: a fixed case file plus the expected answer ("already paid → no reminder"; "check in the mail → follow up, don't remind").
 8. **Register it**: add `collections` to `engine/registry.ts`.
@@ -618,14 +618,14 @@ Level 2 zooms into Pyp: the deployable pieces and how they talk.
 | Database | **Render Postgres** | Relational state plus JSON columns for case files and traces |
 | Activity history grid | **AG Grid** (hackathon partner) | The filterable Activity tab |
 | Build-time API context | **APIMatic** (hackathon partner) and **Postman** | Gives our coding AI accurate PayPal API context while we build; Postman for calling PayPal by hand |
-| Model SDK | **Vercel AI SDK** (structured output and tool loops) behind our own `AgentClient` port | A library, not tied to Vercel hosting. The team already used it in Whizzy; provider-neutral; Ollama and Anthropic providers available |
+| Model SDK | **Anthropic's official TypeScript SDK** (`@anthropic-ai/sdk`) for Claude, and Ollama's own `/api/chat` for local models, both behind our own `AgentClient` port | Changed from the Vercel AI SDK on Oct 28: the official SDK gives direct access to structured outputs (`output_config.format`), effort, prompt caching, refusal fallbacks and cache-aware usage for the spend ledger. Each adapter is one file in `gateway/` |
 | Models | **Claude Haiku 5.5 / Sonnet 5.5 / Opus 5.5**; **Ollama** locally | Section 7.7 |
 | Validation | **Zod** schemas → JSON Schema | One definition drives the model's schema, the validator and TypeScript types |
 | PayPal reads | **PayPal's MCP server** (read tools only, through our allow-list) + REST for gaps | Official PayPal tooling for reading the account; less code for us; a stronger "built on PayPal" story (ADR-006) |
 | PayPal writes | **Direct REST calls** through our own small client, executor only | Request ids per call, our error mapping, one writer (ADR-006) |
 | Evals | Vitest goldens + Promptfoo red-team suite | Section 14 |
 
-> **Verify on day 1:** the exact AI SDK function names for structured output, and Ollama's support for the JSON-schema features we use (`anyOf`, `enum`). The validator re-checks everything anyway, so a weak local model fails safe.
+> **Structured outputs (checked Oct 28):** the Claude API accepts `anyOf`, `const`, `enum` and `additionalProperties: false`, but not length, number or array-size limits (`maxLength`, `maximum`, `maxItems`). `engine/schema-builder.ts` strips those from the schema it sends, and the validator enforces them in code with Zod. **Still to verify:** how well Ollama models follow `anyOf` / `enum` schemas. The validator re-checks everything anyway, so a weak local model fails safe.
 
 ---
 
@@ -1700,7 +1700,7 @@ pyp/
     validator.ts  policy.ts  trace.ts
   skills/
     collections/  disputes/  insights/          (refunds/ parked)
-      skill.ts case-file.ts prompt.md policy.ts commands/*.ts evals/*
+      skill.ts case-file.ts prompt.ts policy.ts commands/*.ts evals/*
   gateway/
     agent-client.ts          the port
     anthropic.ts ollama.ts scripted.ts spend-ledger.ts
