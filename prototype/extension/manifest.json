@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "Pyp for PayPal (unofficial)",
+  "short_name": "Pyp",
+  "version": "0.1.0",
+  "description": "A friendly helper in the corner of PayPal. UI preview on demo data. Independent concept, not affiliated with PayPal.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "Pyp",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": ["https://www.paypal.com/*", "https://*.paypal.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://www.paypal.com/*", "https://*.paypal.com/*"],
+      "js": [
+        "shared/pyp-figure.js",
+        "shared/policy.js",
+        "shared/demo-data.js",
+        "shared/pyp-inbox.js",
+        "shared/pyp-widget.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["fonts/*.woff2"],
+      "matches": ["https://www.paypal.com/*", "https://*.paypal.com/*"]
+    }
+  ]
+}
