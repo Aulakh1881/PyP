@@ -1,15 +1,9 @@
+@import url("https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Nunito:wght@600;700;800&display=swap");
+
 :root {
   --background: #ffffff;
-  --foreground: #171717;
-  --muted: #5f6368;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-    --muted: #a0a4a8;
-  }
+  --foreground: #0b1f4d;
+  --muted: #4a5b7c;
 }
 
 * {
@@ -22,7 +16,9 @@ body {
   min-height: 100vh;
   color: var(--foreground);
   background: var(--background);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: Nunito, ui-rounded, "SF Pro Rounded", "Segoe UI", system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -38,3 +34,23 @@ body {
   color: var(--muted);
   font-size: 0.875rem;
 }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; min-height: 46px; padding: 0 20px; border: 0; border-radius: 12px; background: #1f5fe0; color: #fff; font: 800 15px/1 inherit; font-family: inherit; cursor: pointer; }
+.btn:hover { filter: brightness(1.08); }
+
+.signin { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: #eef3ff; }
+.signcard { width: 100%; max-width: 400px; background: #fff; border-radius: 24px; padding: 32px; box-shadow: 0 20px 50px rgb(11 31 77 / 12%); display: flex; flex-direction: column; gap: 10px; }
+.signin-figure-link { display: block; width: 72px; height: 78px; }
+.signin-figure { display: block; width: 72px; height: 86px; }
+.signcard h1 { color: #0b1f4d; font-family: "Baloo 2", Nunito, sans-serif; font-size: 32px; font-weight: 800; line-height: 1.05; }
+.signcard label { margin-top: 8px; color: #0b1f4d; font-size: 14px; font-weight: 800; }
+.signcard input { height: 48px; border: 1.5px solid #c9d1de; border-radius: 12px; padding: 0 14px; font: 600 16px inherit; color: #0b1f4d; }
+.auth-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: #f3f6fc; }
+.auth-tabs button { flex: 1; min-height: 38px; border: 0; border-radius: 9px; background: transparent; color: #0b1f4d; font: 800 14px inherit; cursor: pointer; }
+.auth-tabs button.active { background: #fff; box-shadow: 0 1px 4px rgb(11 31 77 / 15%); color: #1747b8; }
+.auth-form { display: flex; flex-direction: column; gap: 10px; }
+.auth-submit { margin-top: 6px; }
+.auth-submit:disabled { cursor: wait; opacity: .7; }
+.auth-message, .auth-error { margin: 0; font-size: 13px; font-weight: 600; text-align: center; }
+.auth-message { color: #0b6b47; }
+.auth-error { color: #a3261b; }
