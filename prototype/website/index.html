@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pyp · a little helper for PayPal</title>
+<meta name="description" content="Pyp is a friendly helper that sits in the corner of PayPal. It flags what needs you, drafts the next step, and only acts within limits you set. Independent concept, not affiliated with PayPal.">
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Nunito:wght@600;700;800&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap navrow">
+    <a class="brand" href="#top" aria-label="Pyp home"><span data-fig="brand"></span><span>Pyp</span></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="#corner">Features</a></li>
+        <li><a href="#inbox">Inbox</a></li>
+        <li><a href="#safety">Safety</a></li>
+        <li><a href="app/">Open the demo</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-sm" href="#install">Get the extension</a>
+  </div>
+</header>
+
+<main id="main">
+
+  <section class="hero" id="top">
+    <div class="wrap herogrid">
+      <div class="herocopy">
+        <p class="eyebrow">For PayPal sellers · Chrome extension</p>
+        <h1>A little helper in the corner of your PayPal.</h1>
+        <p class="lede">Pyp keeps an eye on your account, tells you what needs you, and drafts the next step. You approve, Pyp does the clicking, and small stuff runs on its own within limits you set.</p>
+        <div class="ctas">
+          <a class="btn" href="app/">Open the demo</a>
+          <a class="btn btn-ghost" href="#install">Get the Chrome extension</a>
+        </div>
+        <p class="note"><button class="textbtn" type="button" data-try>Or try Pyp right here</button> · UI preview on demo data · not affiliated with PayPal</p>
+      </div>
+
+      <div class="heroart" aria-hidden="true">
+        <div class="blob"></div>
+        <div class="minicard mc-1">
+          <span class="mc-tag t-blue">Invoices · Ask me</span>
+          <b>Acme Studio is 9 days late</b>
+          <span class="mc-sug">Pyp suggests: send a friendly reminder</span>
+        </div>
+        <div class="minicard mc-2">
+          <span class="mc-tag t-green">Refunds · Auto</span>
+          <b>$18.00 back to Beta LLC</b>
+          <span class="mc-sug">Undo · 0:42</span>
+        </div>
+        <div class="bigpyp" data-fig="hero"></div>
+        <div class="bubble">Morning! 3 things need a look.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="corner">
+    <div class="wrap">
+      <h2 class="h2">Pyp lives in the corner</h2>
+      <p class="sub">Open PayPal and Pyp is there, blinking in the bottom-right. Hover and it looks up at you. Tap and it hops into the chat.</p>
+      <div class="tiles">
+        <article class="tile">
+          <div class="tileart" data-fig="tile-chat"></div>
+          <h3>Ask it anything</h3>
+          <p>Track a payment, check a refund, find late invoices. Pyp answers like a friend with a profile picture, and hops down to every new answer.</p>
+        </article>
+        <article class="tile">
+          <div class="tileart tile-plus" aria-hidden="true">
+            <span class="plusdot">+</span>
+            <span class="plusmenu"><span>Screenshot this page</span><span>Upload photos or files</span></span>
+          </div>
+          <h3>Show, don’t type</h3>
+          <p>Tap + to send a screenshot of the page you’re stuck on, or upload a photo or file. Pyp takes it from there.</p>
+        </article>
+        <article class="tile">
+          <div class="tileart hats" data-fig="tile-hats"></div>
+          <h3>Make Pyp yours</h3>
+          <p>Six colors, seven hats, your chat color and message box. Pyp wears its hat everywhere: in the corner, mid-flight, next to every answer.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="band band-tint" id="inbox">
+    <div class="wrap">
+      <h2 class="h2">Every morning, one tidy inbox</h2>
+      <p class="sub">Each card says what happened and what Pyp suggests. Approve it, dismiss it, or flip it over to see exactly how Pyp got there. Go on, click around: it’s live.</p>
+      <div class="browser">
+        <div class="bbar"><span></span><span></span><span></span><div class="burl">pyp · inbox</div></div>
+        <div class="bbody"><div id="inbox-demo"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="safety">
+    <div class="wrap">
+      <h2 class="h2">The AI proposes. Code decides.</h2>
+      <p class="sub">Pyp’s AI only ever suggests. Plain, testable rules decide what can run on its own, and they re-check PayPal right before anything happens.</p>
+      <div class="rules">
+        <article class="rule">
+          <span class="rnum">1</span>
+          <h3>A buyer’s message is information, never an order</h3>
+          <p>If a buyer writes “refund me now”, Pyp reads it as context. It can’t be talked into moving money.</p>
+        </article>
+        <article class="rule">
+          <span class="rnum">2</span>
+          <h3>Small refunds run on Auto, with an undo</h3>
+          <p>Within your limit (say $25), refunds go through after a 60-second window you can cancel. Anything bigger waits for you.</p>
+        </article>
+        <article class="rule">
+          <span class="rnum">3</span>
+          <h3>Big or sensitive steps always wait for you</h3>
+          <p>Dispute evidence is never Auto. Pyp drafts it, you review and edit, you press send.</p>
+        </article>
+        <article class="rule">
+          <span class="rnum">4</span>
+          <h3>Every step is timestamped and logged</h3>
+          <p>Trigger, what Pyp read, what the AI proposed, which checks passed, which rule applied. Flip any card to see it.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="band band-tint" id="install">
+    <div class="wrap installgrid">
+      <div>
+        <h2 class="h2">Get the Chrome extension</h2>
+        <p class="sub">Pyp isn’t on the Chrome Web Store yet. Install the preview in a minute:</p>
+        <ol class="steps">
+          <li><span>1</span><div><b>Get the code</b> from GitHub (Code → Download ZIP) and unzip it.</div></li>
+          <li><span>2</span><div>Open <code>chrome://extensions</code> and switch on <b>Developer mode</b> (top right).</div></li>
+          <li><span>3</span><div>Click <b>Load unpacked</b> and choose the <code>prototype/extension</code> folder.</div></li>
+          <li><span>4</span><div>Go to <b>paypal.com</b>. Pyp appears in the bottom-right corner. Click the Pyp icon in Chrome’s toolbar to see what’s waiting on you or open the web app.</div></li>
+        </ol>
+        <div class="ctas">
+          <a class="btn" href="https://github.com/Aulakh1881/pyp">Get the code on GitHub</a>
+          <a class="btn btn-ghost" href="app/">Open the demo dashboard</a>
+        </div>
+      </div>
+      <aside class="previewnote">
+        <div data-fig="install"></div>
+        <h3>This is a UI preview</h3>
+        <p>Everything Pyp shows right now is demo data. It doesn’t read your PayPal account, store your info, or move any money. The real connection to PayPal comes later.</p>
+      </aside>
+    </div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap footrow">
+    <a class="brand" href="#top" aria-label="Pyp home"><span data-fig="foot"></span><span>Pyp</span></a>
+    <p>Pyp is an independent concept and is not affiliated with, endorsed by, or sponsored by PayPal. PayPal is a trademark of PayPal, Inc.</p>
+  </div>
+</footer>
+
+<script src="shared/pyp-figure.js"></script>
+<script src="shared/policy.js"></script>
+<script src="shared/demo-data.js"></script>
+<script src="shared/pyp-inbox.js"></script>
+<script src="shared/pyp-widget.js"></script>
+<script src="site.js"></script>
+</body>
+</html>
