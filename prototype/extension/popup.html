@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pyp</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<main class="pop">
+  <header class="top">
+    <div id="pyp" class="fig"></div>
+    <div class="who">
+      <h1>Pyp</h1>
+      <span class="pill">DEMO DATA</span>
+    </div>
+    <button id="settings-btn" class="iconbtn" aria-label="Settings" aria-expanded="false" aria-controls="settings">
+      <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="7" r="2.2" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="10" cy="17" r="2.2" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+    </button>
+  </header>
+
+  <a id="open-app" class="primary" href="#" target="_blank" rel="noopener">Open the Pyp web app
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </a>
+
+  <section id="settings" class="settings" hidden>
+    <div class="row">
+      <span id="show-label">Show Pyp on PayPal</span>
+      <button id="toggle" class="switch" role="switch" aria-checked="true" aria-labelledby="show-label"><span></span></button>
+    </div>
+    <label class="field" for="app-url">Web app address
+      <input id="app-url" type="url" spellcheck="false">
+    </label>
+    <label class="field" for="code">Connection code <span style="font-weight:600">(from Setup in the web app)</span></label>
+    <div class="connect"><input id="code" type="text" spellcheck="false" autocomplete="off" placeholder="PYP-XXXX-XXXX"><button id="connect" class="small" type="button">Connect</button></div>
+    <p id="connected" class="ok" role="status" hidden></p>
+    <button id="reset" class="link" type="button">Reset demo data</button>
+  </section>
+
+  <section aria-labelledby="pending-t">
+    <h2 id="pending-t" class="sectitle">Waiting on you <span id="count" class="count"></span></h2>
+    <div id="pending"></div>
+  </section>
+
+  <footer class="foot">Independent concept · not affiliated with PayPal</footer>
+</main>
+<script src="shared/pyp-figure.js"></script>
+<script src="shared/policy.js"></script>
+<script src="shared/demo-data.js"></script>
+<script src="shared/pyp-inbox.js"></script>
+<script src="popup.js"></script>
+</body>
+</html>

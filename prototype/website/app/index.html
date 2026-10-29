@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pyp dashboard</title>
+<link rel="icon" type="image/png" href="../assets/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Nunito:wght@600;700;800&display=swap">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<div id="app" class="app">
+  <aside class="side" aria-label="Dashboard">
+    <a class="brand" href="../index.html" aria-label="Pyp website"><span data-fig="brand"></span><span>Pyp</span></a>
+    <nav>
+      <ul class="navlist">
+        <li><a href="#/inbox" data-nav="inbox"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13l2.5-8h11L20 13v6H4z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M4 13h5l1 2h4l1-2h5" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/></svg>Inbox <span class="count" data-navcount></span></a></li>
+        <li><a href="#/activity" data-nav="activity"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Activity</a></li>
+        <li><a href="#/brief" data-nav="brief"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V9M12 19V5M19 19v-7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>Weekly brief</a></li>
+        <li><a href="#/setup" data-nav="setup"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="7" r="2.2" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="10" cy="17" r="2.2" stroke="currentColor" stroke-width="2" fill="none"/></svg>Setup</a></li>
+      </ul>
+    </nav>
+    <div class="sidefoot">
+      <p class="pausepill" data-pausepill hidden>Pyp is paused</p>
+      <div class="me"><span class="avatar" aria-hidden="true">M</span><div><b>Maya</b><span>Maya’s Ceramics · sandbox</span></div></div>
+      <button class="link" type="button" data-signout>Sign out</button>
+      <p class="disc">DEMO DATA · Independent concept, not affiliated with PayPal</p>
+    </div>
+  </aside>
+
+  <main class="main" id="main" tabindex="-1">
+    <header class="top">
+      <h1 id="page-title">Inbox</h1>
+      <span class="demo">DEMO DATA</span>
+    </header>
+    <div id="view"></div>
+  </main>
+</div>
+
+<div class="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="../shared/pyp-figure.js"></script>
+<script src="../shared/policy.js"></script>
+<script src="../shared/demo-data.js"></script>
+<script src="../shared/pyp-inbox.js"></script>
+<script src="../shared/pyp-widget.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
