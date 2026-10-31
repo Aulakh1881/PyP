@@ -56,9 +56,16 @@ export function otherInvoiceNumber(text: string, own: string): string | null {
     .join("");
   const re = new RegExp(`(?<![\\p{L}\\p{N}])${shape}(?![\\p{L}\\p{N}])`, "giu");
   for (const m of text.replace(MONEY, " ").replace(DATE, " ").matchAll(re)) {
-    if (m[0] !== own && !/^(19|20)\d\d$/.test(m[0])) return `It names another invoice (${m[0]})`;
+    if (sameNumber(m[0], own) || /^(19|20)\d\d$/.test(m[0])) continue;
+    return `It names another invoice (${m[0]})`;
   }
   return null;
+}
+
+/** "inv-12", "INV 12" and "INV-12" are the same invoice. */
+function sameNumber(a: string, b: string): boolean {
+  const norm = (s: string) => s.toUpperCase().replace(/[-\s]/g, "");
+  return norm(a) === norm(b);
 }
 
 function escapeRegExp(s: string): string {
