@@ -194,6 +194,25 @@ describe("Collections", () => {
     expect(result.proposals[0].resolved).toMatchObject({ invoiceNumber: "0042", amountDueDisplay: "$1,200.00", recipientEmail: "sam@acme.example", reminderNumber: 1 });
   });
 
+  it("short or prefixed invoice numbers don't mistake the due date for another invoice", async () => {
+    for (const number of ["INV-12", "12"]) {
+      const inv = { ...acmeInvoice, number };
+      const note = `Hi Sam, invoice ${number} for $1,200.00 was due Oct 21, 2026 (2026-10-21), 14 days ago.`;
+      const { result } = await run({ invoices: { [inv.id]: inv } }, [friendlyReminder({ note })]);
+      expect(result.proposals[0].status, number).toBe("awaiting_approval");
+    }
+    const inv = { ...acmeInvoice, number: "INV-12" };
+    const { result } = await run({ invoices: { [inv.id]: inv } }, [friendlyReminder({ note: "Hi Sam, invoice INV-12 for $1,200.00 and INV-13 are overdue." })]);
+    expect(result.proposals[0].check.reason).toBe("It names another invoice (INV-13)");
+  });
+
+  it("a payment between gathering and checking fails the check, so the card never shows a stale amount", async () => {
+    const world = { ...overdue, freshInvoices: { [acmeInvoice.id]: { ...acmeInvoice, status: "PARTIALLY_PAID" as const, amountDue: "450.00" } } };
+    const note = "Hi Sam, invoice 0042 for $450.00 is overdue.";
+    const { result } = await run(world, [friendlyReminder({ note })]);
+    expect(result.proposals[0]).toMatchObject({ status: "invalid", check: { reason: "The invoice changed since Pyp looked at it" } });
+  });
+
   it("if a limit can't be checked, it's a card, never Auto", async () => {
     const r = rules({ commands: { "invoice.sendReminder": { dial: "auto" } } });
     const ctx = context(overdue, r);

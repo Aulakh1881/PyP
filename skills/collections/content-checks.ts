@@ -39,16 +39,23 @@ export function namesNumber(text: string, number: string): boolean {
   return new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(number)}(?![\\p{L}\\p{N}])`, "u").test(text);
 }
 
+// Dates a note may mention: "Oct 21", "October 21st, 2026", "2026-10-21", "10/21/2026".
+const DATE =
+  /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?\b|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/giu;
+
 /**
  * Fails if `text` names an invoice number other than `own`: any token with the
- * same shape (digits for digits, letters for letters). Years are allowed.
+ * same shape (digits for digits) and the same letter prefix. Dates and years are
+ * allowed. A number of 1 to 3 bare digits can't be told apart from "14 days",
+ * so for those only the exact-number check in the command applies.
  */
 export function otherInvoiceNumber(text: string, own: string): string | null {
+  if (/^\d{1,3}$/.test(own)) return null;
   const shape = [...own]
-    .map((ch) => (/\p{L}/u.test(ch) ? "\\p{L}" : /\d/.test(ch) ? "\\d" : /[-\s]/.test(ch) ? "[-\\s]?" : escapeRegExp(ch)))
+    .map((ch) => (/\p{L}/u.test(ch) ? escapeRegExp(ch) : /\d/.test(ch) ? "\\d" : /[-\s]/.test(ch) ? "[-\\s]?" : escapeRegExp(ch)))
     .join("");
-  const re = new RegExp(`(?<![\\p{L}\\p{N}])${shape}(?![\\p{L}\\p{N}])`, "gu");
-  for (const m of text.replace(MONEY, " ").matchAll(re)) {
+  const re = new RegExp(`(?<![\\p{L}\\p{N}])${shape}(?![\\p{L}\\p{N}])`, "giu");
+  for (const m of text.replace(MONEY, " ").replace(DATE, " ").matchAll(re)) {
     if (m[0] !== own && !/^(19|20)\d\d$/.test(m[0])) return `It names another invoice (${m[0]})`;
   }
   return null;

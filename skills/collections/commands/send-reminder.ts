@@ -53,6 +53,13 @@ export const sendReminder: CommandDef<SendReminderParams, CollectionsFacts> = {
     if (!inv) return fail("Invoice not found in PayPal");
     if (!REMINDABLE.includes(inv.status)) return fail(`Invoice is ${inv.status}, no longer unpaid`);
     if (inv.disputed) return fail("Invoice is under dispute");
+    // The card shows the case file's values (resolve), so they must still be PayPal's.
+    if (ctx.caseFile.facts.mode === "overdue") {
+      const seen = ctx.caseFile.facts.invoice;
+      if (inv.amountDue !== seen.amountDue || inv.currency !== seen.currency || inv.recipientEmail !== seen.recipientEmail) {
+        return fail("The invoice changed since Pyp looked at it");
+      }
+    }
 
     const limits = reminderLimits(ctx.rules);
     const sent = await ctx.db.remindersSent(p.invoiceId);
