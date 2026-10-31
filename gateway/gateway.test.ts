@@ -40,6 +40,17 @@ describe("budget", () => {
   });
 });
 
+describe("budget across midnight", () => {
+  it("a call reserved yesterday can't lower today's spend", async () => {
+    let now = new Date("2026-10-28T23:59:00Z");
+    const ledger = new MemoryLedger(() => now);
+    const r = await ledger.reserve(4, 5);
+    now = new Date("2026-10-29T00:01:00Z");
+    await ledger.settle(r, 0.01);
+    expect(ledger.spentToday).toBe(0);
+  });
+});
+
 describe("Anthropic adapter", () => {
   function fakeClient(capture: { params?: any }, message: object, events: object[] = []) {
     return {
@@ -83,6 +94,13 @@ describe("Anthropic adapter", () => {
     expect(done.stopReason).toBe("end");
     // 1000 × $2 + 200 × $10 + 3000 × $0.20, per million tokens
     expect(done.usage.costUsd).toBeCloseTo(0.0046, 6);
+  });
+
+  it("a call cancelled before it starts never reaches the API", async () => {
+    const capture: { params?: any } = {};
+    const signal = AbortSignal.abort();
+    await expect(collect(new AnthropicAgentClient(fakeClient(capture, {})).complete({ ...req, signal }))).rejects.toThrow("Cancelled");
+    expect(capture.params).toBeUndefined();
   });
 
   it("leaves server-side fallbacks off for Haiku", async () => {

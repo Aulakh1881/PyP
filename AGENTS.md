@@ -1,3 +1,12 @@
+# Pyp: notes for coding agents
+
+- **Source of truth:** `docs/master-plan.md`, then `docs/technical-design.md`, then `docs/TODO.md`.
+- **Nothing writes to PayPal except `executor/`.** Lint and `evals/boundary.test.ts` enforce it.
+- **Code does the maths.** The model never calculates money; it picks among ids code gives it.
+- **No secrets in Git.** Keys live in `.env.local` (git-ignored); `.env.example` has names only.
+- **Code lands through pull requests**, never pushed straight to `main`. Run `npm run check` first.
+- **The engine contract** for other folders is in `engine/README.md`.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 ## This is NOT the Next.js you know

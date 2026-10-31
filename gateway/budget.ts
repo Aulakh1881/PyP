@@ -18,11 +18,16 @@ export class BudgetExceeded extends Error {
   }
 }
 
-/** In-memory ledger for development and tests. Owner C swaps in one backed by runs.cost_usd. */
+/**
+ * In-memory ledger for development and tests; one process only. Owner C swaps
+ * in one backed by runs.cost_usd, whose reserve() must check the cap and add
+ * the reservation in one atomic step (e.g. a conditional UPDATE), since
+ * several workers share it.
+ */
 export class MemoryLedger implements SpendLedger {
   private day = "";
   private spent = 0;
-  private open = new Map<string, number>();
+  private open = new Map<string, { usd: number; day: string }>();
   private seq = 0;
 
   constructor(private readonly now: () => Date = () => new Date()) {}
@@ -32,7 +37,7 @@ export class MemoryLedger implements SpendLedger {
     if (this.spent + usd > capUsd) throw new BudgetExceeded(capUsd);
     this.spent += usd;
     const id = `r${++this.seq}`;
-    this.open.set(id, usd);
+    this.open.set(id, { usd, day: this.day });
     return id;
   }
 
@@ -40,7 +45,9 @@ export class MemoryLedger implements SpendLedger {
     const reserved = this.open.get(id);
     if (reserved === undefined) return;
     this.open.delete(id);
-    this.spent += actualUsd - reserved;
+    this.rollOver();
+    // A call reserved yesterday counted against yesterday's cap; it can't lower today's.
+    if (reserved.day === this.day) this.spent += actualUsd - reserved.usd;
   }
 
   get spentToday(): number {

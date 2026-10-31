@@ -38,7 +38,7 @@ PayPal AI Hackathon 2026 · feature freeze **Tue Nov 10** · submission **Thu No
 | [`executor/`](executor/) | The only place that writes to PayPal | C |
 | [`jobs/`](jobs/) | Sweeps, execute, undo timers, cleanup | C |
 | [`db/`](db/) | Schema and migrations (9-table core first) | C |
-| [`evals/`](evals/) | Golden tests and the prompt-injection suite | B |
+| [`evals/`](evals/) | The write-boundary test and live model checks (`live/`); the prompt-injection suite comes later | B |
 | [`docs/`](docs/) | Master plan, technical design, diagrams | All |
 
 Roles: **A** frontend · **B** engine and AI · **C** PayPal and infrastructure (master plan §7).
@@ -66,8 +66,10 @@ npm run dev                  # http://localhost:3000 (health check: /api/health)
 | `npm run dev` | Next.js dev server |
 | `npm run check` | Lint, typecheck and tests: run before you push |
 | `npm test` | Vitest, including the write-boundary test (`evals/boundary.test.ts`) |
+| `npm run lint` / `npm run typecheck` | Each check on its own |
+| `npm run eval:live` | The Collections cases against a real model (Claude, or Ollama with `PYP_MODEL_PROVIDER=ollama`); see `gateway/README.md` |
 | `npm run build` | Production build, as Render runs it |
 
-One Next.js project lives at the repo root. `app/` is the App Router folder (pages and API routes); the other folders are plain TypeScript, imported with the `@/` alias (for example `@/engine/policy`). CI runs the same checks on every push and pull request.
+One Next.js project lives at the repo root. `app/` is the App Router folder (pages and API routes); the other folders are plain TypeScript, imported with the `@/` alias (for example `@/engine/policy`). CI runs lint, typecheck, tests and the build on every pull request and every push to `main`.
 
 The write boundary is enforced twice: ESLint (`no-restricted-imports`) and a test both fail if anything outside `executor/` imports `paypal/write-client`.

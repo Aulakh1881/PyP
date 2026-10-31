@@ -6,7 +6,8 @@
 import { daysBetween, formatMoney, localDate } from "@/engine/format";
 import type { CaseFile, Client, Invoice, MerchantRules, SkillContext, SubjectRef } from "@/engine/types";
 import { block, tag, textTag } from "@/engine/xml";
-import { addDays, ALL_TERMS, mentionsClient, parseAmounts, parseTerms, type ParsedAmount, type ParsedTerm } from "./request-parser";
+import { truncate } from "@/engine/prompt-builder";
+import { addDays, ALL_TERMS, EMAIL, mentionsClient, parseAmounts, parseTerms, type ParsedAmount, type ParsedTerm } from "./request-parser";
 
 export interface OverdueFacts {
   mode: "overdue";
@@ -29,6 +30,8 @@ export interface NewInvoiceFacts {
   /** The terms the merchant named, or every standard term if they named none. */
   terms: (ParsedTerm & { dueDate: string })[];
   termsNamed: boolean;
+  /** What code couldn't read with certainty ("$1,20", "net 7", "€500" for a USD merchant). Any problem means: ask. */
+  problems: string[];
 }
 
 export type CollectionsFacts = OverdueFacts | NewInvoiceFacts;
@@ -132,11 +135,13 @@ async function overdueCaseFile(ctx: SkillContext, subject: SubjectRef): Promise<
 
 async function newInvoiceCaseFile(ctx: SkillContext, subject: SubjectRef, instruction: string): Promise<CaseFile<CollectionsFacts>> {
   const now = ctx.now();
-  const request = instruction.slice(0, MAX_REQUEST_CHARS);
+  const request = truncate(instruction, MAX_REQUEST_CHARS);
   const issueDate = localDate(now, ctx.merchant.timezone);
-  const clients = (await ctx.read.recentClients()).slice(0, MAX_CLIENTS);
-  const amounts = parseAmounts(request, ctx.merchant.currency);
-  const named = parseTerms(request);
+  // A client without a usable email can't be invoiced, so it never reaches the menu.
+  const clients = (await ctx.read.recentClients()).filter((c) => EMAIL.test(c.email)).slice(0, MAX_CLIENTS);
+  const { amounts, problems: amountProblems } = parseAmounts(request, ctx.merchant.currency);
+  const { terms: named, problems: termProblems } = parseTerms(request);
+  const problems = [...amountProblems, ...termProblems];
   const terms = (named.length ? named : ALL_TERMS).map((t) => ({ ...t, dueDate: addDays(issueDate, t.days) }));
   const mentionedClientIds = clients.filter((c) => mentionsClient(request, c)).map((c) => c.id);
 
@@ -150,6 +155,7 @@ async function newInvoiceCaseFile(ctx: SkillContext, subject: SubjectRef, instru
     amounts,
     terms,
     termsNamed: named.length > 0,
+    problems,
   };
 
   const xml = block("case-file", { skill: "collections", mode: "new-invoice", "generated-at": now.toISOString() }, [
@@ -186,6 +192,7 @@ async function newInvoiceCaseFile(ctx: SkillContext, subject: SubjectRef, instru
       ),
     ),
     tag("issue-date", { value: issueDate }),
+    problems.length ? block("problems", { source: "code; ask the merchant about these" }, problems.map((x) => textTag("problem", {}, x))) : "",
   ]);
 
   return {

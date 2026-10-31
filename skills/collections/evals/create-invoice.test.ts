@@ -37,35 +37,68 @@ async function run(instruction: string, answers: ConstructorParameters<typeof Sc
   return { result, agent };
 }
 
+const amounts = (text: string, currency = "USD") => parseAmounts(text, currency);
+const terms = (text: string) => parseTerms(text).terms.map((t) => t.type);
+
 describe("request parser", () => {
   it("finds amounts in the ways people type them", () => {
-    const found = parseAmounts("Invoice Acme $1,200 for the logo and $450.50 for edits, plus 300 USD travel and a $1.2k retainer", "USD");
-    expect(found.map((a) => [a.id, a.value, a.display])).toEqual([
+    const found = amounts("Invoice Acme $1,200 for the logo and $450.50 for edits, plus 300 USD travel and a $1.2k retainer");
+    expect(found.amounts.map((a) => [a.id, a.value, a.display])).toEqual([
       ["amt_1", "1200.00", "$1,200.00"],
       ["amt_2", "450.50", "$450.50"],
       ["amt_3", "300.00", "$300.00"],
       ["amt_4", "1200.00", "$1,200.00"],
     ]);
-    expect(parseAmounts("$1,200 USD", "USD")).toHaveLength(1);
-    expect(parseAmounts("net 30, no amount, invoice 0042", "USD")).toEqual([]);
-    expect(parseAmounts("$0", "USD")).toEqual([]);
+    expect(found.problems).toEqual([]);
+    expect(amounts("$1,200 USD").amounts).toHaveLength(1);
+    expect(amounts("net 30, no amount, invoice 0042").amounts).toEqual([]);
+    expect(amounts("$0").amounts).toEqual([]);
+    expect(amounts("€450 for the logo", "EUR").amounts.map((a) => a.display)).toEqual(["450.00 EUR"]);
   });
 
-  it("finds terms", () => {
-    expect(parseTerms("net 30").map((t) => t.type)).toEqual(["NET_30"]);
-    expect(parseTerms("Net-15 please").map((t) => t.type)).toEqual(["NET_15"]);
-    expect(parseTerms("due in 45 days").map((t) => t.type)).toEqual(["NET_45"]);
-    expect(parseTerms("due on receipt").map((t) => t.type)).toEqual(["DUE_ON_RECEIPT"]);
-    expect(parseTerms("net 31")).toEqual([]);
+  it("never guesses at an amount it can't read: it reports a problem instead", () => {
+    for (const typed of ["$1,20", "1,20 dollars", "$1,2000", "$1.2.3", "$1200.999", "-$50", "refund of -$50 credit", "$99999999999999999999"]) {
+      const r = amounts(typed);
+      expect(r.amounts, typed).toEqual([]);
+      expect(r.problems, typed).toHaveLength(1);
+    }
+    // The wrong currency is a problem, not a silent conversion.
+    expect(amounts("€500").problems[0]).toContain("EUR");
+    expect(amounts("$500", "EUR").problems[0]).toContain("USD");
+    expect(amounts("$500", "CAD").amounts.map((a) => a.display)).toEqual(["500.00 CAD"]);
+  });
+
+  it("finds terms, and reports terms PayPal doesn't offer", () => {
+    expect(terms("net 30")).toEqual(["NET_30"]);
+    expect(terms("net30")).toEqual(["NET_30"]);
+    expect(terms("Net-15 please")).toEqual(["NET_15"]);
+    expect(terms("due in 45 days")).toEqual(["NET_45"]);
+    expect(terms("due on receipt")).toEqual(["DUE_ON_RECEIPT"]);
+    for (const typed of ["net 7", "net 31", "due in 5 days", "payable within 14 days"]) {
+      expect(parseTerms(typed), typed).toMatchObject({ terms: [], problems: [expect.stringContaining("standard terms")] });
+    }
     expect(addDays("2026-10-28", 30)).toBe("2026-11-27");
   });
 
-  it("matches clients by name, business or email, ignoring generic words", () => {
+  it("matches clients by email, business name or full name", () => {
     expect(mentionsClient("Invoice Acme $1,200", demoClients[0])).toBe(true);
     expect(mentionsClient("bill sam lee", demoClients[0])).toBe(true);
     expect(mentionsClient("invoice jordan.kim@example.com", demoClients[2])).toBe(true);
     expect(mentionsClient("Invoice the studio $1,200", demoClients[0])).toBe(false);
     expect(mentionsClient("Invoice Acmeville $5", demoClients[0])).toBe(false);
+  });
+
+  it("doesn't match on one shared word, a longer email, or a client with no email", () => {
+    const client = (name: string | null, businessName: string | null, email = "x@client.example") => ({ id: "c", name, businessName, email });
+    expect(mentionsClient("Bill Acme $500", client("Bill Jones", null))).toBe(false);
+    expect(mentionsClient("Invoice Acme $500, net 30", client(null, "Net Solutions"))).toBe(false);
+    expect(mentionsClient("Invoice Acme $500, due on receipt", client(null, "Due Diligence LLC"))).toBe(false);
+    expect(mentionsClient("Invoice Ram $500", client("José Ramírez", null))).toBe(false);
+    expect(mentionsClient("Invoice José Ramírez $500", client("José Ramírez", null))).toBe(true);
+    expect(mentionsClient("Invoice notsam@acme.example.org", demoClients[0])).toBe(false);
+    expect(mentionsClient("Invoice Design Co $500", client(null, "Design Co"))).toBe(true);
+    expect(mentionsClient("Invoice Al Wu $500", client("Al Wu", null))).toBe(true);
+    expect(mentionsClient("Invoice NewCo $450", client("NewCo", null, ""))).toBe(false);
   });
 });
 
@@ -185,5 +218,34 @@ describe("Collections: new invoice from chat", () => {
   it("refuses to run without the merchant's words", async () => {
     const result = await runSkill({ skill: collections, subject, ctx: context(world), agent: new ScriptedAgentClient([]), trigger: "chat" });
     expect(result.status).toBe("failed");
+  });
+
+  it("a client with no email is never offered", async () => {
+    const clients = [{ id: "cl_9", name: "NewCo", businessName: "NewCo", email: "" }, ...demoClients];
+    const { result, agent } = await run("Invoice NewCo $450", [{ ...invoiceAnswer(), actions: [] }], { invoices: {}, clients });
+    expect(result.menu).toEqual(["merchant.ask"]);
+    expect(agent.requests[0].turn).not.toContain("cl_9");
+  });
+
+  it("an amount or term code can't read → merchant.ask only, with the problem in the case file", async () => {
+    for (const request of ["Invoice Acme $1,20", "Invoice Acme €500", "Invoice Acme $500, net 7"]) {
+      const { result, agent } = await run(request, [{ ...invoiceAnswer(), actions: [] }]);
+      expect(result.menu, request).toEqual(["merchant.ask"]);
+      expect(agent.requests[0].turn, request).toContain("<problems");
+    }
+  });
+
+  it("text can't add amounts that aren't on the invoice, or a bare-domain link", async () => {
+    const lateFee = await run("Invoice Acme $450", [invoiceAnswer({ items: [{ description: "Logo design $5,000", amountRef: "amt_1" }] })]);
+    expect(lateFee.result.proposals[0]).toMatchObject({ status: "invalid", check: { reason: expect.stringContaining("amount") } });
+    const link = await run("Invoice Acme $450", [invoiceAnswer({ note: "Thanks! Pay at evil.example/pay" })]);
+    expect(link.result.proposals[0].check.reason).toBe("Invoices can't contain links");
+    const total = await run("Invoice Acme $450", [invoiceAnswer({ note: "That's $450.00 for the logo. Thanks!" })]);
+    expect(total.result.proposals[0].status).toBe("awaiting_approval");
+  });
+
+  it("a very long request is cut, with a notice", async () => {
+    const { agent } = await run(`Invoice Acme $1,200 ${"x".repeat(5000)}`, [invoiceAnswer()]);
+    expect(agent.requests[0].turn).toContain("[truncated by Pyp:");
   });
 });

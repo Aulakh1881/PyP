@@ -14,6 +14,7 @@ describe("format", () => {
     expect(formatMoney("1234567.89", "EUR")).toBe("1,234,567.89 EUR");
     expect(toCents("19.99")).toBe(1999n);
     expect(() => toCents("1e3")).toThrow();
+    expect(formatMoney("1200", "JPY")).toBe("1,200 JPY");
   });
 
   it("counts days in the merchant's timezone", () => {

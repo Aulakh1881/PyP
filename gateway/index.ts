@@ -28,7 +28,7 @@ export function createAgentClient(
     return withBudget(new AnthropicAgentClient(), ledger, cap);
   }
   if (provider === "ollama") {
-    if (!env.OLLAMA_MODEL) throw new Error("Set OLLAMA_MODEL (for example qwen3:8b) or ANTHROPIC_API_KEY");
+    if (!env.OLLAMA_MODEL) throw new Error("Set OLLAMA_MODEL (for example qwen3:4b) or ANTHROPIC_API_KEY");
     const think = env.OLLAMA_THINK === "true" ? true : env.OLLAMA_THINK === "default" ? null : false;
     return new OllamaAgentClient(env.OLLAMA_MODEL, { baseUrl: env.OLLAMA_BASE_URL, think });
   }
