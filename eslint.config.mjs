@@ -23,6 +23,8 @@ const eslintConfig = defineConfig([
   ...nextTs,
   { rules: writeClientBan },
   { files: ["executor/**"], rules: { "no-restricted-imports": "off" } },
+  // Tests poke at loosely typed JSON (schemas, fake SDK clients).
+  { files: ["**/*.test.ts"], rules: { "@typescript-eslint/no-explicit-any": "off" } },
   globalIgnores([
     ".next/**",
     "out/**",
