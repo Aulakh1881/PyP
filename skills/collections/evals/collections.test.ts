@@ -54,6 +54,14 @@ describe("Collections", () => {
     expect(result.proposals).toEqual([]);
   });
 
+  it("the last reminder asks even if the model calls it friendly", async () => {
+    const world = { ...overdue, reminders: { [acmeInvoice.id]: { count: 2, lastSentAt: "2026-10-20T16:00:00Z" } } };
+    const r = rules({ commands: { "invoice.sendReminder": { dial: "auto" } } });
+    const { result, agent } = await run(world, [friendlyReminder({ tone: "friendly" })], r);
+    expect(agent.requests[0].turn).toContain('next-reminder="3 of 3"');
+    expect(result.proposals[0]).toMatchObject({ status: "awaiting_approval", policy: { rule: "limit", reason: "The last reminder always needs your approval" } });
+  });
+
   it("third reminder in a final tone always asks, even on Auto", async () => {
     const world = { ...overdue, reminders: { [acmeInvoice.id]: { count: 2, lastSentAt: "2026-10-20T16:00:00Z" } } };
     const r = rules({ commands: { "invoice.sendReminder": { dial: "auto" } } });

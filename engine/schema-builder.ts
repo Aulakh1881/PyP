@@ -9,7 +9,10 @@ export const MAX_ACTIONS = 3;
 
 export interface ResponseSchema {
   zod: ZodType<ModelResponse>;
+  /** The subset the Claude API accepts (limits stripped; Zod checks them). */
   json: JSONSchema;
+  /** Everything, limits included, for providers that can enforce them (Ollama). */
+  fullJson: JSONSchema;
 }
 
 export function buildResponseSchema<F>(menu: AnyCommand<F>[], cf: CaseFile<F>): ResponseSchema {
@@ -17,7 +20,7 @@ export function buildResponseSchema<F>(menu: AnyCommand<F>[], cf: CaseFile<F>): 
     z.object({
       command: z.literal(cmd.id),
       params: cmd.params(cf),
-      why: z.string().max(200),
+      why: z.string().max(200).describe("One short sentence, under 200 characters, citing the case-file ids you relied on."),
     }),
   );
 
@@ -30,14 +33,14 @@ export function buildResponseSchema<F>(menu: AnyCommand<F>[], cf: CaseFile<F>): 
         : z.union(branches as unknown as [ZodType, ZodType, ...ZodType[]]);
 
   const zod = z.object({
-    title: z.string().max(80),
-    summary: z.string().max(400),
-    actions: z.array(action).max(MAX_ACTIONS),
+    title: z.string().max(80).describe("Card headline for the merchant, under 80 characters."),
+    summary: z.string().max(400).describe("What you propose and why, in plain English, under 400 characters."),
+    actions: z.array(action).max(MAX_ACTIONS).describe(`At most ${MAX_ACTIONS}. Empty if nothing should happen.`),
     confidence: z.enum(["low", "medium", "high"]),
-    questionForMerchant: z.string().max(300).nullable(),
+    questionForMerchant: z.string().max(300).nullable().describe("Usually null. Use merchant.ask for questions with buttons."),
   }) as unknown as ZodType<ModelResponse>;
 
-  return { zod, json: toApiSchema(zod) };
+  return { zod, json: toApiSchema(zod), fullJson: z.toJSONSchema(zod, { io: "output" }) as JSONSchema };
 }
 
 // Keywords the Claude API's structured outputs don't accept. Zod still checks

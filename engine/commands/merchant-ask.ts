@@ -17,8 +17,8 @@ export const merchantAsk: CommandDef<MerchantAskParams> = {
     "Use when a decision needs a fact or a preference only the merchant has, or when the playbook says to check with them. Keep it to one question.",
   params: () =>
     z.object({
-      question: z.string().max(300),
-      options: z.array(z.string().max(60)).max(4),
+      question: z.string().max(300).describe("One question, under 300 characters."),
+      options: z.array(z.string().max(60)).max(4).describe("Up to 4 short answer buttons."),
     }),
   available: () => true,
   risk: "read",

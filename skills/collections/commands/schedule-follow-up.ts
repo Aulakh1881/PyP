@@ -20,7 +20,7 @@ export const scheduleFollowUp: CommandDef<ScheduleFollowUpParams, CollectionsFac
       invoiceId: z.enum(cf.ids.invoiceIds as [string, ...string[]]),
       inDays: z.number().int().min(1).max(14),
     }),
-  available: (cf) => REMINDABLE.includes(cf.facts.invoice.status),
+  available: (cf) => cf.facts.mode === "overdue" && REMINDABLE.includes(cf.facts.invoice.status),
   risk: "internal",
   check: async (p, ctx) => {
     const inv = await ctx.read.getInvoice(p.invoiceId);

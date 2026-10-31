@@ -8,6 +8,7 @@ export const collectionsPolicy: SkillDef["policy"] = {
   defaults: {
     "invoice.sendReminder": { dial: "ask", limits: DEFAULT_LIMITS },
     "invoice.scheduleFollowUp": { dial: "auto" },
+    "invoice.createAndSend": { dial: "ask" },
     "merchant.ask": { dial: "ask" },
   },
   neverAuto: ["invoice.cancel", "invoice.createAndSend"],

@@ -28,10 +28,11 @@ export const sendReminder: CommandDef<SendReminderParams, CollectionsFacts> = {
     z.object({
       invoiceId: z.enum(cf.ids.invoiceIds as [string, ...string[]]),
       tone: z.enum(["friendly", "firm", "final"]),
-      subject: z.string().max(120),
-      note: z.string().max(500),
+      subject: z.string().max(120).describe("Email subject, under 120 characters."),
+      note: z.string().max(500).describe("The message to the client, under 500 characters. States the amount due and invoice number exactly."),
     }),
   available: (cf, rules) => {
+    if (cf.facts.mode !== "overdue") return false;
     const { invoice, daysOverdue, reminders } = cf.facts;
     const limits = reminderLimits(rules);
     return (
@@ -43,7 +44,9 @@ export const sendReminder: CommandDef<SendReminderParams, CollectionsFacts> = {
     );
   },
   state: (cf, rules) =>
-    `sent=${cf.facts.reminders.sent} of max ${reminderLimits(rules).maxPerInvoice}; last=${cf.facts.reminders.lastSentAt ?? "never"}`,
+    cf.facts.mode === "overdue"
+      ? `sent=${cf.facts.reminders.sent} of max ${reminderLimits(rules).maxPerInvoice}; last=${cf.facts.reminders.lastSentAt ?? "never"}`
+      : undefined,
   risk: "message",
 
   check: async (p, ctx) => {
@@ -70,6 +73,9 @@ export const sendReminder: CommandDef<SendReminderParams, CollectionsFacts> = {
 
   overLimit: async (p, _rule, ctx) => {
     if (p.tone === "final") return "Final reminders always need your approval";
+    // Don't trust the tone label alone: the last allowed reminder always asks.
+    const sent = await ctx.db.remindersSent(p.invoiceId);
+    if (sent.count + 1 >= reminderLimits(ctx.rules).maxPerInvoice) return "The last reminder always needs your approval";
     if ((await ctx.db.remindCallsToday(ctx.merchant.id)) >= PAYPAL_REMINDS_PER_DAY) {
       return `PayPal allows only ${PAYPAL_REMINDS_PER_DAY} reminders a day`;
     }

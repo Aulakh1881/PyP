@@ -29,6 +29,8 @@ export type ProposalStatus = "awaiting_approval" | "scheduled" | "blocked" | "re
 
 export interface Proposal {
   action: ProposedAction;
+  /** Exact values from the command's resolve(), for the card and the executor. */
+  resolved: Record<string, unknown> | null;
   check: CheckResult;
   policy: PolicyResult | null;
   status: ProposalStatus;
@@ -95,7 +97,7 @@ export async function runSkill<F>(input: RunInput<F>): Promise<RunResult<F>> {
   // Gather
   let cf: CaseFile<F>;
   try {
-    cf = await skill.buildCaseFile(ctx, subject);
+    cf = await skill.buildCaseFile(ctx, subject, input.instruction);
   } catch (err) {
     return failed(`Couldn't build the case file: ${(err as Error).message}`);
   }
@@ -112,7 +114,8 @@ export async function runSkill<F>(input: RunInput<F>): Promise<RunResult<F>> {
   // Decide (the only model call)
   const schema = buildResponseSchema(menu, cf);
   const system = buildSystemPrompt(skill, ctx.merchant);
-  const turn = buildTurnPrompt(cf, menu, ctx.rules, input.task ?? `Decide what to do about ${subject.kind} ${subject.id} now.`, input.instruction);
+  const task = input.task ?? skill.task?.(subject) ?? `Decide what to do about ${subject.kind} ${subject.id} now.`;
+  const turn = buildTurnPrompt(cf, menu, ctx.rules, task, cf.includesInstruction ? undefined : input.instruction);
   result.system = system;
   result.turn = turn;
 
@@ -126,6 +129,7 @@ export async function runSkill<F>(input: RunInput<F>): Promise<RunResult<F>> {
           system,
           turn,
           schema: schema.json,
+          fullSchema: schema.fullJson,
           tier: skill.model.tier,
           effort: skill.model.effort,
           maxOutputTokens: skill.model.maxOutputTokens ?? 8000,
@@ -162,7 +166,7 @@ export async function runSkill<F>(input: RunInput<F>): Promise<RunResult<F>> {
   for (const { action, cmd, check } of checked) {
     if (!check.ok) {
       trace.step("validate", `${action.command} rejected: ${check.reason}`);
-      result.proposals.push({ action, check, policy: null, status: "rejected" });
+      result.proposals.push({ action, resolved: null, check, policy: null, status: "rejected" });
       continue;
     }
     trace.step("validate", `${action.command} passed checks`);
@@ -177,7 +181,8 @@ export async function runSkill<F>(input: RunInput<F>): Promise<RunResult<F>> {
     });
     trace.step("policy", `${action.command}: ${policy.decision} (${policy.reason})`, { rule: policy.rule });
     const status: ProposalStatus = policy.decision === "auto" ? "scheduled" : policy.decision === "ask" ? "awaiting_approval" : "blocked";
-    result.proposals.push({ action, check, policy, status });
+    const resolved = cmd.resolve ? cmd.resolve(action.params, cf) : null;
+    result.proposals.push({ action, resolved, check, policy, status });
   }
   if (checked.length === 0) trace.step("policy", "Nothing to do");
 

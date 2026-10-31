@@ -1,7 +1,7 @@
 // DEMO DATA for Collections tests: Maya Ortiz Design and Acme Studio's
 // invoice 0042 (design §7.3). Fake PayPal reads and a fake database.
 
-import type { EngineDb, Invoice, Merchant, MerchantRules, PayPalReads, SkillContext } from "@/engine/types";
+import type { Client, EngineDb, Invoice, Merchant, MerchantRules, PayPalReads, SkillContext } from "@/engine/types";
 
 export const NOW = new Date("2026-10-28T15:00:00Z"); // 08:00 in Los Angeles
 
@@ -25,6 +25,12 @@ export const acmeInvoice: Invoice = {
   recipientEmail: "sam@acme.example",
 };
 
+export const demoClients: Client[] = [
+  { id: "cl_1", name: "Sam Lee", businessName: "Acme Studio", email: "sam@acme.example" },
+  { id: "cl_2", name: "Priya Shah", businessName: "Beta LLC", email: "priya@beta.example" },
+  { id: "cl_3", name: "Jordan Kim", businessName: null, email: "jordan.kim@example.com" },
+];
+
 export function rules(overrides: Partial<MerchantRules> = {}): MerchantRules {
   return { killSwitch: false, undoSeconds: 60, commands: {}, ...overrides };
 }
@@ -36,6 +42,7 @@ export interface FakeWorld {
   reminders?: Record<string, { count: number; lastSentAt: string | null }>;
   remindCallsToday?: number;
   notes?: string[];
+  clients?: Client[];
 }
 
 export function context(world: FakeWorld, r: MerchantRules = rules()): SkillContext {
@@ -46,6 +53,9 @@ export function context(world: FakeWorld, r: MerchantRules = rules()): SkillCont
       reads++;
       const fresh = reads > 1 ? world.freshInvoices?.[id] : undefined;
       return fresh ?? world.invoices[id] ?? null;
+    },
+    async recentClients() {
+      return world.clients ?? demoClients;
     },
   };
   const db: EngineDb = {

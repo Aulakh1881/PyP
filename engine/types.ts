@@ -32,6 +32,8 @@ export interface CaseFile<F = unknown> {
   ids: Record<string, string[]>;
   /** The facts behind the XML, for menus, checks and tests. Never sent raw. */
   facts: F;
+  /** True when the merchant's own words are already in the XML, so the turn doesn't repeat them. */
+  includesInstruction?: boolean;
 }
 
 export interface CheckResult {
@@ -56,6 +58,12 @@ export interface CommandDef<P = unknown, F = unknown> {
   check: (p: P, ctx: CheckContext<F>) => Promise<CheckResult>;
   /** Policy limit check: returns the limit that was hit, or null. */
   overLimit?: (p: P, rule: CommandRule, ctx: CheckContext<F>) => Promise<string | null>;
+  /**
+   * The exact values this action will use: amounts, recipients, dates, text.
+   * Computed in code from the case file. The card shows them and the executor
+   * sends them, so nothing is re-derived later (design §7.1 step 5).
+   */
+  resolve?: (p: P, cf: CaseFile<F>) => Record<string, unknown>;
   // execute() and undo() belong to the executor (owner C) and are added there.
 }
 
@@ -71,7 +79,10 @@ export interface SkillDef<F = unknown> {
   id: SkillId;
   triggers: { events?: string[]; sweeps?: string[]; chat?: boolean };
   model: { tier: Tier; effort?: Effort; maxOutputTokens?: number };
-  buildCaseFile: (ctx: SkillContext, subject: SubjectRef) => Promise<CaseFile<F>>;
+  /** `instruction` is the merchant's own words when the run came from chat. */
+  buildCaseFile: (ctx: SkillContext, subject: SubjectRef, instruction?: string) => Promise<CaseFile<F>>;
+  /** The <task> line for a subject; defaults to "Decide what to do about <kind> <id> now." */
+  task?: (subject: SubjectRef) => string;
   /** The full menu; filtered per run by available() and the dial. */
   commands: AnyCommand<F>[];
   /** The cached part of the prompt: role, playbook, tone guide, guardrails. */
@@ -113,6 +124,8 @@ export interface MerchantRules {
  */
 export interface PayPalReads {
   getInvoice(id: string): Promise<Invoice | null>;
+  /** People the merchant has invoiced recently (from PayPal's invoice search), newest first. */
+  recentClients(): Promise<Client[]>;
 }
 
 /** Pyp's own records the engine reads (owner C implements over Postgres). */
@@ -162,6 +175,14 @@ export interface Invoice {
   recipientName: string | null;
   recipientEmail: string | null;
   disputed?: boolean;
+}
+
+export interface Client {
+  /** Our stable id for the case file, e.g. "cl_1". */
+  id: string;
+  name: string | null;
+  businessName: string | null;
+  email: string;
 }
 
 // ---------- The model's answer ----------
@@ -219,7 +240,10 @@ export interface CompletionRequest {
   system: string;
   /** The per-run part: case file, menu, task. */
   turn: string;
+  /** The response schema in the subset the Claude API accepts. */
   schema: JSONSchema;
+  /** The same schema with length and size limits, for providers that enforce them. */
+  fullSchema?: JSONSchema;
   tier: Tier;
   effort?: Effort;
   maxOutputTokens: number;
