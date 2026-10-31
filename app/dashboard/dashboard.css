@@ -1,0 +1,55 @@
+/* The Inbox. Colours and type follow the UI prototype (prototype/website/app/app.css). */
+
+.dash { max-width: 760px; margin: 0 auto; padding: 32px 20px 120px; display: grid; gap: 24px; }
+.dash-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.dash-top h1 { font-family: "Baloo 2", Nunito, sans-serif; font-weight: 800; font-size: 30px; }
+.dash-top .who { margin-left: auto; color: var(--muted); font-size: 14px; font-weight: 600; }
+
+.demo { font: 800 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .12em; color: #8a5a00; background: #fff4d6; border: 1px solid #f2d58a; border-radius: 6px; padding: 5px 8px; }
+.muted { color: var(--muted); font-weight: 600; }
+.hint { font-size: 13px; font-weight: 600; color: var(--muted); }
+.btn:disabled { opacity: .6; cursor: not-allowed; }
+.btn-ghost { background: #fff; color: #0b1f4d; box-shadow: inset 0 0 0 1.5px #e2e8f2; }
+.btn-ghost:hover { background: #f3f6fc; filter: none; }
+.btn-danger { background: #fff; color: #a3261b; box-shadow: inset 0 0 0 1.5px #f1c3bd; }
+.link { background: none; border: 0; min-height: 44px; font: 700 15px inherit; font-family: inherit; color: #1f5fe0; cursor: pointer; text-decoration: underline; }
+
+.inbox { display: grid; gap: 24px; }
+.chat { display: grid; gap: 8px; background: #fff; border-radius: 22px; padding: 20px; box-shadow: 0 10px 30px rgb(11 31 77 / 8%); }
+.chat label { font-weight: 800; }
+.chat-row { display: flex; gap: 10px; }
+.chat-row input { flex: 1; min-width: 0; height: 46px; border: 1.5px solid #c9d1de; border-radius: 12px; padding: 0 14px; font: 600 16px inherit; font-family: inherit; color: #0b1f4d; }
+.reply { font-weight: 700; color: #0b1f4d; background: #eef3ff; border-radius: 12px; padding: 10px 14px; }
+
+.cards { display: grid; gap: 16px; }
+.card { perspective: 1400px; }
+.card-inner { display: grid; transition: transform .6s cubic-bezier(.2, .8, .2, 1); transform-style: preserve-3d; }
+.card.flipped .card-inner { transform: rotateY(180deg); }
+.card-face { grid-area: 1 / 1; backface-visibility: hidden; background: #fff; border-radius: 22px; padding: 20px 22px; box-shadow: 0 10px 30px rgb(11 31 77 / 8%); display: grid; gap: 10px; align-content: start; }
+.card-back { transform: rotateY(180deg); background: #0b1f4d; color: #fff; }
+@media (prefers-reduced-motion: reduce) { .card-inner { transition: none; } }
+
+.card-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.eyebrow { font-size: 12px; font-weight: 800; letter-spacing: .08em; color: #1f5fe0; }
+.card-back .eyebrow { color: #9dbbff; }
+.state { font-size: 12px; font-weight: 800; border-radius: 999px; padding: 3px 10px; background: #f3f6fc; }
+.state-awaiting_approval { background: #fff0d6; color: #6b3a00; }
+.state-executed { background: #ddf5e9; color: #0b6b47; }
+.state-failed, .state-obsolete { background: #fde7e4; color: #a3261b; }
+.card h2 { font-family: "Baloo 2", Nunito, sans-serif; font-weight: 800; font-size: 22px; line-height: 1.15; }
+.lines { list-style: none; display: grid; gap: 4px; border-top: 1px solid #e2e8f2; padding-top: 8px; }
+.lines li { display: flex; justify-content: space-between; gap: 12px; }
+.body { white-space: pre-wrap; background: #f3f6fc; border-radius: 12px; padding: 10px 14px; }
+.reason { font-size: 14px; font-weight: 700; color: var(--muted); }
+.card-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 4px; }
+.card-back .link { color: #9dbbff; }
+
+.trace { list-style: none; display: grid; gap: 6px; font-size: 14px; }
+.trace li { display: grid; grid-template-columns: 76px 68px 1fr; gap: 8px; }
+.trace time, .trace .kind { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; opacity: .75; padding-top: 2px; }
+.trace .bad { color: #ffb4a8; }
+
+@media (max-width: 560px) {
+  .chat-row { flex-direction: column; }
+  .trace li { grid-template-columns: 1fr; gap: 0; }
+}

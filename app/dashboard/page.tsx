@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { Inbox } from "./inbox";
+import "./dashboard.css";
 
 export const instant = false;
 
@@ -17,12 +19,14 @@ export default async function DashboardPage() {
   }
 
   return (
-    <main className="placeholder">
-      <h1>Welcome to Pyp</h1>
-      <p>You are signed in as {user.email}.</p>
-      <p className="disclaimer">
-        Your profile is connected to the Pyp Demo Business.
-      </p>
+    <main className="dash">
+      <header className="dash-top">
+        <h1>Inbox</h1>
+        <span className="demo">DEMO DATA · PAYPAL SANDBOX</span>
+        <span className="who">{user.email}</span>
+      </header>
+      <Inbox />
+      <p className="disclaimer">Pyp is an independent hackathon project, not affiliated with or endorsed by PayPal.</p>
     </main>
   );
 }

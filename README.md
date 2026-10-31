@@ -70,6 +70,15 @@ npm run dev                  # http://localhost:3000 (health check: /api/health)
 | `npm run eval:live` | The Collections cases against a real model (Claude, or Ollama with `PYP_MODEL_PROVIDER=ollama`); see `gateway/README.md` |
 | `npm run build` | Production build, as Render runs it |
 
+### The demo path: "Invoice Jordan Kim $300, net 30"
+
+1. In `.env.local`: the Supabase URL and publishable key, `DATABASE_URL` (Supabase: Connect, Session pooler), `PAYPAL_ENVIRONMENT=SANDBOX` with the sandbox app's client id and secret, and a model: `OLLAMA_MODEL=qwen3:4b` (run `ollama serve`) or `ANTHROPIC_API_KEY`.
+2. Apply `db/migrations` and the seed in the order `db/README.md` gives.
+3. Give the sandbox a client history: `node --env-file=.env.local executor/seed-sandbox.mjs` (three DRAFT invoices, no emails).
+4. `npm run dev`, sign in, open `/dashboard`, and type the sentence. Approve the card; "Why?" flips it to the trace.
+
+Pyp only invoices clients PayPal already knows, named in full ("Jordan Kim", not "Jordan"; decision D13). Database tests need `TEST_DATABASE_URL` (see `.env.example`); without it they are skipped.
+
 One Next.js project lives at the repo root. `app/` is the App Router folder (pages and API routes); the other folders are plain TypeScript, imported with the `@/` alias (for example `@/engine/policy`). CI runs lint, typecheck, tests and the build on every pull request and every push to `main`.
 
 The write boundary is enforced twice: ESLint (`no-restricted-imports`) and a test both fail if anything outside `executor/` imports `paypal/write-client`.
