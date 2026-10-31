@@ -146,6 +146,36 @@ describe.skipIf(!TEST_DB_URL)("demo path: chat, card, approve, PayPal", () => {
     expect(pp.calls[1].requestId).toBe(pp.calls[2].requestId);
   });
 
+  it("an unexpected error after the claim hands the card back instead of leaving it on Sending", async () => {
+    const { cardIds } = await chat();
+    let failed = false;
+    const flaky = {
+      query: ((text: string, params?: unknown[]) => {
+        if (!failed && text.startsWith("insert into executions")) {
+          failed = true;
+          return Promise.reject(new Error("connection reset"));
+        }
+        return pool.query(text, params);
+      }) as Pool["query"],
+    };
+    const first = await approveAndExecute({ db: flaky, read: pp.read, write: pp.write, now: () => NOW }, DEMO_MERCHANT, cardIds[0]);
+    expect(first).toMatchObject({ status: "retry" });
+    expect((await listCards(pool, DEMO_MERCHANT)).find((c) => c.id === cardIds[0])!.state).toBe("awaiting_approval");
+
+    // The draft was made but its record was lost: PayPal answers the same request id with the same draft.
+    expect((await approve(cardIds[0])).status).toBe("executed");
+    expect(pp.calls.map((c) => c.requestId)).toEqual([pp.calls[0].requestId, pp.calls[0].requestId, pp.calls[2].requestId]);
+  });
+
+  it("a re-check that can't reach PayPal is a retry, not a lost card", async () => {
+    const { cardIds } = await chat();
+    const down: PayPalReads = { ...pp.read, recentClients: () => Promise.reject(new PayPalError("timeout", null, null, null)) };
+    const out = await approveAndExecute({ db: pool, read: down, write: pp.write, now: () => NOW }, DEMO_MERCHANT, cardIds[0]);
+    expect(out.status).toBe("retry");
+    expect(pp.calls).toEqual([]);
+    expect((await approve(cardIds[0])).status).toBe("executed");
+  });
+
   it("PayPal refusing (422) fails the card with PayPal's reason", async () => {
     const { cardIds } = await chat();
     pp.failures.create.push(new PayPalError("Recipient email is invalid", 422, "dbg", null));

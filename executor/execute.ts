@@ -34,7 +34,18 @@ export type ExecuteOutcome =
 export async function approveAndExecute(deps: ExecutorDeps, merchantId: string, cardId: string): Promise<ExecuteOutcome> {
   const proposal = await claimForExecution(deps.db, merchantId, cardId);
   if (!proposal) return { status: "not_waiting", message: "This card isn't waiting for approval" };
+  try {
+    return await executeClaimed(deps, merchantId, proposal);
+  } catch (err) {
+    // Anything unexpected (a database blip, a read that timed out) hands the card back
+    // instead of leaving it on "Sending…"; the request ids make approving again safe.
+    const reason = `Something went wrong (${(err as Error).message}). Approve again to retry; it won't send twice.`;
+    await finish(deps.db, { merchantId, proposal, status: "awaiting_approval", label: `Error: ${(err as Error).message}`, ok: false, reason });
+    return { status: "retry", message: reason };
+  }
+}
 
+async function executeClaimed(deps: ExecutorDeps, merchantId: string, proposal: ClaimedProposal): Promise<ExecuteOutcome> {
   const { merchant, rules } = await loadMerchant(deps.db, merchantId);
   const ctx = { merchant, rules, read: deps.read, db: engineDb(deps.db, merchantId), now: deps.now ?? (() => new Date()) };
   const done = (status: "executed" | "failed" | "obsolete" | "awaiting_approval", label: string, ok: boolean, reason?: string, detail?: unknown) =>
@@ -46,12 +57,7 @@ export async function approveAndExecute(deps: ExecutorDeps, merchantId: string, 
     await done("failed", `Unknown command ${proposal.commandId}`, false, "Pyp can't run this action");
     return { status: "failed", message: "Pyp can't run this action" };
   }
-  let check;
-  try {
-    check = await cmd.check(proposal.params, { ...ctx, caseFile: proposal.caseFile });
-  } catch (err) {
-    check = { ok: false, reason: `Check failed: ${(err as Error).message}` };
-  }
+  const check = await cmd.check(proposal.params, { ...ctx, caseFile: proposal.caseFile });
   if (!check.ok) {
     await done("obsolete", `Re-check before sending: ${check.reason}`, false, `Not sent: ${check.reason}`);
     return { status: "obsolete", message: `Not sent: ${check.reason}` };

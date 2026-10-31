@@ -130,8 +130,12 @@ function CardView({ card, onChanged }: { card: Card; onChanged: () => Promise<vo
   const f = card.front;
 
   async function flip() {
-    if (!flipped) setTrace((await api<{ steps: TraceStep[] }>(`/api/cards/${card.id}/trace`)).steps);
-    setFlipped(!flipped);
+    try {
+      if (!flipped) setTrace((await api<{ steps: TraceStep[] }>(`/api/cards/${card.id}/trace`)).steps);
+      setFlipped(!flipped);
+    } catch (err) {
+      setNote((err as Error).message);
+    }
   }
 
   async function act(action: CardAction) {
