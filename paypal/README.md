@@ -19,3 +19,15 @@ returns the access token or PayPal credentials to the browser.
 
 `PAYPAL_WEBHOOK_ID` is not required for OAuth. It is only needed after a
 PayPal webhook is created and webhook signature verification is enabled.
+
+## Read-only reporting
+
+`read-client.ts` uses the server-side OAuth token to read sandbox balances and
+transaction reporting data. The authenticated app routes expose the normalized
+read model without returning PayPal tokens or raw response bodies:
+
+- `GET /api/paypal/overview`
+- `GET /api/paypal/transactions?start_date=&end_date=`
+
+Transaction reporting is limited to PayPal's 31-day reporting window. These
+routes do not create, update, refund, or otherwise write to PayPal.
