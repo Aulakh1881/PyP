@@ -11,6 +11,7 @@
  *   act(itemId, action, data)   -> Promise<item>        approve | dismiss | restore | review | cancel | send | undo | timer-done
  *   activity()                  -> Promise<entry[]>     newest first
  *   brief()                     -> Promise<brief>
+ *   overview()               -> Promise<overview>  (read-only sandbox data)
  *   getSettings() / updateSettings(patch) / setPaused(bool) / isPaused()
  *   subscribe(fn)               -> unsubscribe()        fn(items) after every change
  *   capture()                   -> Promise<dataUrl|null>  screenshot (optional)
@@ -421,6 +422,15 @@
         return state.activity.slice().sort(function (a, b) { return a.when < b.when ? 1 : -1; });
       },
       brief: async function () { await ready; return clone(BRIEF); },
+      overview: async function () {
+        var response = await fetch('http://localhost:3000/api/paypal/overview', {
+          credentials: 'include',
+          cache: 'no-store'
+        });
+        var body = await response.json();
+        if (!response.ok) throw new Error(body.error || 'PayPal overview is unavailable.');
+        return body;
+      },
       getSettings: function () { return clone(state.settings); },
       updateSettings: function (patch) {
         var skills = Object.assign({}, state.settings.skills, patch.skills || {});
