@@ -1,5 +1,5 @@
 // Pyp dashboard (UI preview on demo data).
-// Pages: Inbox, Activity, Weekly brief, Setup. Hash routing (#/inbox etc.).
+// Pages: Overview, Transactions, Inbox, Activity, Weekly brief, Setup.
 // All data comes from one demo transport saved in localStorage, shared with the
 // landing page and with other open tabs. To use the real API, replace `transport`.
 (function () {
@@ -60,6 +60,7 @@
 
   var PAGES = {
     overview: { title: 'Overview', render: renderOverview },
+    transactions: { title: 'Transactions', render: renderTransactions },
     inbox: { title: 'Inbox', render: renderInbox },
     activity: { title: 'Activity', render: renderActivity },
     brief: { title: 'Weekly brief', render: renderBrief },
@@ -103,7 +104,7 @@
       var available = balance ? balance.available : 'Unavailable';
       var rows = (data.recentTransactions || []).map(function (item) {
         return '<tr><td>' + esc(fmtWhen(item.date)) + '</td><td>' + esc(item.subject || 'Unknown') +
-          '</td><td>' + esc(item.type) + '</td><td>' + esc(item.status) + '</td><td class="num">' +
+          '</td><td title="' + esc(item.type) + '">' + esc(item.typeLabel || item.type) + '</td><td title="' + esc(item.status) + '">' + esc(item.statusLabel || item.status) + '</td><td class="num">' +
           esc(item.amount == null ? '—' : currency + ' ' + item.amount) + '</td></tr>';
       }).join('');
       view.innerHTML =
@@ -120,6 +121,73 @@
     }).catch(function (error) {
       view.innerHTML = '<section class="panel"><h2>Overview unavailable</h2><p class="setup-error">' + esc(error.message) + '</p><p class="note">Confirm the Next.js server is running on port 3000 and the sandbox connection check succeeds.</p></section>';
     });
+  }
+
+  function isoDateStart(value) {
+    return value + 'T00:00:00Z';
+  }
+  function isoDateEnd(value) {
+    var date = new Date(value + 'T00:00:00Z');
+    date.setUTCDate(date.getUTCDate() + 1);
+    return date.toISOString().replace(/\.\d{3}Z$/, 'Z');
+  }
+  function inputDate(date) {
+    return date.toISOString().slice(0, 10);
+  }
+
+  function renderTransactions() {
+    var end = new Date();
+    var start = new Date(end);
+    start.setUTCDate(start.getUTCDate() - 30);
+    var page = 1;
+    var pageSize = 25;
+    view.innerHTML =
+      '<section class="panel"><h2>PayPal transactions</h2><p>Read-only transaction search for your connected sandbox merchant.</p>' +
+      '<form class="filters transaction-filters" data-transaction-form>' +
+      '<label>From<input type="date" name="start" value="' + inputDate(start) + '" required></label>' +
+      '<label>To<input type="date" name="end" value="' + inputDate(end) + '" required></label>' +
+      '<button class="btn" type="submit">Apply dates</button></form>' +
+      '<div data-transaction-results><div class="loading">Loading transactions…</div></div></section>';
+
+    var form = view.querySelector('[data-transaction-form]');
+    var results = view.querySelector('[data-transaction-results]');
+
+    function loadTransactions() {
+      var values = new FormData(form);
+      results.innerHTML = '<div class="loading">Loading transactions…</div>';
+      transport.transactions({
+        startDate: isoDateStart(values.get('start')),
+        endDate: isoDateEnd(values.get('end')),
+        page: page,
+        pageSize: pageSize
+      }).then(function (data) {
+        var rows = (data.transactions || []).map(function (item) {
+          var amount = item.amount == null ? '—' : (item.currency || '') + ' ' + item.amount;
+          return '<tr><td>' + esc(fmtWhen(item.date)) + '</td><td>' + esc(item.subject || 'Unknown') +
+            '</td><td><span title="' + esc(item.type) + '">' + esc(item.typeLabel || item.type) + '</span></td>' +
+            '<td><span class="status status-' + esc(item.status) + '" title="' + esc(item.status) + '">' + esc(item.statusLabel || item.status) + '</span></td>' +
+            '<td class="num">' + esc(amount) + '</td><td class="transaction-id" title="' + esc(item.id) + '">' + esc(item.id) + '</td></tr>';
+        }).join('');
+        var totalPages = data.totalPages || 1;
+        results.innerHTML =
+          '<div class="transaction-summary">' + esc(String(data.totalItems)) + ' transaction' + (data.totalItems === 1 ? '' : 's') + ' found</div>' +
+          (rows ? '<div class="tablewrap"><table><thead><tr><th>When</th><th>Customer</th><th>Type</th><th>Status</th><th class="num">Amount</th><th>Transaction ID</th></tr></thead><tbody>' + rows + '</tbody></table></div>' :
+            '<div class="empty">No transactions were returned for these dates.</div>') +
+          '<div class="pagination"><button class="btn btn-ghost" type="button" data-page-prev ' + (page <= 1 ? 'disabled' : '') + '>Previous</button><span>Page ' + esc(String(page)) + ' of ' + esc(String(totalPages)) + '</span><button class="btn btn-ghost" type="button" data-page-next ' + (page >= totalPages ? 'disabled' : '') + '>Next</button></div>' +
+          '<p class="note">PayPal transaction reporting can lag behind sandbox activity. Codes remain available in each row’s tooltip.</p>';
+        results.querySelector('[data-page-prev]').addEventListener('click', function () { page -= 1; loadTransactions(); });
+        results.querySelector('[data-page-next]').addEventListener('click', function () { page += 1; loadTransactions(); });
+      }).catch(function (error) {
+        results.innerHTML = '<p class="setup-error">' + esc(error.message) + '</p><p class="note">Choose a date range of 31 days or less and confirm the sandbox connection check succeeds.</p>';
+      });
+    }
+
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      page = 1;
+      loadTransactions();
+    });
+    loadTransactions();
   }
 
   function renderInbox() {

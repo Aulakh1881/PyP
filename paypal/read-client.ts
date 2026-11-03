@@ -13,12 +13,26 @@ export type PayPalTransaction = {
   id: string;
   date: string;
   type: string;
+  typeLabel: string;
   status: string;
+  statusLabel: string;
   amount: string | null;
   currency: string | null;
   fee: string | null;
   net: string | null;
   subject: string | null;
+};
+
+const TRANSACTION_EVENT_LABELS: Record<string, string> = {
+  T0001: "Payment",
+  T1900: "Payment received",
+};
+
+const TRANSACTION_STATUS_LABELS: Record<string, string> = {
+  D: "Denied",
+  P: "Pending",
+  S: "Success",
+  V: "Voided",
 };
 
 export class PayPalReadError extends Error {
@@ -45,6 +59,14 @@ function stringValue(value: unknown): string | null {
 
 function objectValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? value as Record<string, unknown> : null;
+}
+
+function transactionTypeLabel(code: string): string {
+  return TRANSACTION_EVENT_LABELS[code] ?? `PayPal transaction (${code})`;
+}
+
+function transactionStatusLabel(code: string): string {
+  return TRANSACTION_STATUS_LABELS[code] ?? `PayPal status (${code})`;
 }
 
 async function paypalGet(
@@ -109,12 +131,23 @@ export async function getPayPalBalances(
 export async function getPayPalTransactions(
   startDate: string,
   endDate: string,
+  optionsOrFetcher: { page?: number; pageSize?: number } | typeof fetch = {},
   fetcher: typeof fetch = fetch,
-): Promise<{ transactions: PayPalTransaction[]; totalItems: number }> {
+): Promise<{
+  transactions: PayPalTransaction[];
+  totalItems: number;
+  page: number;
+  pageSize: number;
+}> {
+  const options = typeof optionsOrFetcher === "function" ? {} : optionsOrFetcher;
+  if (typeof optionsOrFetcher === "function") fetcher = optionsOrFetcher;
+  const page = options.page ?? 1;
+  const pageSize = options.pageSize ?? 100;
   const query = new URLSearchParams({
     start_date: startDate,
     end_date: endDate,
-    page_size: "100",
+    page: String(page),
+    page_size: String(pageSize),
   });
   const body = objectValue(
     await paypalGet(`/v1/reporting/transactions?${query.toString()}`, fetcher),
@@ -123,6 +156,8 @@ export async function getPayPalTransactions(
 
   return {
     totalItems: typeof body?.total_items === "number" ? body.total_items : entries.length,
+    page,
+    pageSize,
     transactions: entries.flatMap((entry) => {
       const detail = objectValue(entry);
       const info = objectValue(detail?.transaction_info);
@@ -137,7 +172,9 @@ export async function getPayPalTransactions(
         id,
         date: stringValue(info?.transaction_initiation_date) ?? "",
         type: stringValue(info?.transaction_event_code) ?? "UNKNOWN",
+        typeLabel: transactionTypeLabel(stringValue(info?.transaction_event_code) ?? "UNKNOWN"),
         status: stringValue(info?.transaction_status) ?? "UNKNOWN",
+        statusLabel: transactionStatusLabel(stringValue(info?.transaction_status) ?? "UNKNOWN"),
         amount: stringValue(amount?.value),
         currency: stringValue(amount?.currency_code),
         fee: stringValue(fee?.value),

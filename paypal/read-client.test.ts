@@ -68,11 +68,15 @@ describe("PayPal read client", () => {
       getPayPalTransactions("2026-11-01T00:00:00Z", "2026-11-03T23:59:59Z", fetcher),
     ).resolves.toEqual({
       totalItems: 1,
+      page: 1,
+      pageSize: 100,
       transactions: [{
         id: "TX-1",
         date: "2026-11-03T10:00:00Z",
         type: "T0001",
+        typeLabel: "Payment",
         status: "S",
+        statusLabel: "Success",
         amount: "25.00",
         currency: "USD",
         fee: "-0.99",
@@ -80,6 +84,49 @@ describe("PayPal read client", () => {
         subject: "Sandbox Buyer",
       }],
     });
+  });
+
+  it("requests a selected page and labels unknown transaction codes safely", async () => {
+    vi.stubEnv("PAYPAL_CLIENT_ID", "client-id");
+    vi.stubEnv("PAYPAL_CLIENT_SECRET", "client-secret");
+    const fetcher = fetcherFor(
+      new Response(JSON.stringify({
+        access_token: "access-token",
+        token_type: "Bearer",
+        expires_in: 900,
+      })),
+      new Response(JSON.stringify({
+        total_items: 26,
+        transaction_details: [{
+          transaction_info: {
+            transaction_id: "TX-2",
+            transaction_event_code: "T9999",
+            transaction_status: "P",
+          },
+        }],
+      })),
+    );
+
+    await expect(
+      getPayPalTransactions(
+        "2026-11-01T00:00:00Z",
+        "2026-11-03T23:59:59Z",
+        { page: 2, pageSize: 25 },
+        fetcher,
+      ),
+    ).resolves.toMatchObject({
+      totalItems: 26,
+      page: 2,
+      pageSize: 25,
+      transactions: [{
+        typeLabel: "PayPal transaction (T9999)",
+        statusLabel: "Pending",
+      }],
+    });
+    expect(fetcher).toHaveBeenLastCalledWith(
+      expect.stringContaining("page=2&page_size=25"),
+      expect.any(Object),
+    );
   });
 
   it("reports PayPal read failures without returning raw response bodies", async () => {

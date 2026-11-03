@@ -27,7 +27,9 @@ transaction reporting data. The authenticated app routes expose the normalized
 read model without returning PayPal tokens or raw response bodies:
 
 - `GET /api/paypal/overview`
-- `GET /api/paypal/transactions?start_date=&end_date=`
+- `GET /api/paypal/transactions?start_date=&end_date=&page=&page_size=`
 
-Transaction reporting is limited to PayPal's 31-day reporting window. These
+Transaction reporting is limited to PayPal's 31-day reporting window. The
+transactions response keeps PayPal's event and status codes while also
+returning human-readable labels, and supports pages of 1-100 records. These
 routes do not create, update, refund, or otherwise write to PayPal.

@@ -12,6 +12,7 @@
  *   activity()                  -> Promise<entry[]>     newest first
  *   brief()                     -> Promise<brief>
  *   overview()               -> Promise<overview>  (read-only sandbox data)
+ *   transactions(options)       -> Promise<transactions> (read-only sandbox data)
  *   getSettings() / updateSettings(patch) / setPaused(bool) / isPaused()
  *   subscribe(fn)               -> unsubscribe()        fn(items) after every change
  *   capture()                   -> Promise<dataUrl|null>  screenshot (optional)
@@ -429,6 +430,21 @@
         });
         var body = await response.json();
         if (!response.ok) throw new Error(body.error || 'PayPal overview is unavailable.');
+        return body;
+      },
+      transactions: async function (options) {
+        options = options || {};
+        var params = new URLSearchParams();
+        if (options.startDate) params.set('start_date', options.startDate);
+        if (options.endDate) params.set('end_date', options.endDate);
+        params.set('page', String(options.page || 1));
+        params.set('page_size', String(options.pageSize || 25));
+        var response = await fetch('http://localhost:3000/api/paypal/transactions?' + params.toString(), {
+          credentials: 'include',
+          cache: 'no-store'
+        });
+        var body = await response.json();
+        if (!response.ok) throw new Error(body.error || 'PayPal transaction data is unavailable.');
         return body;
       },
       getSettings: function () { return clone(state.settings); },
