@@ -26,6 +26,11 @@ export async function POST() {
       );
     }
     if (error instanceof PayPalAuthenticationError) {
+      console.error("PayPal partner referral failed", {
+        status: error.paypalStatus,
+        name: error.paypalName,
+        debugId: error.paypalDebugId,
+      });
       return Response.json(
         { error: "PayPal could not create the sandbox onboarding referral" },
         { status: 502 },

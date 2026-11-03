@@ -22,9 +22,19 @@ export class PayPalConfigurationError extends Error {
 }
 
 export class PayPalAuthenticationError extends Error {
-  constructor(message: string) {
+  readonly paypalStatus?: number;
+  readonly paypalName?: string;
+  readonly paypalDebugId?: string;
+
+  constructor(
+    message: string,
+    details?: { status?: number; name?: string; debugId?: string },
+  ) {
     super(message);
     this.name = "PayPalAuthenticationError";
+    this.paypalStatus = details?.status;
+    this.paypalName = details?.name;
+    this.paypalDebugId = details?.debugId;
   }
 }
 
@@ -160,8 +170,29 @@ export async function createPayPalPartnerReferral(
   });
 
   if (!response.ok) {
+    let details: unknown;
+    try {
+      details = await response.json();
+    } catch {
+      details = undefined;
+    }
+
+    const safeDetails =
+      details && typeof details === "object"
+        ? {
+            name:
+              "name" in details && typeof details.name === "string"
+                ? details.name
+                : undefined,
+            debugId:
+              "debug_id" in details && typeof details.debug_id === "string"
+                ? details.debug_id
+                : undefined,
+          }
+        : undefined;
     throw new PayPalAuthenticationError(
       `PayPal partner referral failed with status ${response.status}`,
+      { status: response.status, ...safeDetails },
     );
   }
 
