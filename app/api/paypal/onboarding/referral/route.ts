@@ -5,8 +5,6 @@ import {
   PayPalConfigurationError,
 } from "@/paypal/oauth";
 
-export const runtime = "nodejs";
-
 export async function POST() {
   const supabase = await createClient();
   const {
