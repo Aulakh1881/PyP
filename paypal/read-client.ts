@@ -23,6 +23,19 @@ export type PayPalTransaction = {
   subject: string | null;
 };
 
+export type PayPalInvoice = {
+  id: string;
+  number: string | null;
+  status: string;
+  statusLabel: string;
+  date: string | null;
+  dueDate: string | null;
+  recipient: string | null;
+  amount: string | null;
+  dueAmount: string | null;
+  currency: string | null;
+};
+
 const TRANSACTION_EVENT_LABELS: Record<string, string> = {
   T0001: "Payment",
   T1900: "Payment received",
@@ -33,6 +46,17 @@ const TRANSACTION_STATUS_LABELS: Record<string, string> = {
   P: "Pending",
   S: "Success",
   V: "Voided",
+};
+
+const INVOICE_STATUS_LABELS: Record<string, string> = {
+  DRAFT: "Draft",
+  SENT: "Sent",
+  SCHEDULED: "Scheduled",
+  PAID: "Paid",
+  MARKED_AS_PAID: "Marked as paid",
+  CANCELLED: "Cancelled",
+  REFUNDED: "Refunded",
+  PARTIALLY_REFUNDED: "Partially refunded",
 };
 
 export class PayPalReadError extends Error {
@@ -67,6 +91,10 @@ function transactionTypeLabel(code: string): string {
 
 function transactionStatusLabel(code: string): string {
   return TRANSACTION_STATUS_LABELS[code] ?? `PayPal status (${code})`;
+}
+
+function invoiceStatusLabel(status: string): string {
+  return INVOICE_STATUS_LABELS[status] ?? `PayPal status (${status})`;
 }
 
 async function paypalGet(
@@ -180,6 +208,64 @@ export async function getPayPalTransactions(
         fee: stringValue(fee?.value),
         net: stringValue(net?.value),
         subject: stringValue(payerName?.alternate_full_name),
+      }];
+    }),
+  };
+}
+
+export async function getPayPalInvoices(
+  optionsOrFetcher: { page?: number; pageSize?: number } | typeof fetch = {},
+  fetcher: typeof fetch = fetch,
+): Promise<{
+  invoices: PayPalInvoice[];
+  totalItems: number;
+  page: number;
+  pageSize: number;
+}> {
+  const options = typeof optionsOrFetcher === "function" ? {} : optionsOrFetcher;
+  if (typeof optionsOrFetcher === "function") fetcher = optionsOrFetcher;
+  const page = options.page ?? 1;
+  const pageSize = options.pageSize ?? 25;
+  const query = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  });
+  const body = objectValue(
+    await paypalGet(`/v2/invoicing/invoices?${query.toString()}`, fetcher),
+  );
+  const entries = Array.isArray(body?.items) ? body.items : [];
+
+  return {
+    totalItems: typeof body?.total_items === "number" ? body.total_items : entries.length,
+    page,
+    pageSize,
+    invoices: entries.flatMap((entry) => {
+      const invoice = objectValue(entry);
+      const detail = objectValue(invoice?.detail);
+      const amount = objectValue(invoice?.amount);
+      const dueAmount = objectValue(invoice?.due_amount);
+      const recipients = Array.isArray(invoice?.primary_recipients) ? invoice.primary_recipients : [];
+      const recipient = objectValue(recipients[0]);
+      const billingInfo = objectValue(recipient?.billing_info);
+      const name = objectValue(billingInfo?.name);
+      const recipientName = [
+        stringValue(name?.given_name),
+        stringValue(name?.surname),
+      ].filter(Boolean).join(" ") || stringValue(billingInfo?.email_address);
+      const id = stringValue(invoice?.id);
+      const status = stringValue(invoice?.status) ?? "UNKNOWN";
+      if (!id) return [];
+      return [{
+        id,
+        number: stringValue(detail?.invoice_number),
+        status,
+        statusLabel: invoiceStatusLabel(status),
+        date: stringValue(detail?.invoice_date),
+        dueDate: stringValue(detail?.due_date),
+        recipient: recipientName || null,
+        amount: stringValue(amount?.value),
+        dueAmount: stringValue(dueAmount?.value),
+        currency: stringValue(amount?.currency_code),
       }];
     }),
   };
