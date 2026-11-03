@@ -59,6 +59,7 @@
   transport.inbox().then(function (d) { updateChrome(d.items); });
 
   var PAGES = {
+    overview: { title: 'Overview', render: renderOverview },
     inbox: { title: 'Inbox', render: renderInbox },
     activity: { title: 'Activity', render: renderActivity },
     brief: { title: 'Weekly brief', render: renderBrief },
@@ -93,6 +94,33 @@
     { id: 'all', label: 'All', fn: null, empty: 'No cards.' }
   ];
   var inboxTab = 'all';
+
+  function renderOverview() {
+    view.innerHTML = '<section class="panel"><div class="loading">Loading sandbox business data…</div></section>';
+    transport.overview().then(function (data) {
+      var balance = data.balances && data.balances[0];
+      var currency = balance ? balance.currency : 'USD';
+      var available = balance ? balance.available : 'Unavailable';
+      var rows = (data.recentTransactions || []).map(function (item) {
+        return '<tr><td>' + esc(fmtWhen(item.date)) + '</td><td>' + esc(item.subject || 'Unknown') +
+          '</td><td>' + esc(item.type) + '</td><td>' + esc(item.status) + '</td><td class="num">' +
+          esc(item.amount == null ? '—' : currency + ' ' + item.amount) + '</td></tr>';
+      }).join('');
+      view.innerHTML =
+        '<section class="panel"><h2>Sandbox business overview</h2><p>Read-only data from your connected PayPal sandbox merchant.</p>' +
+        '<div class="stats overview-stats">' +
+        '<div class="stat"><span>Available balance</span><b>' + esc(available === 'Unavailable' ? available : currency + ' ' + available) + '</b><small>Current sandbox balance</small></div>' +
+        '<div class="stat"><span>Transactions</span><b>' + esc(String(data.transactionCount)) + '</b><small>In the last 30 days</small></div>' +
+        '<div class="stat"><span>Environment</span><b>' + esc(data.environment) + '</b><small>PayPal data source</small></div>' +
+        '</div></section>' +
+        '<section class="panel"><h2>Recent transactions</h2>' +
+        (rows ? '<div class="tablewrap"><table><thead><tr><th>When</th><th>Customer</th><th>Type</th><th>Status</th><th class="num">Amount</th></tr></thead><tbody>' + rows + '</tbody></table></div>' :
+          '<div class="empty">No transactions were returned for the selected period.</div>') +
+        '<p class="note">This view only reads PayPal data. Pyp does not change your sandbox account here.</p></section>';
+    }).catch(function (error) {
+      view.innerHTML = '<section class="panel"><h2>Overview unavailable</h2><p class="setup-error">' + esc(error.message) + '</p><p class="note">Confirm the Next.js server is running on port 3000 and the sandbox connection check succeeds.</p></section>';
+    });
+  }
 
   function renderInbox() {
     view.innerHTML =
