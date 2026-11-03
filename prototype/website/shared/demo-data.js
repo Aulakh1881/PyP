@@ -449,6 +449,15 @@
         if (!response.ok) throw new Error(body.error || 'PayPal transaction data is unavailable.');
         return body;
       },
+      order: async function (orderId) {
+        var response = await fetch('http://localhost:3000/api/paypal/orders/' + encodeURIComponent(orderId), {
+          credentials: 'include',
+          cache: 'no-store'
+        });
+        var body = await response.json();
+        if (!response.ok) throw new Error(body.error || 'PayPal order data is unavailable.');
+        return body;
+      },
       invoices: async function (options) {
         options = options || {};
         var params = new URLSearchParams({

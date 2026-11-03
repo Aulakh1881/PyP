@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getPayPalBalances, getPayPalDisputes, getPayPalInvoices, getPayPalTransactions, PayPalReadError } from "./read-client";
+import { getPayPalBalances, getPayPalDisputes, getPayPalInvoices, getPayPalOrder, getPayPalTransactions, PayPalReadError } from "./read-client";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -72,6 +72,7 @@ describe("PayPal read client", () => {
       pageSize: 100,
       transactions: [{
         id: "TX-1",
+        orderId: null,
         date: "2026-11-03T10:00:00Z",
         type: "T0001",
         typeLabel: "Payment",
@@ -123,6 +124,7 @@ describe("PayPal read client", () => {
         statusLabel: "Pending",
       }],
     });
+
     expect(fetcher).toHaveBeenLastCalledWith(
       expect.stringContaining("page=2&page_size=25"),
       expect.any(Object),
@@ -240,6 +242,53 @@ describe("PayPal read client", () => {
         currency: "USD",
         transactionId: "TX-1",
       }],
+    });
+
+  });
+
+  it("extracts an order reference from a transaction", async () => {
+    vi.stubEnv("PAYPAL_CLIENT_ID", "client-id");
+    vi.stubEnv("PAYPAL_CLIENT_SECRET", "client-secret");
+    const fetcher = fetcherFor(
+      new Response(JSON.stringify({ access_token: "access-token", token_type: "Bearer", expires_in: 900 })),
+      new Response(JSON.stringify({
+        transaction_details: [{
+          transaction_info: {
+            transaction_id: "TX-3",
+            paypal_reference_id: "ORDER-1",
+            paypal_reference_id_type: "OD",
+          },
+        }],
+      })),
+    );
+    await expect(getPayPalTransactions("2026-11-01T00:00:00Z", "2026-11-03T23:59:59Z", fetcher))
+      .resolves.toMatchObject({ transactions: [{ orderId: "ORDER-1" }] });
+  });
+
+  it("normalizes a PayPal order detail response", async () => {
+    vi.stubEnv("PAYPAL_CLIENT_ID", "client-id");
+    vi.stubEnv("PAYPAL_CLIENT_SECRET", "client-secret");
+    const fetcher = fetcherFor(
+      new Response(JSON.stringify({ access_token: "access-token", token_type: "Bearer", expires_in: 900 })),
+      new Response(JSON.stringify({
+        id: "ORDER-1",
+        status: "COMPLETED",
+        intent: "CAPTURE",
+        create_time: "2026-11-03T10:00:00Z",
+        update_time: "2026-11-03T10:05:00Z",
+        payer: { email_address: "buyer@example.com" },
+        purchase_units: [{ amount: { currency_code: "USD", value: "35.00" } }],
+      })),
+    );
+    await expect(getPayPalOrder("ORDER-1", fetcher)).resolves.toEqual({
+      id: "ORDER-1",
+      status: "COMPLETED",
+      intent: "CAPTURE",
+      createdAt: "2026-11-03T10:00:00Z",
+      updatedAt: "2026-11-03T10:05:00Z",
+      currency: "USD",
+      amount: "35.00",
+      payerEmail: "buyer@example.com",
     });
   });
 });

@@ -11,6 +11,7 @@ export type PayPalBalance = {
 
 export type PayPalTransaction = {
   id: string;
+  orderId: string | null;
   date: string;
   type: string;
   typeLabel: string;
@@ -21,6 +22,17 @@ export type PayPalTransaction = {
   fee: string | null;
   net: string | null;
   subject: string | null;
+};
+
+export type PayPalOrder = {
+  id: string;
+  status: string;
+  intent: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  currency: string | null;
+  amount: string | null;
+  payerEmail: string | null;
 };
 
 export type PayPalInvoice = {
@@ -237,9 +249,12 @@ export async function getPayPalTransactions(
       const fee = objectValue(info?.fee_amount);
       const net = objectValue(info?.net_amount);
       const id = stringValue(info?.transaction_id);
+      const referenceId = stringValue(info?.paypal_reference_id);
+      const referenceType = stringValue(info?.paypal_reference_id_type);
       if (!id) return [];
       return [{
         id,
+        orderId: referenceType === "OD" ? referenceId : null,
         date: stringValue(info?.transaction_initiation_date) ?? "",
         type: stringValue(info?.transaction_event_code) ?? "UNKNOWN",
         typeLabel: transactionTypeLabel(stringValue(info?.transaction_event_code) ?? "UNKNOWN"),
@@ -252,6 +267,30 @@ export async function getPayPalTransactions(
         subject: stringValue(payerName?.alternate_full_name),
       }];
     }),
+  };
+}
+
+export async function getPayPalOrder(
+  orderId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<PayPalOrder> {
+  const body = objectValue(
+    await paypalGet(`/v2/checkout/orders/${encodeURIComponent(orderId)}`, fetcher),
+  );
+  const purchaseUnits = Array.isArray(body?.purchase_units) ? body.purchase_units : [];
+  const purchaseUnit = objectValue(purchaseUnits[0]);
+  const amount = objectValue(purchaseUnit?.amount);
+  const payer = objectValue(body?.payer);
+  const payerEmail = stringValue(payer?.email_address);
+  return {
+    id: stringValue(body?.id) ?? orderId,
+    status: stringValue(body?.status) ?? "UNKNOWN",
+    intent: stringValue(body?.intent),
+    createdAt: stringValue(body?.create_time),
+    updatedAt: stringValue(body?.update_time),
+    currency: stringValue(amount?.currency_code),
+    amount: stringValue(amount?.value),
+    payerEmail,
   };
 }
 

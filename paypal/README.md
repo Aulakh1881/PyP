@@ -30,6 +30,7 @@ read model without returning PayPal tokens or raw response bodies:
 - `GET /api/paypal/transactions?start_date=&end_date=&page=&page_size=`
 - `GET /api/paypal/invoices?page=&page_size=`
 - `GET /api/paypal/disputes?page=&page_size=`
+- `GET /api/paypal/orders/:id`
 
 Transaction reporting is limited to PayPal's 31-day reporting window. The
 transactions response keeps PayPal's event and status codes while also
