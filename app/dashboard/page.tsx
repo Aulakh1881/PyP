@@ -16,13 +16,5 @@ export default async function DashboardPage() {
     throw new Error(`Could not provision the demo account: ${provisioningError.message}`);
   }
 
-  return (
-    <main className="placeholder">
-      <h1>Welcome to Pyp</h1>
-      <p>You are signed in as {user.email}.</p>
-      <p className="disclaimer">
-        Your profile is connected to the Pyp Demo Business.
-      </p>
-    </main>
-  );
+  redirect("http://localhost:8080/app/?authenticated=1");
 }

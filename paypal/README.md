@@ -19,8 +19,3 @@ returns the access token or PayPal credentials to the browser.
 
 `PAYPAL_WEBHOOK_ID` is not required for OAuth. It is only needed after a
 PayPal webhook is created and webhook signature verification is enabled.
-
-`POST /api/paypal/onboarding/referral` is an authenticated, opt-in sandbox
-test for Partner Referrals. It returns PayPal's onboarding `action_url` when
-the app is permitted to use the API; a `401` or `403` from PayPal means the
-PayPal app does not have Partner Referrals access.
