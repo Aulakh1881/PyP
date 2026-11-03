@@ -183,45 +183,45 @@
       });
     }
 
-    function renderInvoices() {
-      var page = 1;
-      var pageSize = 25;
-      view.innerHTML = '<section class="panel"><h2>PayPal invoices</h2><p>Read-only invoices from your connected sandbox merchant.</p><div data-invoice-results><div class="loading">Loading invoices…</div></div></section>';
-      var results = view.querySelector('[data-invoice-results]');
-
-      function loadInvoices() {
-        results.innerHTML = '<div class="loading">Loading invoices…</div>';
-        transport.invoices({ page: page, pageSize: pageSize }).then(function (data) {
-          var rows = (data.invoices || []).map(function (item) {
-            var amount = item.amount == null ? '—' : (item.currency || '') + ' ' + item.amount;
-            var due = item.dueAmount == null ? '—' : (item.currency || '') + ' ' + item.dueAmount;
-            return '<tr><td>' + esc(item.number || item.id) + '</td><td>' + esc(item.recipient || 'Unknown') +
-              '</td><td>' + esc(item.date || '—') + '</td><td>' + esc(item.dueDate || '—') + '</td>' +
-              '<td><span class="status status-' + esc(item.status) + '" title="' + esc(item.status) + '">' + esc(item.statusLabel || item.status) + '</span></td>' +
-              '<td class="num">' + esc(amount) + '</td><td class="num">' + esc(due) + '</td></tr>';
-          }).join('');
-          var totalPages = data.totalPages || 1;
-          results.innerHTML =
-            '<div class="transaction-summary">' + esc(String(data.totalItems)) + ' invoice' + (data.totalItems === 1 ? '' : 's') + ' found</div>' +
-            (rows ? '<div class="tablewrap"><table><thead><tr><th>Invoice</th><th>Customer</th><th>Issued</th><th>Due</th><th>Status</th><th class="num">Amount</th><th class="num">Due amount</th></tr></thead><tbody>' + rows + '</tbody></table></div>' :
-              '<div class="empty">No invoices were returned.</div>') +
-            '<div class="pagination"><button class="btn btn-ghost" type="button" data-page-prev ' + (page <= 1 ? 'disabled' : '') + '>Previous</button><span>Page ' + esc(String(page)) + ' of ' + esc(String(totalPages)) + '</span><button class="btn btn-ghost" type="button" data-page-next ' + (page >= totalPages ? 'disabled' : '') + '>Next</button></div>' +
-            '<p class="note">This view only reads PayPal data. Pyp does not create, send, cancel, or update invoices here.</p>';
-          results.querySelector('[data-page-prev]').addEventListener('click', function () { page -= 1; loadInvoices(); });
-          results.querySelector('[data-page-next]').addEventListener('click', function () { page += 1; loadInvoices(); });
-        }).catch(function (error) {
-          results.innerHTML = '<p class="setup-error">' + esc(error.message) + '</p><p class="note">Confirm the PayPal app has Invoicing access enabled, then retry.</p>';
-        });
-      }
-      loadInvoices();
-    }
-
     form.addEventListener('submit', function (event) {
       event.preventDefault();
       page = 1;
       loadTransactions();
     });
     loadTransactions();
+  }
+
+  function renderInvoices() {
+    var page = 1;
+    var pageSize = 25;
+    view.innerHTML = '<section class="panel"><h2>PayPal invoices</h2><p>Read-only invoices from your connected sandbox merchant.</p><div data-invoice-results><div class="loading">Loading invoices…</div></div></section>';
+    var results = view.querySelector('[data-invoice-results]');
+
+    function loadInvoices() {
+      results.innerHTML = '<div class="loading">Loading invoices…</div>';
+      transport.invoices({ page: page, pageSize: pageSize }).then(function (data) {
+        var rows = (data.invoices || []).map(function (item) {
+          var amount = item.amount == null ? '—' : (item.currency || '') + ' ' + item.amount;
+          var due = item.dueAmount == null ? '—' : (item.currency || '') + ' ' + item.dueAmount;
+          return '<tr><td>' + esc(item.number || item.id) + '</td><td>' + esc(item.recipient || 'Unknown') +
+            '</td><td>' + esc(item.date || '—') + '</td><td>' + esc(item.dueDate || '—') + '</td>' +
+            '<td><span class="status status-' + esc(item.status) + '" title="' + esc(item.status) + '">' + esc(item.statusLabel || item.status) + '</span></td>' +
+            '<td class="num">' + esc(amount) + '</td><td class="num">' + esc(due) + '</td></tr>';
+        }).join('');
+        var totalPages = data.totalPages || 1;
+        results.innerHTML =
+          '<div class="transaction-summary">' + esc(String(data.totalItems)) + ' invoice' + (data.totalItems === 1 ? '' : 's') + ' found</div>' +
+          (rows ? '<div class="tablewrap"><table><thead><tr><th>Invoice</th><th>Customer</th><th>Issued</th><th>Due</th><th>Status</th><th class="num">Amount</th><th class="num">Due amount</th></tr></thead><tbody>' + rows + '</tbody></table></div>' :
+            '<div class="empty">No invoices were returned.</div>') +
+          '<div class="pagination"><button class="btn btn-ghost" type="button" data-page-prev ' + (page <= 1 ? 'disabled' : '') + '>Previous</button><span>Page ' + esc(String(page)) + ' of ' + esc(String(totalPages)) + '</span><button class="btn btn-ghost" type="button" data-page-next ' + (page >= totalPages ? 'disabled' : '') + '>Next</button></div>' +
+          '<p class="note">This view only reads PayPal data. Pyp does not create, send, cancel, or update invoices here.</p>';
+        results.querySelector('[data-page-prev]').addEventListener('click', function () { page -= 1; loadInvoices(); });
+        results.querySelector('[data-page-next]').addEventListener('click', function () { page += 1; loadInvoices(); });
+      }).catch(function (error) {
+        results.innerHTML = '<p class="setup-error">' + esc(error.message) + '</p><p class="note">Confirm the PayPal app has Invoicing access enabled, then retry.</p>';
+      });
+    }
+    loadInvoices();
   }
 
   function renderInbox() {
