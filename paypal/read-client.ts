@@ -36,6 +36,20 @@ export type PayPalInvoice = {
   currency: string | null;
 };
 
+export type PayPalDispute = {
+  id: string;
+  status: string;
+  statusLabel: string;
+  reason: string | null;
+  reasonLabel: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+  responseDueDate: string | null;
+  amount: string | null;
+  currency: string | null;
+  transactionId: string | null;
+};
+
 const TRANSACTION_EVENT_LABELS: Record<string, string> = {
   T0001: "Payment",
   T1900: "Payment received",
@@ -57,6 +71,26 @@ const INVOICE_STATUS_LABELS: Record<string, string> = {
   CANCELLED: "Cancelled",
   REFUNDED: "Refunded",
   PARTIALLY_REFUNDED: "Partially refunded",
+};
+
+const DISPUTE_STATUS_LABELS: Record<string, string> = {
+  OPEN: "Open",
+  WAITING_FOR_SELLER_RESPONSE: "Waiting for your response",
+  WAITING_FOR_BUYER_RESPONSE: "Waiting for buyer",
+  UNDER_REVIEW: "Under review",
+  RESOLVED: "Resolved",
+  CLOSED: "Closed",
+};
+
+const DISPUTE_REASON_LABELS: Record<string, string> = {
+  ITEM_NOT_RECEIVED: "Item not received",
+  ITEM_NOT_AS_DESCRIBED: "Item not as described",
+  UNAUTHORIZED_TRANSACTION: "Unauthorized transaction",
+  DUPLICATE_TRANSACTION: "Duplicate transaction",
+  CREDIT_NOT_PROCESSED: "Credit not processed",
+  CANCELED_RECURRING_BILLING: "Cancelled recurring billing",
+  PAYMENT_BY_OTHER_MEANS: "Paid by other means",
+  OTHER: "Other",
 };
 
 export class PayPalReadError extends Error {
@@ -95,6 +129,14 @@ function transactionStatusLabel(code: string): string {
 
 function invoiceStatusLabel(status: string): string {
   return INVOICE_STATUS_LABELS[status] ?? `PayPal status (${status})`;
+}
+
+function disputeStatusLabel(status: string): string {
+  return DISPUTE_STATUS_LABELS[status] ?? `PayPal status (${status})`;
+}
+
+function disputeReasonLabel(reason: string): string {
+  return DISPUTE_REASON_LABELS[reason] ?? `PayPal reason (${reason})`;
 }
 
 async function paypalGet(
@@ -266,6 +308,60 @@ export async function getPayPalInvoices(
         amount: stringValue(amount?.value),
         dueAmount: stringValue(dueAmount?.value),
         currency: stringValue(amount?.currency_code),
+      }];
+    }),
+  };
+}
+
+export async function getPayPalDisputes(
+  optionsOrFetcher: { page?: number; pageSize?: number } | typeof fetch = {},
+  fetcher: typeof fetch = fetch,
+): Promise<{
+  disputes: PayPalDispute[];
+  totalItems: number;
+  page: number;
+  pageSize: number;
+}> {
+  const options = typeof optionsOrFetcher === "function" ? {} : optionsOrFetcher;
+  if (typeof optionsOrFetcher === "function") fetcher = optionsOrFetcher;
+  const page = options.page ?? 1;
+  const pageSize = options.pageSize ?? 25;
+  const query = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  });
+  const body = objectValue(
+    await paypalGet(`/v1/customer/disputes?${query.toString()}`, fetcher),
+  );
+  const entries = Array.isArray(body?.items) ? body.items : [];
+
+  return {
+    totalItems: typeof body?.total_items === "number" ? body.total_items : entries.length,
+    page,
+    pageSize,
+    disputes: entries.flatMap((entry) => {
+      const dispute = objectValue(entry);
+      const amount = objectValue(dispute?.dispute_amount);
+      const transactions = Array.isArray(dispute?.disputed_transactions)
+        ? dispute.disputed_transactions
+        : [];
+      const transaction = objectValue(transactions[0]);
+      const id = stringValue(dispute?.dispute_id);
+      const status = stringValue(dispute?.status) ?? "UNKNOWN";
+      const reason = stringValue(dispute?.reason) ?? "UNKNOWN";
+      if (!id) return [];
+      return [{
+        id,
+        status,
+        statusLabel: disputeStatusLabel(status),
+        reason,
+        reasonLabel: disputeReasonLabel(reason),
+        createdAt: stringValue(dispute?.create_time),
+        updatedAt: stringValue(dispute?.update_time),
+        responseDueDate: stringValue(dispute?.seller_response_due_date),
+        amount: stringValue(amount?.value),
+        currency: stringValue(amount?.currency_code),
+        transactionId: stringValue(transaction?.seller_transaction_id),
       }];
     }),
   };

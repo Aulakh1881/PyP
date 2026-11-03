@@ -14,6 +14,7 @@
  *   overview()               -> Promise<overview>  (read-only sandbox data)
  *   transactions(options)       -> Promise<transactions> (read-only sandbox data)
  *   invoices(options)            -> Promise<invoices> (read-only sandbox data)
+ *   disputes(options)            -> Promise<disputes> (read-only sandbox data)
  *   getSettings() / updateSettings(patch) / setPaused(bool) / isPaused()
  *   subscribe(fn)               -> unsubscribe()        fn(items) after every change
  *   capture()                   -> Promise<dataUrl|null>  screenshot (optional)
@@ -460,6 +461,20 @@
         });
         var body = await response.json();
         if (!response.ok) throw new Error(body.error || 'PayPal invoice data is unavailable.');
+        return body;
+      },
+      disputes: async function (options) {
+        options = options || {};
+        var params = new URLSearchParams({
+          page: String(options.page || 1),
+          page_size: String(options.pageSize || 25)
+        });
+        var response = await fetch('http://localhost:3000/api/paypal/disputes?' + params.toString(), {
+          credentials: 'include',
+          cache: 'no-store'
+        });
+        var body = await response.json();
+        if (!response.ok) throw new Error(body.error || 'PayPal dispute data is unavailable.');
         return body;
       },
       getSettings: function () { return clone(state.settings); },

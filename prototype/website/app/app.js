@@ -62,6 +62,7 @@
     overview: { title: 'Overview', render: renderOverview },
     transactions: { title: 'Transactions', render: renderTransactions },
     invoices: { title: 'Invoices', render: renderInvoices },
+    disputes: { title: 'Disputes', render: renderDisputes },
     inbox: { title: 'Inbox', render: renderInbox },
     activity: { title: 'Activity', render: renderActivity },
     brief: { title: 'Weekly brief', render: renderBrief },
@@ -222,6 +223,40 @@
       });
     }
     loadInvoices();
+  }
+
+  function renderDisputes() {
+    var page = 1;
+    var pageSize = 25;
+    view.innerHTML = '<section class="panel"><h2>PayPal disputes</h2><p>Read-only disputes from your connected sandbox merchant.</p><div data-dispute-results><div class="loading">Loading disputes…</div></div></section>';
+    var results = view.querySelector('[data-dispute-results]');
+
+    function loadDisputes() {
+      results.innerHTML = '<div class="loading">Loading disputes…</div>';
+      transport.disputes({ page: page, pageSize: pageSize }).then(function (data) {
+        var rows = (data.disputes || []).map(function (item) {
+          var amount = item.amount == null ? '—' : (item.currency || '') + ' ' + item.amount;
+          return '<tr><td class="transaction-id" title="' + esc(item.id) + '">' + esc(item.id) + '</td>' +
+            '<td><span class="status status-' + esc(item.status) + '" title="' + esc(item.status) + '">' + esc(item.statusLabel || item.status) + '</span></td>' +
+            '<td title="' + esc(item.reason) + '">' + esc(item.reasonLabel || item.reason) + '</td>' +
+            '<td>' + esc(item.createdAt ? item.createdAt.slice(0, 10) : '—') + '</td>' +
+            '<td>' + esc(item.responseDueDate ? item.responseDueDate.slice(0, 10) : '—') + '</td>' +
+            '<td class="num">' + esc(amount) + '</td></tr>';
+        }).join('');
+        var totalPages = data.totalPages || 1;
+        results.innerHTML =
+          '<div class="transaction-summary">' + esc(String(data.totalItems)) + ' dispute' + (data.totalItems === 1 ? '' : 's') + ' found</div>' +
+          (rows ? '<div class="tablewrap"><table><thead><tr><th>Dispute ID</th><th>Status</th><th>Reason</th><th>Created</th><th>Response due</th><th class="num">Amount</th></tr></thead><tbody>' + rows + '</tbody></table></div>' :
+            '<div class="empty">No disputes were returned.</div>') +
+          '<div class="pagination"><button class="btn btn-ghost" type="button" data-page-prev ' + (page <= 1 ? 'disabled' : '') + '>Previous</button><span>Page ' + esc(String(page)) + ' of ' + esc(String(totalPages)) + '</span><button class="btn btn-ghost" type="button" data-page-next ' + (page >= totalPages ? 'disabled' : '') + '>Next</button></div>' +
+          '<p class="note">This view only reads PayPal data. Pyp does not respond to, resolve, or change disputes here.</p>';
+        results.querySelector('[data-page-prev]').addEventListener('click', function () { page -= 1; loadDisputes(); });
+        results.querySelector('[data-page-next]').addEventListener('click', function () { page += 1; loadDisputes(); });
+      }).catch(function (error) {
+        results.innerHTML = '<p class="setup-error">' + esc(error.message) + '</p><p class="note">Confirm the PayPal app has Customer disputes access enabled, then retry.</p>';
+      });
+    }
+    loadDisputes();
   }
 
   function renderInbox() {

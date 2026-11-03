@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getPayPalBalances, getPayPalInvoices, getPayPalTransactions, PayPalReadError } from "./read-client";
+import { getPayPalBalances, getPayPalDisputes, getPayPalInvoices, getPayPalTransactions, PayPalReadError } from "./read-client";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -194,6 +194,51 @@ describe("PayPal read client", () => {
         amount: "25.00",
         dueAmount: "0.00",
         currency: "USD",
+      }],
+    });
+
+  });
+
+  it("normalizes dispute status, reason, amount, and transaction", async () => {
+    vi.stubEnv("PAYPAL_CLIENT_ID", "client-id");
+    vi.stubEnv("PAYPAL_CLIENT_SECRET", "client-secret");
+    const fetcher = fetcherFor(
+      new Response(JSON.stringify({
+        access_token: "access-token",
+        token_type: "Bearer",
+        expires_in: 900,
+      })),
+      new Response(JSON.stringify({
+        total_items: 1,
+        items: [{
+          dispute_id: "PP-D-1",
+          status: "WAITING_FOR_SELLER_RESPONSE",
+          reason: "ITEM_NOT_RECEIVED",
+          create_time: "2026-11-03T10:00:00Z",
+          update_time: "2026-11-03T11:00:00Z",
+          seller_response_due_date: "2026-11-10T00:00:00Z",
+          dispute_amount: { currency_code: "USD", value: "35.00" },
+          disputed_transactions: [{ seller_transaction_id: "TX-1" }],
+        }],
+      })),
+    );
+
+    await expect(getPayPalDisputes({ page: 2, pageSize: 10 }, fetcher)).resolves.toEqual({
+      totalItems: 1,
+      page: 2,
+      pageSize: 10,
+      disputes: [{
+        id: "PP-D-1",
+        status: "WAITING_FOR_SELLER_RESPONSE",
+        statusLabel: "Waiting for your response",
+        reason: "ITEM_NOT_RECEIVED",
+        reasonLabel: "Item not received",
+        createdAt: "2026-11-03T10:00:00Z",
+        updatedAt: "2026-11-03T11:00:00Z",
+        responseDueDate: "2026-11-10T00:00:00Z",
+        amount: "35.00",
+        currency: "USD",
+        transactionId: "TX-1",
       }],
     });
   });
