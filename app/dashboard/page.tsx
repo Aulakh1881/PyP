@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
   getPayPalAccessToken,
@@ -9,6 +10,7 @@ import {
 export const instant = false;
 
 export default async function DashboardPage() {
+  await connection();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 

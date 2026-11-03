@@ -25,6 +25,10 @@ export async function GET(request: Request) {
       return Response.json({ error: "PayPal is not available" }, { status: 503 });
     }
     if (error instanceof PayPalReadError) {
+      console.error("PayPal transaction read failed", {
+        status: error.status,
+        debugId: error.debugId,
+      });
       return Response.json({ error: "PayPal transaction data is unavailable" }, { status: 502 });
     }
     throw error;
