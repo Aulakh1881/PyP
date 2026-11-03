@@ -9,6 +9,11 @@ type PayPalTokenResponse = {
   expires_in: number;
 };
 
+export type PartnerReferral = {
+  tracking_id: string;
+  action_url: string;
+};
+
 export class PayPalConfigurationError extends Error {
   constructor(message: string) {
     super(message);
@@ -44,6 +49,10 @@ function getCredentials() {
   return { clientId, clientSecret };
 }
 
+function getApiBase(environment: PayPalEnvironment): string {
+  return environment === "SANDBOX" ? PAYPAL_SANDBOX_API : PAYPAL_LIVE_API;
+}
+
 export function getPayPalEnvironment(): Lowercase<PayPalEnvironment> {
   return getEnvironment().toLowerCase() as Lowercase<PayPalEnvironment>;
 }
@@ -53,7 +62,7 @@ export async function getPayPalAccessToken(
 ): Promise<PayPalTokenResponse> {
   const environment = getEnvironment();
   const { clientId, clientSecret } = getCredentials();
-  const apiBase = environment === "SANDBOX" ? PAYPAL_SANDBOX_API : PAYPAL_LIVE_API;
+  const apiBase = getApiBase(environment);
   const authorization = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
 
   let response: Response;
@@ -107,4 +116,83 @@ export async function getPayPalAccessToken(
     token_type: body.token_type,
     expires_in: body.expires_in,
   };
+}
+
+export async function createPayPalPartnerReferral(
+  trackingId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<PartnerReferral> {
+  if (!trackingId) {
+    throw new PayPalConfigurationError("A tracking ID is required");
+  }
+
+  const environment = getEnvironment();
+  const token = await getPayPalAccessToken(fetcher);
+  const response = await fetcher(`${getApiBase(environment)}/v2/customer/partner-referrals`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `${token.token_type} ${token.access_token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      operations: [
+        {
+          operation: "API_INTEGRATION",
+          api_integration_preference: {
+            rest_api_integration: {
+              integration_method: "SDK",
+              integration_type: "THIRD_PARTY",
+              third_party_details: {
+                signup_mode: "VERIFY_WITH_PAYPAL",
+                organization: process.env.PAYPAL_PARTNER_ORGANIZATION ?? "Pyp",
+              },
+            },
+          },
+        },
+      ],
+      products: ["PPCP"],
+      legal_consents: [{ type: "SHARE_DATA_CONSENT", granted: true }],
+      legal_country_code: process.env.PAYPAL_LEGAL_COUNTRY_CODE ?? "US",
+      tracking_id: trackingId,
+    }),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new PayPalAuthenticationError(
+      `PayPal partner referral failed with status ${response.status}`,
+    );
+  }
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw new PayPalAuthenticationError("PayPal returned an invalid referral response");
+  }
+
+  if (
+    !body ||
+    typeof body !== "object" ||
+    !("links" in body) ||
+    !Array.isArray(body.links)
+  ) {
+    throw new PayPalAuthenticationError("PayPal returned an invalid referral response");
+  }
+
+  const actionLink = body.links.find(
+    (link): link is { href: string; rel: string } =>
+      !!link &&
+      typeof link === "object" &&
+      "href" in link &&
+      typeof link.href === "string" &&
+      "rel" in link &&
+      link.rel === "action_url",
+  );
+  if (!actionLink) {
+    throw new PayPalAuthenticationError("PayPal referral response has no onboarding URL");
+  }
+
+  return { tracking_id: trackingId, action_url: actionLink.href };
 }
