@@ -8,3 +8,14 @@
 - `webhook-verify.ts`: checks PayPal's webhook signatures.
 
 Credentials come from environment variables and never reach the model, logs or traces.
+
+## Sandbox OAuth
+
+`oauth.ts` obtains a server-side sandbox access token with
+`PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET`. The authenticated
+`GET /api/paypal/connection` route uses that token request as a connection
+health check and returns only the environment and connection status. It never
+returns the access token or PayPal credentials to the browser.
+
+`PAYPAL_WEBHOOK_ID` is not required for OAuth. It is only needed after a
+PayPal webhook is created and webhook signature verification is enabled.
