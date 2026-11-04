@@ -10,27 +10,83 @@ A clickable, **UI-only** version of Pyp's three surfaces, running entirely on **
 | **Dashboard** | `website/app/` | Demo sign-in (any password), then **Inbox** (cards with Approve / Review / Dismiss / Undo, filters, flip to "How I got here"), **Activity** (filterable log with a detail drawer), **Weekly brief**, and **Setup** (Off / Ask me / Auto per skill, limits, **Pause Pyp**, extension connection code, reset demo data). Pyp's chat widget is on every page. |
 | **Chrome extension** | `extension/` | Puts Pyp in the **bottom-right corner of paypal.com**. The toolbar popup has **Open the Pyp web app** and the list of actions **waiting on you**, plus settings (show on PayPal, web app address, connection code). |
 
-## Run it locally
+## Run it locally, step by step
 
-No install step. Node is only needed for the tests and the helper scripts.
+### What you need
 
-**Website and dashboard**
+- **Google Chrome** (or another Chromium browser like Edge or Brave) for the extension.
+- **One of these** to run a tiny local web server. Check in a terminal:
+  - **Python 3**: `python3 --version` (on Windows: `py --version`), or
+  - **Node.js 18 or newer**: `node --version`. Node is also what runs the tests.
+- **Git**, or download the code as a ZIP from GitHub.
+
+You don't need to install any packages, API keys or accounts.
+
+### 1. Get the code
+
+With Git:
 
 ```bash
-cd prototype
-npm run serve           # or: python3 -m http.server 8080 --directory website
+git clone https://github.com/Aulakh1881/pyp.git
+cd pyp
+git checkout ui-prototype      # only until this branch is merged into main
 ```
 
-Open <http://localhost:8080> for the website and <http://localhost:8080/app/> for the dashboard.
+Without Git: on GitHub, switch to the `ui-prototype` branch, click **Code → Download ZIP**, unzip it, and open a terminal in the unzipped folder.
 
-**Chrome extension**
+### 2. Start the website and dashboard
 
-1. Open `chrome://extensions` and switch on **Developer mode** (top right).
-2. Click **Load unpacked** and choose the `prototype/extension` folder.
-3. Go to `https://www.paypal.com` (or `sandbox.paypal.com`). Pyp appears in the bottom-right corner.
-4. Click the Pyp icon in Chrome's toolbar to see what's waiting on you, or open the web app. It points to `http://localhost:8080/app/` by default; change that under the popup's settings.
+From the repo folder, run **one** of these and leave the terminal open:
 
-**Tests**
+```bash
+python3 -m http.server 8080 --directory prototype/website     # Python (Windows: py -m http.server 8080 --directory prototype/website)
+```
+
+```bash
+cd prototype && npm run serve                                  # Node (downloads a small server the first time)
+```
+
+Then open in Chrome:
+
+- **Website:** <http://localhost:8080>
+- **Dashboard:** <http://localhost:8080/app/>. Type any password and click **Sign in**.
+
+To stop the server, press **Ctrl + C** in that terminal.
+
+### 3. Install the Chrome extension
+
+1. In Chrome, go to `chrome://extensions`.
+2. Switch on **Developer mode** (top-right corner).
+3. Click **Load unpacked** and choose the **`prototype/extension`** folder. Pick that exact folder, the one containing `manifest.json`.
+4. Optional: click the puzzle-piece icon in the toolbar and pin **Pyp** so its icon is always visible.
+
+### 4. Try it on PayPal
+
+1. Go to <https://www.paypal.com> (or <https://www.sandbox.paypal.com>). If you already had a PayPal tab open, **reload it**. Pyp appears in the **bottom-right corner**.
+2. Hover over Pyp (it blinks and looks at you), then click it. It hops into the chat.
+3. Click Pyp's **toolbar icon** to see the actions waiting on you, or **Open the Pyp web app**. That opens <http://localhost:8080/app/>, so keep step 2's server running.
+
+### Things to try
+
+- **Chat:** tap a quick action, or type “late invoices”, “refund status” or “how was my week?”.
+- **+ menu:** upload a photo, or take a screenshot of the page (see the troubleshooting note below).
+- **Palette button** in the chat header: change Pyp's color and hat, the chat color and the message box.
+- **Inbox:** Approve the Acme reminder, Review and edit the dispute draft, Undo the refund before the timer ends, or click **How I got here** to flip a card.
+- **Dashboard → Setup:** switch on **Pause Pyp**, then go back to the Inbox; the refund timer freezes.
+- **Start over:** Setup → **Reset demo data** (or the popup's settings → Reset demo data).
+
+### If something doesn't work
+
+| Problem | Fix |
+|---|---|
+| Pyp doesn't appear on PayPal | Reload the PayPal tab. Check the extension is switched on in `chrome://extensions`, and that **Show Pyp on PayPal** is on in the popup's settings. |
+| “Load unpacked” shows a manifest error | You picked the wrong folder. Choose `prototype/extension` itself. |
+| “Open the Pyp web app” shows “site can't be reached” | The local server from step 2 isn't running. Start it again. |
+| Screenshot says it couldn't take one | Chrome only allows it after you click Pyp's toolbar icon once on that tab. Click it, close the popup, and try again. |
+| `localhost:8080` is already in use | Use another port, e.g. `python3 -m http.server 8081 --directory prototype/website`, and update the web app address in the popup's settings. |
+| The page looks stale after you pull new code | Hard-reload (Ctrl + Shift + R, or Cmd + Shift + R on Mac). For the extension, click the reload icon on its card in `chrome://extensions`. |
+
+### Tests (Node)
 
 ```bash
 cd prototype

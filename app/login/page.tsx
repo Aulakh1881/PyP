@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 type Mode = "sign-in" | "sign-up";
@@ -17,6 +18,7 @@ function PypFigure() {
 }
 
 export default function LoginPage() {
+  const router = useRouter();
   const [mode, setMode] = useState<Mode>("sign-in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -42,7 +44,7 @@ export default function LoginPage() {
       setMessage("Check your email to confirm your account, then sign in.");
       setMode("sign-in");
     } else {
-      window.location.href = "http://localhost:8080/app/?authenticated=1";
+      router.push("/paypal-setup");
     }
 
     setBusy(false);
