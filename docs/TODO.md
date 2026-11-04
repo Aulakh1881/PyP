@@ -24,16 +24,18 @@ Roles: **A** frontend · **B** engine and AI · **C** PayPal and infrastructure.
 - [ ] Insights lite (WP10)
 - [ ] Dispute evidence notes: check that every factual sentence cites an id (design B.2); today the note must carry at least one valid citation
 
-## Needed from C for the new engine features
+## Wiring the engine to PayPal and the database
 
-These are optional in `engine/types.ts`, so nothing breaks until they exist. Fakes in `skills/*/evals/fixtures.ts` show the expected shapes.
+Built on the `infra-wiring` branch (field names follow PayPal's references; not yet run against the live sandbox):
 
-- [ ] `PayPalReads.getDispute(id)`: one dispute with messages, items and tracking (Disputes can't run without it)
-- [ ] `PayPalReads.clientInvoices(email, limit)`: `POST /v2/invoicing/search-invoices` by recipient email, with `paidDate` on each invoice (client history)
-- [ ] `EngineDb.activeHold(subject)`: a holds table the setup screen or a card button writes to
-- [ ] Job layer: apply `handleEvent()` outcomes (`stand_down` → mark listed commands' pending proposals `obsolete`, cancel follow-ups, write the activity entry)
-- [ ] Chat route: call `handleChat()` with open invoices and disputes as `subjects`
-- [ ] Cards: show `caseFile.urgency` (dispute due within 72 h)
+- [x] `getDispute(id)` with shipment tracking, `clientInvoices(email, limit)` with `paidDate`, and the open invoices and disputes chat chooses from (`paypal/engine-reads.ts`)
+- [x] Holds: migration 005, `activeHold`, `POST`/`DELETE /api/holds`
+- [x] Webhooks: `POST /api/webhooks/paypal` verifies with PayPal, stores each event once, answers 200, then stands down or runs the skill after the response (`jobs/event-run.ts`)
+- [x] Chat goes through the receptionist (`jobs/chat-run.ts`), so disputes and existing invoices are reachable from chat
+- [ ] Register the webhook in the sandbox app (PAID, CANCELLED, DISPUTE.CREATED, DISPUTE.UPDATED) and set `PAYPAL_WEBHOOK_ID` and `PAYPAL_WEBHOOK_MERCHANT_ID`
+- [ ] Executor: the dispute writes (evidence, offer, message, accept)
+- [ ] Sweeps: overdue invoices and dispute deadlines on a schedule
+- [ ] Cards: show `caseFile.urgency` (dispute due within 72 h) *Owner: A*
 
 ## Before submission (Nov 12, 12 PM PT)
 

@@ -34,6 +34,8 @@ export interface RequestOptions {
 
 export class PayPalHttp {
   private token: { value: string; expiresAt: number } | null = null;
+  /** A sign-in in flight, shared so requests that start together sign in once. */
+  private signingIn: Promise<string> | null = null;
 
   constructor(
     private readonly creds: { clientId: string; secret: string },
@@ -68,6 +70,13 @@ export class PayPalHttp {
 
   private async accessToken(): Promise<string> {
     if (this.token && this.token.expiresAt > this.now()) return this.token.value;
+    this.signingIn ??= this.signIn().finally(() => {
+      this.signingIn = null;
+    });
+    return this.signingIn;
+  }
+
+  private async signIn(): Promise<string> {
     const basic = Buffer.from(`${this.creds.clientId}:${this.creds.secret}`).toString("base64");
     const res = await this.send(`${SANDBOX}/v1/oauth2/token`, {
       method: "POST",

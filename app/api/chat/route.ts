@@ -1,6 +1,7 @@
-// POST /api/chat: one sentence from the merchant becomes a Collections run,
-// and any proposal that needs them becomes a card (design §11.3). Not
-// streamed yet: the reply comes when the run ends.
+// POST /api/chat: the receptionist routes one sentence from the merchant to
+// the right skill (a new invoice, an open invoice or dispute), and any
+// proposal that needs them becomes a card (design §11.3). Not streamed yet:
+// the reply comes when the run ends.
 
 import { z } from "zod";
 import { serverAgent } from "@/lib/agent";
@@ -18,8 +19,9 @@ export async function POST(request: Request) {
   const body = Body.safeParse(await request.json().catch(() => null));
   if (!body.success) return Response.json({ error: "Send { message } with 1 to 1000 characters" }, { status: 400 });
 
+  const read = new PayPalReadClient(sharedPayPalHttp());
   const outcome = await runChatMessage(
-    { pool: getPool(), read: new PayPalReadClient(sharedPayPalHttp()), agent: serverAgent() },
+    { pool: getPool(), read, agent: serverAgent(), subjects: () => read.openSubjects() },
     session.merchantId,
     body.data.message,
     request.signal,

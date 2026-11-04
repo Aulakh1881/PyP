@@ -66,6 +66,13 @@ describe("PayPal REST", () => {
     expect(c).toMatchObject({ status: null, retryable: true });
   });
 
+  it("requests that start together sign in once", async () => {
+    const f = fakeFetch([TOKEN, { status: 200, body: { a: 1 } }, { status: 200, body: { b: 2 } }]);
+    const http = new PayPalHttp({ clientId: "id", secret: "s" }, f.fn);
+    await Promise.all([http.request("GET", "/a"), http.request("GET", "/b")]);
+    expect(f.calls.filter((c) => c.url.endsWith("/v1/oauth2/token"))).toHaveLength(1);
+  });
+
   it("refuses anything but the sandbox, and says which keys are missing", () => {
     expect(() => PayPalHttp.fromEnv({ PAYPAL_ENVIRONMENT: "LIVE", PAYPAL_CLIENT_ID: "a", PAYPAL_CLIENT_SECRET: "b" })).toThrow(/sandbox only/);
     expect(() => PayPalHttp.fromEnv({ PAYPAL_ENVIRONMENT: "SANDBOX" })).toThrow(/PAYPAL_CLIENT_ID/);
