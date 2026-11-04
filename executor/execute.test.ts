@@ -121,7 +121,9 @@ describe.skipIf(!TEST_DB_URL)("demo path: chat, card, approve, PayPal", () => {
     expect(card.state).toBe("executed");
 
     const trace = (await getTrace(pool, DEMO_MERCHANT, cardIds[0]))!;
-    expect(trace.map((s) => s.kind)).toEqual(["trigger", "gather", "menu", "decide", "validate", "policy", "merchant", "paypal"]);
+    // The receptionist's routing (trigger, decide), then the Collections run, then the approval.
+    expect(trace.map((s) => s.kind)).toEqual(["trigger", "decide", "trigger", "gather", "menu", "decide", "validate", "policy", "merchant", "paypal"]);
+    expect(trace[1].label).toBe("Routed to new_invoice");
     expect(trace.at(-1)).toMatchObject({ ok: true, label: out.message });
     const log = await pool.query("select actor, summary from activity_log where refs_json->>'cardId' = $1", [cardIds[0]]);
     expect(log.rows).toEqual([{ actor: "pyp", summary: out.message }]);
