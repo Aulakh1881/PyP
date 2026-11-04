@@ -5,14 +5,16 @@
 
 import { dialAllows, decide } from "./policy";
 import { buildSystemPrompt, buildTurnPrompt } from "./prompt-builder";
+import { quarantine } from "./quarantine";
 import { buildResponseSchema } from "./schema-builder";
+import { collect, partialSummary } from "./stream";
 import { Trace } from "./trace";
 import type {
   AgentClient,
   CaseFile,
   CheckResult,
   AnyCommand,
-  GatewayEvent,
+  GatherContext,
   ModelResponse,
   PolicyResult,
   ProposedAction,
@@ -105,10 +107,26 @@ export async function runSkill<F>(input: RunInput<F>): Promise<RunResult<F>> {
     return { ...result, status: "paused" };
   }
 
-  // Gather
+  // Gather. Buyer text goes through the quarantine call first (design §7.6);
+  // its cost counts toward the run and it leaves a trace step.
+  const gatherCtx: GatherContext = {
+    ...ctx,
+    quarantine: async (text) => {
+      const q = await quarantine(agent, text, {
+        signal: input.signal,
+        onUsage: (u) => result.usage.push(u),
+      });
+      const suspicious = q.ok ? q.facts.suspicious : true;
+      trace.step("gather", q.ok ? `Buyer text quarantined${suspicious ? " (flagged suspicious)" : ""}` : `Quarantine failed: ${q.reason}`, {
+        suspicious,
+        ...(q.flaggedByCode.length ? { flaggedByCode: q.flaggedByCode } : {}),
+      });
+      return q;
+    },
+  };
   let cf: CaseFile<F>;
   try {
-    cf = await skill.buildCaseFile(ctx, subject, input.instruction);
+    cf = await skill.buildCaseFile(gatherCtx, subject, input.instruction);
   } catch (err) {
     return failed(`Couldn't build the case file: ${(err as Error).message}`);
   }
@@ -170,7 +188,9 @@ export async function runSkill<F>(input: RunInput<F>): Promise<RunResult<F>> {
     } else {
       const cutOff = answer.stopReason === "max_tokens";
       lastProblem = cutOff ? "The answer was cut off" : parsed.reason;
-      trace.step("decide", `Unusable answer (attempt ${attempt}): ${lastProblem}`);
+      // Keep what the model was going to say, for the back of the card (§7.7). Trace only.
+      const partial = partialSummary(answer.text);
+      trace.step("decide", `Unusable answer (attempt ${attempt}): ${lastProblem}`, partial ? { partialSummary: partial } : undefined);
       // Don't retry the same way: give a cut-off answer more room, and tell the model what was wrong.
       if (cutOff) maxOutputTokens = Math.min(maxOutputTokens * RETRY_TOKEN_FACTOR, MAX_OUTPUT_TOKENS_CAP);
       else attemptTurn = `${turn}\n<retry-note>Your previous answer was unusable: ${esc(parsed.reason)}. Answer again with one JSON object matching the schema.</retry-note>`;
@@ -232,10 +252,4 @@ export async function runSkill<F>(input: RunInput<F>): Promise<RunResult<F>> {
   return result;
 }
 
-/** Drain a gateway stream into its final answer. */
-export async function collect(events: AsyncIterable<GatewayEvent>) {
-  for await (const ev of events) {
-    if (ev.type === "done") return ev;
-  }
-  throw new Error("The model stream ended without an answer");
-}
+export { collect } from "./stream";

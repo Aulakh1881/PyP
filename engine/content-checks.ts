@@ -1,6 +1,7 @@
-// Checks on text the model writes to a client (reminder subject and note,
-// invoice lines and note). Code, not the model, decides what money, invoice
-// numbers and links may appear: anything else fails the check (Appendix G).
+// Checks on text the model writes to a client or buyer (reminders, invoice
+// lines and notes, dispute messages and evidence), shared by every skill.
+// Code, not the model, decides what money, invoice numbers and links may
+// appear: anything else fails the check (Appendix G).
 
 import { toCents } from "@/engine/format";
 

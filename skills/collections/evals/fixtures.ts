@@ -1,7 +1,7 @@
 // DEMO DATA for Collections tests: Maya Ortiz Design and Acme Studio's
 // invoice 0042 (design §7.3). Fake PayPal reads and a fake database.
 
-import type { Client, EngineDb, Invoice, Merchant, MerchantRules, PayPalReads, SkillContext } from "@/engine/types";
+import type { Client, EngineDb, Hold, Invoice, Merchant, MerchantRules, PayPalReads, SkillContext } from "@/engine/types";
 
 export const NOW = new Date("2026-10-28T15:00:00Z"); // 08:00 in Los Angeles
 
@@ -43,6 +43,12 @@ export interface FakeWorld {
   remindCallsToday?: number;
   notes?: string[];
   clients?: Client[];
+  /** Earlier invoices by recipient email. Unset = the read isn't available. */
+  clientInvoices?: Record<string, Invoice[]>;
+  /** Unset = the hold read isn't available; null = no hold. */
+  hold?: Hold | null;
+  /** What check() sees for the hold, if it changed after the case file was built. */
+  freshHold?: Hold | null;
 }
 
 export function context(world: FakeWorld, r: MerchantRules = rules()): SkillContext {
@@ -57,7 +63,11 @@ export function context(world: FakeWorld, r: MerchantRules = rules()): SkillCont
     async recentClients() {
       return world.clients ?? demoClients;
     },
+    ...(world.clientInvoices
+      ? { clientInvoices: async (email: string, limit: number) => (world.clientInvoices![email] ?? []).slice(0, limit) }
+      : {}),
   };
+  let holdReads = 0;
   const db: EngineDb = {
     async remindersSent(id) {
       return world.reminders?.[id] ?? { count: 0, lastSentAt: null };
@@ -68,6 +78,14 @@ export function context(world: FakeWorld, r: MerchantRules = rules()): SkillCont
     async merchantNotes() {
       return world.notes ?? [];
     },
+    ...(world.hold !== undefined
+      ? {
+          activeHold: async () => {
+            holdReads++;
+            return holdReads > 1 && world.freshHold !== undefined ? world.freshHold : world.hold!;
+          },
+        }
+      : {}),
   };
   return { merchant, rules: r, read, db, now: () => NOW };
 }
@@ -91,5 +109,18 @@ export function friendlyReminder(over: Partial<{ tone: string; note: string; inv
     ],
     confidence: "high",
     questionForMerchant: null,
+  };
+}
+
+/** A paid earlier invoice to Acme, for client history. */
+export function pastAcmeInvoice(n: number, dueDate: string, paidDate: string): Invoice {
+  return {
+    ...acmeInvoice,
+    id: `INV2-ACME-00${30 + n}`,
+    number: `00${30 + n}`,
+    status: "PAID",
+    amountDue: "0.00",
+    dueDate,
+    paidDate,
   };
 }

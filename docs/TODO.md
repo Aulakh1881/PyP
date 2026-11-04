@@ -4,22 +4,36 @@ Open tasks that aren't code. The [Master Plan](master-plan.md) is the source of 
 
 Roles: **A** frontend · **B** engine and AI · **C** PayPal and infrastructure.
 
-## Built so far (role B, on PRs #2–#4)
+## Built so far (role B)
 
-- Engine core (WP3): registry, `runSkill`, schema and prompt builders, validator, policy, trace, money and XML helpers.
-- Model gateway: Claude (official SDK, structured output, refusal fallbacks, stall timers), Ollama (`qwen3:4b`) and scripted adapters; in-memory spend cap.
-- Collections against fakes: `sendReminder`, `scheduleFollowUp`, `createAndSend` from chat, `merchant.ask`. 7 live cases pass on `qwen3:4b`.
-- The write boundary: lint rule, test and CI (a Master Plan §8 item for C, done with the skeleton).
+- Engine core (WP3): registry, `runSkill`, schema and prompt builders, validator, policy, trace, money and XML helpers. *(PRs #2–#4)*
+- Model gateway: Claude (official SDK, structured output, refusal fallbacks, stall timers), Ollama (`qwen3:4b`) and scripted adapters; in-memory spend cap. *(PRs #2–#4)*
+- Collections: `sendReminder`, `scheduleFollowUp`, `createAndSend` from chat, `merchant.ask`; 7 live cases pass on `qwen3:4b`. *(PRs #2–#4)*
+- The write boundary: lint rule, test and CI. *(PRs #2–#4)*
+- Collections, second wave: `invoice.cancel` (never Auto; offered only when the merchant asks or every reminder has gone out), `invoice.suggestAutoReminders` (card only), client history in the overdue case file (computed in code), structured merchant holds that stop reminders in code, and a stand-down on `INVOICING.INVOICE.PAID` / `CANCELLED` with no model call (`engine/router.ts`).
+- Quarantine call for buyer text (design §7.6, `engine/quarantine.ts`): fast tier, no commands, enums and booleans only, plus code red flags; a failure counts as suspicious.
+- Disputes skill (WP7, engine side): case file with deadline, urgency, tracking and quarantined buyer facts; `provideEvidence`, `makeOffer`, `acceptClaim` (all never Auto), `sendMessage` (asks after suspicious buyer text); stand-down when an update closes the dispute.
+- Chat receptionist (WP8 stage 1, `engine/chat.ts`): sentence → route (new invoice, an existing invoice or dispute, or a reply) → skill run → card.
+- Prompt-injection suite (G4 gate, `evals/injection.test.ts`) and golden prompt snapshots (`evals/prompts.test.ts`).
+- Trace keeps the model's partial summary when an answer can't be used (design §7.7).
 
 ## Engine work still open (role B)
 
-- [ ] `invoice.cancel` (Must, never Auto) and `invoice.suggestAutoReminders` (Could)
-- [ ] Standing down on `INVOICING.INVOICE.PAID` / `CANCELLED` without a model call (design §9.2)
-- [ ] Client history in the overdue case file, once C's reads can search invoices
-- [ ] A structured "client replied, hold off" note, so code (not only the model) stops reminders
-- [ ] Quarantine call for buyer text (design §7.6), Disputes (WP7), the chat receptionist (WP8)
-- [ ] Prompt-injection tests (G4 gate), golden prompt snapshots
-- [ ] Keep a streamed summary in the trace when an answer can't be used (design §7.7)
+- [ ] Run `npm run eval:live` once with a real `ANTHROPIC_API_KEY` (Collections and the new Disputes cases)
+- [ ] Chat stage 2: read-only lookup tools for questions (design §7.8)
+- [ ] Insights lite (WP10)
+- [ ] Dispute evidence notes: check that every factual sentence cites an id (design B.2); today the note must carry at least one valid citation
+
+## Needed from C for the new engine features
+
+These are optional in `engine/types.ts`, so nothing breaks until they exist. Fakes in `skills/*/evals/fixtures.ts` show the expected shapes.
+
+- [ ] `PayPalReads.getDispute(id)`: one dispute with messages, items and tracking (Disputes can't run without it)
+- [ ] `PayPalReads.clientInvoices(email, limit)`: `POST /v2/invoicing/search-invoices` by recipient email, with `paidDate` on each invoice (client history)
+- [ ] `EngineDb.activeHold(subject)`: a holds table the setup screen or a card button writes to
+- [ ] Job layer: apply `handleEvent()` outcomes (`stand_down` → mark listed commands' pending proposals `obsolete`, cancel follow-ups, write the activity entry)
+- [ ] Chat route: call `handleChat()` with open invoices and disputes as `subjects`
+- [ ] Cards: show `caseFile.urgency` (dispute due within 72 h)
 
 ## Before submission (Nov 12, 12 PM PT)
 
@@ -58,7 +72,7 @@ Desk check done Oct 26 from the published `@paypal/mcp` 1.8.1 package and PayPal
 - [ ] `/remind`, create-invoice and `/send` accept `PayPal-Request-Id`, including a `:step` suffix (item 1)
 - [ ] Webhook self-check: what webhook id do simulator events carry, and how does the sandbox check accept it? (design §9.2) *Owner: C*
 - [x] Structured-output API shape: `output_config.format` with a JSON schema through the official SDK; limits enforced in code (design §6.2)
-- [ ] Run `npm run eval:live` once with a real `ANTHROPIC_API_KEY` to confirm the API accepts our generated schema end to end *Owner: B*
+- [ ] Run `npm run eval:live` once with a real `ANTHROPIC_API_KEY` to confirm the API accepts our generated schemas end to end, including Disputes' nullable `trackingRef` *Owner: B*
 - [x] Ollama follows our `anyOf` / `enum` schemas: `qwen3:4b` passes all 7 live Collections cases on an 8 GB M1, 25–45 s each (Oct 28; setup in `gateway/README.md`)
 - [ ] Does PayPal expose its own auto-reminder history, or do we count only Pyp's reminders? (design B.1) *Owner: C*
 - [ ] Set the Render cron UTC hour for 08:00 merchant-local after US daylight saving ends Nov 1 (design §9.3) *Owner: C*

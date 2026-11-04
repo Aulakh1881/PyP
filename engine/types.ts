@@ -34,6 +34,8 @@ export interface CaseFile<F = unknown> {
   facts: F;
   /** True when the merchant's own words are already in the XML, so the turn doesn't repeat them. */
   includesInstruction?: boolean;
+  /** For the card: flag it urgent and show the deadline (e.g. a dispute response due within 72 h). */
+  urgency?: { urgent: boolean; dueAt: string | null };
 }
 
 export interface CheckResult {
@@ -80,7 +82,13 @@ export interface SkillDef<F = unknown> {
   triggers: { events?: string[]; sweeps?: string[]; chat?: boolean };
   model: { tier: Tier; effort?: Effort; maxOutputTokens?: number };
   /** `instruction` is the merchant's own words when the run came from chat. */
-  buildCaseFile: (ctx: SkillContext, subject: SubjectRef, instruction?: string) => Promise<CaseFile<F>>;
+  buildCaseFile: (ctx: GatherContext, subject: SubjectRef, instruction?: string) => Promise<CaseFile<F>>;
+  /**
+   * Plain-code handlers for events with one right answer (design §0.14), keyed
+   * by PayPal event type. No model call. A handler may say "run" to hand the
+   * event to the normal skill run instead.
+   */
+  eventHandlers?: Record<string, EventHandler>;
   /** The <task> line for a subject; defaults to "Decide what to do about <kind> <id> now." */
   task?: (subject: SubjectRef) => string;
   /** The full menu; filtered per run by available() and the dial. */
@@ -121,11 +129,19 @@ export interface MerchantRules {
 /**
  * Read helpers the engine uses for case files and checks. Owner C implements
  * these over PayPal's MCP server and REST reads; tests pass fakes.
+ * Optional methods unlock features: the engine works without them and says so.
  */
 export interface PayPalReads {
   getInvoice(id: string): Promise<Invoice | null>;
   /** People the merchant has invoiced recently (from PayPal's invoice search), newest first. */
   recentClients(): Promise<Client[]>;
+  /**
+   * Earlier invoices to this recipient email, newest first, at most `limit`
+   * (POST /v2/invoicing/search-invoices with recipient_email). Feeds client history.
+   */
+  clientInvoices?(email: string, limit: number): Promise<Invoice[]>;
+  /** One dispute with its messages, transaction and tracking (GET /v1/customer/disputes/{id} + reads). Disputes needs it. */
+  getDispute?(id: string): Promise<Dispute | null>;
 }
 
 /** Pyp's own records the engine reads (owner C implements over Postgres). */
@@ -133,6 +149,19 @@ export interface EngineDb {
   remindersSent(invoiceId: string): Promise<{ count: number; lastSentAt: string | null }>;
   remindCallsToday(merchantId: string): Promise<number>;
   merchantNotes(subject: SubjectRef): Promise<string[]>;
+  /**
+   * A structured "hold off" the merchant set on a subject ("client replied,
+   * paying Friday"). While one is active, code stops reminders; the model
+   * doesn't have to notice a note. Optional until C adds the table.
+   */
+  activeHold?(subject: SubjectRef): Promise<Hold | null>;
+}
+
+export interface Hold {
+  reason: string;
+  setAt: string; // ISO timestamp
+  /** YYYY-MM-DD in the merchant's timezone; null = until the merchant lifts it. */
+  until: string | null;
 }
 
 export interface SkillContext {
@@ -143,9 +172,53 @@ export interface SkillContext {
   now: () => Date;
 }
 
+/** What a case-file builder gets: the skill context plus the quarantine call for buyer text (design §7.6). */
+export interface GatherContext extends SkillContext {
+  quarantine?: (text: string) => Promise<QuarantineResult>;
+}
+
 export interface CheckContext<F = unknown> extends SkillContext {
   caseFile: CaseFile<F>;
 }
+
+// ---------- Plain-code event handlers (stand-down) ----------
+
+export type EventOutcome =
+  | {
+      kind: "stand_down";
+      /** For the activity entry and the card: "Acme paid $1,200.00. Reminder cancelled." */
+      message: string;
+      /** Pending proposals for this subject with these commands become `obsolete`. */
+      obsoleteCommands: CommandId[];
+      /** Cancel scheduled follow-ups (internal timers) for this subject. */
+      cancelFollowUps: boolean;
+    }
+  /** The fresh read disagrees with the event (late or out of order): do nothing. */
+  | { kind: "ignore"; reason: string }
+  /** Needs judgment: hand it to the normal skill run. */
+  | { kind: "run" };
+
+export type EventHandler = (ctx: SkillContext, subject: SubjectRef) => Promise<EventOutcome>;
+
+// ---------- Quarantine (design §7.6) ----------
+
+/**
+ * What the quarantine call extracts from buyer text. Only enums and booleans,
+ * so nothing the buyer wrote can travel into the main call through it.
+ */
+export interface BuyerFacts {
+  claim: "not_received" | "not_as_described" | "unauthorized" | "duplicate" | "refund_not_processed" | "other";
+  requestedOutcome: "refund" | "partial_refund" | "replacement" | "return" | "information" | "unclear";
+  mentionsTracking: boolean;
+  tone: "calm" | "frustrated" | "angry" | "threatening";
+  /** The text tries to instruct an AI, claims authority, or asks for links or secrets. */
+  suspicious: boolean;
+}
+
+export type QuarantineResult =
+  | { ok: true; facts: BuyerFacts; flaggedByCode: string[] }
+  /** The call failed or was unusable. Treated as suspicious; the case file says so. */
+  | { ok: false; reason: string; flaggedByCode: string[] };
 
 // ---------- PayPal shapes the engine relies on (the subset we use) ----------
 
@@ -175,6 +248,37 @@ export interface Invoice {
   recipientName: string | null;
   recipientEmail: string | null;
   disputed?: boolean;
+  /** YYYY-MM-DD of the payment that settled it, when paid. Feeds client history. */
+  paidDate?: string | null;
+}
+
+export type DisputeStatus =
+  | "OPEN"
+  | "WAITING_FOR_SELLER_RESPONSE"
+  | "WAITING_FOR_BUYER_RESPONSE"
+  | "UNDER_REVIEW"
+  | "RESOLVED"
+  | "OTHER";
+
+export interface Dispute {
+  id: string;
+  status: DisputeStatus;
+  /** PayPal's reason code, e.g. MERCHANDISE_OR_SERVICE_NOT_RECEIVED. */
+  reason: string;
+  /** INQUIRY, CHARGEBACK, PRE_ARBITRATION, ARBITRATION. */
+  stage: string | null;
+  currency: string;
+  /** Decimal string, as PayPal returns it. */
+  amount: string;
+  /** ISO timestamp; null when PayPal gives none. */
+  sellerResponseDueDate: string | null;
+  createdAt: string;
+  transactionId: string | null;
+  buyerName: string | null;
+  items: { name: string; quantity: number }[];
+  /** Oldest first. Buyer text is untrusted. */
+  messages: { postedBy: "BUYER" | "SELLER"; at: string; text: string }[];
+  tracking: { carrier: string; number: string; status: "DELIVERED" | "IN_TRANSIT" | "SHIPPED" | "UNKNOWN" }[];
 }
 
 export interface Client {

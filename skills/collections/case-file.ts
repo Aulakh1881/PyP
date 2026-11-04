@@ -4,7 +4,7 @@
 // the model only reads them.
 
 import { daysBetween, formatMoney, localDate } from "@/engine/format";
-import type { CaseFile, Client, Invoice, MerchantRules, SkillContext, SubjectRef } from "@/engine/types";
+import type { CaseFile, Client, Hold, Invoice, MerchantRules, SkillContext, SubjectRef } from "@/engine/types";
 import { block, tag, textTag } from "@/engine/xml";
 import { truncate } from "@/engine/prompt-builder";
 import { addDays, ALL_TERMS, EMAIL, mentionsClient, parseAmounts, parseTerms, type ParsedAmount, type ParsedTerm } from "./request-parser";
@@ -16,6 +16,25 @@ export interface OverdueFacts {
   daysOverdue: number | null;
   reminders: { sent: number; lastSentAt: string | null; daysSinceLast: number | null };
   notes: string[];
+  /** How this client has paid before, computed in code. Null when PayPal reads can't search by client. */
+  history: ClientHistory | null;
+  /** An active "hold off" the merchant set. While set, no reminders (code-enforced). */
+  hold: Hold | null;
+  /** The run came from the merchant's own words in chat (e.g. "cancel 0042"). */
+  merchantAsked: boolean;
+}
+
+export interface ClientHistory {
+  /** Earlier invoices to this client that we looked at (at most HISTORY_LIMIT). */
+  invoices: number;
+  paid: number;
+  paidLate: number;
+  /** Whole days, averaged over paid invoices with both dates; null if none. */
+  avgDaysLate: number | null;
+  /** Other invoices to this client that are still unpaid. */
+  otherUnpaid: number;
+  /** Code's verdict: at least 2 recent paid invoices, each paid after at most one Pyp reminder. */
+  paysAfterOneNudge: boolean;
 }
 
 export interface NewInvoiceFacts {
@@ -38,6 +57,12 @@ export type CollectionsFacts = OverdueFacts | NewInvoiceFacts;
 
 export const REMINDABLE: Invoice["status"][] = ["SENT", "UNPAID", "PARTIALLY_PAID"];
 
+export const PAID: Invoice["status"][] = ["PAID", "MARKED_AS_PAID"];
+
+/** Earlier invoices read for client history, and paid ones checked for reminders. */
+export const HISTORY_LIMIT = 10;
+export const NUDGE_SAMPLE = 5;
+
 export const DEFAULT_LIMITS = { maxPerInvoice: 3, minDaysBetween: 3 };
 
 /** Used when the merchant names no terms. TODO: make this a merchant setting. */
@@ -58,7 +83,7 @@ export async function buildCollectionsCaseFile(
   subject: SubjectRef,
   instruction?: string,
 ): Promise<CaseFile<CollectionsFacts>> {
-  if (subject.kind === "invoice") return overdueCaseFile(ctx, subject);
+  if (subject.kind === "invoice") return overdueCaseFile(ctx, subject, instruction);
   if (subject.kind === "new-invoice") {
     if (!instruction?.trim()) throw new Error("A new-invoice run needs the merchant's request");
     return newInvoiceCaseFile(ctx, subject, instruction);
@@ -66,7 +91,40 @@ export async function buildCollectionsCaseFile(
   throw new Error(`Collections can't handle subject kind "${subject.kind}"`);
 }
 
-async function overdueCaseFile(ctx: SkillContext, subject: SubjectRef): Promise<CaseFile<CollectionsFacts>> {
+/** A hold counts until the end of its `until` day in the merchant's timezone. */
+export function holdActive(hold: Hold | null | undefined, now: Date, timeZone: string): hold is Hold {
+  if (!hold) return false;
+  return hold.until === null || hold.until >= localDate(now, timeZone);
+}
+
+export async function clientHistory(ctx: SkillContext, invoice: Invoice): Promise<ClientHistory | null> {
+  if (!ctx.read.clientInvoices || !invoice.recipientEmail) return null;
+  const earlier = (await ctx.read.clientInvoices(invoice.recipientEmail, HISTORY_LIMIT + 1))
+    .filter((i) => i.id !== invoice.id)
+    .slice(0, HISTORY_LIMIT);
+  const paid = earlier.filter((i) => PAID.includes(i.status));
+  const lateness = paid
+    .filter((i) => i.paidDate && i.dueDate)
+    .map((i) => Math.max(0, dayDiff(i.dueDate!, i.paidDate!)));
+  const avgDaysLate = lateness.length ? Math.round(lateness.reduce((s, d) => s + d, 0) / lateness.length) : null;
+  const sample = paid.slice(0, NUDGE_SAMPLE);
+  const reminderCounts = await Promise.all(sample.map((i) => ctx.db.remindersSent(i.id).then((r) => r.count)));
+  return {
+    invoices: earlier.length,
+    paid: paid.length,
+    paidLate: lateness.filter((d) => d > 0).length,
+    avgDaysLate,
+    otherUnpaid: earlier.filter((i) => REMINDABLE.includes(i.status)).length,
+    paysAfterOneNudge: sample.length >= 2 && reminderCounts.every((c) => c <= 1),
+  };
+}
+
+/** Whole days from one YYYY-MM-DD to another. */
+function dayDiff(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
+async function overdueCaseFile(ctx: SkillContext, subject: SubjectRef, instruction?: string): Promise<CaseFile<CollectionsFacts>> {
   const now = ctx.now();
   const tz = ctx.merchant.timezone;
 
@@ -74,8 +132,9 @@ async function overdueCaseFile(ctx: SkillContext, subject: SubjectRef): Promise<
   if (!invoice) throw new Error(`Invoice ${subject.id} not found`);
   const sent = await ctx.db.remindersSent(invoice.id);
   const notes = await ctx.db.merchantNotes(subject);
-  // TODO(B): client history (paid count, average days late) computed live from
-  // PayPal's invoice search once owner C's read client has searchInvoices.
+  const history = await clientHistory(ctx, invoice);
+  const rawHold = ctx.db.activeHold ? await ctx.db.activeHold(subject) : null;
+  const hold = holdActive(rawHold, now, tz) ? rawHold : null;
 
   const facts: OverdueFacts = {
     mode: "overdue",
@@ -88,6 +147,9 @@ async function overdueCaseFile(ctx: SkillContext, subject: SubjectRef): Promise<
       daysSinceLast: sent.lastSentAt ? daysBetween(localDate(new Date(sent.lastSentAt), tz), now, tz) : null,
     },
     notes,
+    history,
+    hold,
+    merchantAsked: Boolean(instruction?.trim()),
   };
   const limits = reminderLimits(ctx.rules);
 
@@ -113,6 +175,20 @@ async function overdueCaseFile(ctx: SkillContext, subject: SubjectRef): Promise<
       // Code counts, so the model doesn't have to: "3 of 3" means the next one is the last.
       "next-reminder": facts.reminders.sent < limits.maxPerInvoice ? `${facts.reminders.sent + 1} of ${limits.maxPerInvoice}` : null,
     }),
+    history
+      ? tag("client-history", {
+          source: "earlier PayPal invoices, counted by code",
+          invoices: history.invoices,
+          paid: history.paid,
+          "paid-late": history.paidLate,
+          "avg-days-late": history.avgDaysLate,
+          "other-unpaid": history.otherUnpaid,
+          "pays-after-one-nudge": history.paysAfterOneNudge ? "yes" : "no",
+        })
+      : tag("client-history", { available: "no" }),
+    hold
+      ? textTag("hold", { visibility: "merchant-only", "set-at": hold.setAt, until: hold.until ?? "until lifted" }, hold.reason)
+      : "",
     notes.length
       ? block(
           "merchant-notes",
