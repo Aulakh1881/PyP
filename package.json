@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "The agentic AI that runs your PayPal business, within your rules. Hackathon project, not affiliated with PayPal.",
+  "license": "MIT",
   "engines": {
     "node": ">=22"
   },

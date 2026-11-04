@@ -23,7 +23,7 @@ Roles: **A** frontend · **B** engine and AI · **C** PayPal and infrastructure.
 
 ## Before submission (Nov 12, 12 PM PT)
 
-- [ ] **Add an open-source license file** at the repo root (for example MIT). Our saved summary of the hackathon rules says the public repo must show an open-source license. The team picks the license. *Owner: team lead*
+- [x] **Add an open-source license file** at the repo root: MIT, in `LICENSE`. Our saved summary of the hackathon rules says the public repo must show an open-source license. The team picks the license. *Owner: team lead*
 - [ ] **Make the repo public** before submitting (the rules call for a public repository; it's private now). *Owner: team lead*
 - [ ] **Re-read the official rules** on the Devpost page: submission contents, partner-tool judging, video length (under 3 minutes). Master Plan §3, item 7. *Owner: team lead*
 - [ ] **Re-check the PayPal newsroom** for anything that overlaps Pyp before the pitch is final.
