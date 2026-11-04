@@ -25,9 +25,12 @@
   ];
   var KIND_LABEL = { payment: 'Payment', invoice: 'Invoice', dispute: 'Dispute', pyp: 'Pyp action' };
 
-  // Most pages we fetch per source (PayPal allows up to 100 rows per page).
-  var PAGE_SIZE = 100;
-  var MAX_PAGES = { transactions: 5, invoices: 3, disputes: 3 };
+  // Rows per request and most pages we fetch per source. PayPal allows up to
+  // 100 rows per page for transactions and invoices, but only 50 for disputes,
+  // and the disputes API has no page number (only a next-page token), so we
+  // take the latest 50 disputes in one request.
+  var PAGE_SIZE = { transactions: 100, invoices: 100, disputes: 50 };
+  var MAX_PAGES = { transactions: 5, invoices: 3, disputes: 1 };
 
   /* ---------------- data shaping (no DOM) ---------------- */
 
@@ -186,19 +189,19 @@
     var jobs = {
       transactions: typeof transport.transactions === 'function'
         ? fetchAllPages(function (page) {
-          return transport.transactions({ startDate: range.startDate, endDate: range.endDate, page: page, pageSize: PAGE_SIZE })
+          return transport.transactions({ startDate: range.startDate, endDate: range.endDate, page: page, pageSize: PAGE_SIZE.transactions })
             .then(function (d) { return { items: d.transactions, totalPages: d.totalPages }; });
         }, MAX_PAGES.transactions)
         : Promise.reject(new Error('not available')),
       invoices: typeof transport.invoices === 'function'
         ? fetchAllPages(function (page) {
-          return transport.invoices({ page: page, pageSize: PAGE_SIZE })
+          return transport.invoices({ page: page, pageSize: PAGE_SIZE.invoices })
             .then(function (d) { return { items: d.invoices, totalPages: d.totalPages }; });
         }, MAX_PAGES.invoices)
         : Promise.reject(new Error('not available')),
       disputes: typeof transport.disputes === 'function'
         ? fetchAllPages(function (page) {
-          return transport.disputes({ page: page, pageSize: PAGE_SIZE })
+          return transport.disputes({ page: page, pageSize: PAGE_SIZE.disputes })
             .then(function (d) { return { items: d.disputes, totalPages: d.totalPages }; });
         }, MAX_PAGES.disputes)
         : Promise.reject(new Error('not available')),
