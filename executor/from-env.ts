@@ -3,7 +3,7 @@
 
 import { getPool } from "@/jobs/db";
 import { sharedPayPalHttp } from "@/paypal/http";
-import { PayPalReadClient } from "@/paypal/read-client";
+import { PayPalReadClient } from "@/paypal/engine-reads";
 import { PayPalWriteClient } from "@/paypal/write-client";
 import { approveAndExecute, type ExecuteOutcome } from "./execute";
 

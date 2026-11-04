@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { PayPalError, PayPalHttp } from "./http";
-import { clientsFrom, toInvoice, type PayPalInvoice } from "./read-client";
+import { clientsFrom, toInvoice, type PayPalInvoiceResource } from "./engine-reads";
 import { PayPalWriteClient } from "./write-client";
 
 function fakeFetch(responses: { status: number; body: unknown; headers?: Record<string, string> }[]) {
@@ -80,7 +80,7 @@ describe("PayPal REST", () => {
 });
 
 describe("reading invoices", () => {
-  const inv = (id: string, email: string | undefined, created: string, name?: string): PayPalInvoice => ({
+  const inv = (id: string, email: string | undefined, created: string, name?: string): PayPalInvoiceResource => ({
     id,
     status: "SENT",
     detail: { invoice_number: id, currency_code: "USD", metadata: { create_time: created } },

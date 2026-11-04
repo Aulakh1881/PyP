@@ -8,7 +8,7 @@ import { requireMerchant } from "@/lib/session";
 import { getPool } from "@/jobs/db";
 import { runChatMessage } from "@/jobs/chat-run";
 import { sharedPayPalHttp } from "@/paypal/http";
-import { PayPalReadClient } from "@/paypal/read-client";
+import { PayPalReadClient } from "@/paypal/engine-reads";
 
 const Body = z.object({ message: z.string().trim().min(1).max(1000) });
 

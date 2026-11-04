@@ -2,7 +2,7 @@
 // Every write carries a PayPal-Request-Id, so repeating it can't act twice.
 
 import { PayPalError, type PayPalHttp } from "./http";
-import type { PayPalInvoice } from "./read-client";
+import type { PayPalInvoiceResource } from "./engine-reads";
 
 /** invoice.createAndSend's resolved values (skills/collections/commands/create-and-send.ts). */
 export interface NewInvoice {
@@ -20,7 +20,7 @@ export class PayPalWriteClient {
   /** Creates a draft. Returns PayPal's invoice id and number. */
   async createDraftInvoice(inv: NewInvoice, requestId: string) {
     const [given, ...rest] = (inv.client.name ?? "").split(/\s+/).filter(Boolean);
-    const res = await this.http.request<Partial<PayPalInvoice> & { href?: string }>("POST", "/v2/invoicing/invoices", {
+    const res = await this.http.request<Partial<PayPalInvoiceResource> & { href?: string }>("POST", "/v2/invoicing/invoices", {
       requestId,
       body: {
         detail: {

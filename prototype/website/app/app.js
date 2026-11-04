@@ -1,5 +1,5 @@
 // Pyp dashboard (UI preview on demo data).
-// Pages: Inbox, Activity, Weekly brief, Setup. Hash routing (#/inbox etc.).
+// Pages: Overview, Transactions, Inbox, Activity, Weekly brief, Setup.
 // All data comes from one demo transport saved in localStorage, shared with the
 // landing page and with other open tabs. To use the real API, replace `transport`.
 (function () {
@@ -59,6 +59,11 @@
   transport.inbox().then(function (d) { updateChrome(d.items); });
 
   var PAGES = {
+    overview: { title: 'Overview', render: renderOverview },
+    transactions: { title: 'Transactions', render: renderTransactions },
+    orders: { title: 'Order details', render: renderOrder },
+    invoices: { title: 'Invoices', render: renderInvoices },
+    disputes: { title: 'Disputes', render: renderDisputes },
     inbox: { title: 'Inbox', render: renderInbox },
     activity: { title: 'Activity', render: renderActivity },
     brief: { title: 'Weekly brief', render: renderBrief },
@@ -93,6 +98,187 @@
     { id: 'all', label: 'All', fn: null, empty: 'No cards.' }
   ];
   var inboxTab = 'all';
+
+  function renderOverview() {
+    view.innerHTML = '<section class="panel"><div class="loading">Loading sandbox business data…</div></section>';
+    transport.overview().then(function (data) {
+      var balance = data.balances && data.balances[0];
+      var currency = balance ? balance.currency : 'USD';
+      var available = balance ? balance.available : 'Unavailable';
+      var rows = (data.recentTransactions || []).map(function (item) {
+        return '<tr><td>' + esc(fmtWhen(item.date)) + '</td><td>' + esc(item.subject || 'Unknown') +
+          '</td><td title="' + esc(item.type) + '">' + esc(item.typeLabel || item.type) + '</td><td title="' + esc(item.status) + '">' + esc(item.statusLabel || item.status) + '</td><td class="num">' +
+          esc(item.amount == null ? '—' : currency + ' ' + item.amount) + '</td></tr>';
+      }).join('');
+      view.innerHTML =
+        '<section class="panel"><h2>Sandbox business overview</h2><p>Read-only data from your connected PayPal sandbox merchant.</p>' +
+        '<div class="stats overview-stats">' +
+        '<div class="stat"><span>Available balance</span><b>' + esc(available === 'Unavailable' ? available : currency + ' ' + available) + '</b><small>Current sandbox balance</small></div>' +
+        '<div class="stat"><span>Transactions</span><b>' + esc(String(data.transactionCount)) + '</b><small>In the last 30 days</small></div>' +
+        '<div class="stat"><span>Environment</span><b>' + esc(data.environment) + '</b><small>PayPal data source</small></div>' +
+        '</div></section>' +
+        '<section class="panel"><h2>Recent transactions</h2>' +
+        (rows ? '<div class="tablewrap"><table><thead><tr><th>When</th><th>Customer</th><th>Type</th><th>Status</th><th class="num">Amount</th></tr></thead><tbody>' + rows + '</tbody></table></div>' :
+          '<div class="empty">No transactions were returned for the selected period.</div>') +
+        '<p class="note">This view only reads PayPal data. Pyp does not change your sandbox account here.</p></section>';
+    }).catch(function (error) {
+      view.innerHTML = '<section class="panel"><h2>Overview unavailable</h2><p class="setup-error">' + esc(error.message) + '</p><p class="note">Confirm the Next.js server is running on port 3000 and the sandbox connection check succeeds.</p></section>';
+    });
+  }
+
+  function isoDateStart(value) {
+    return value + 'T00:00:00Z';
+  }
+  function isoDateEnd(value) {
+    var date = new Date(value + 'T00:00:00Z');
+    date.setUTCDate(date.getUTCDate() + 1);
+    return date.toISOString().replace(/\.\d{3}Z$/, 'Z');
+  }
+  function inputDate(date) {
+    return date.toISOString().slice(0, 10);
+  }
+
+  function renderTransactions() {
+    var end = new Date();
+    var start = new Date(end);
+    start.setUTCDate(start.getUTCDate() - 30);
+    var page = 1;
+    var pageSize = 25;
+    view.innerHTML =
+      '<section class="panel"><h2>PayPal transactions</h2><p>Read-only transaction search for your connected sandbox merchant.</p>' +
+      '<form class="filters transaction-filters" data-transaction-form>' +
+      '<label>From<input type="date" name="start" value="' + inputDate(start) + '" required></label>' +
+      '<label>To<input type="date" name="end" value="' + inputDate(end) + '" required></label>' +
+      '<button class="btn" type="submit">Apply dates</button></form>' +
+      '<div data-transaction-results><div class="loading">Loading transactions…</div></div></section>';
+
+    var form = view.querySelector('[data-transaction-form]');
+    var results = view.querySelector('[data-transaction-results]');
+
+    function loadTransactions() {
+      var values = new FormData(form);
+      results.innerHTML = '<div class="loading">Loading transactions…</div>';
+      transport.transactions({
+        startDate: isoDateStart(values.get('start')),
+        endDate: isoDateEnd(values.get('end')),
+        page: page,
+        pageSize: pageSize
+      }).then(function (data) {
+        var rows = (data.transactions || []).map(function (item) {
+          var amount = item.amount == null ? '—' : (item.currency || '') + ' ' + item.amount;
+          return '<tr><td>' + esc(fmtWhen(item.date)) + '</td><td>' + esc(item.subject || 'Unknown') +
+            '</td><td><span title="' + esc(item.type) + '">' + esc(item.typeLabel || item.type) + '</span></td>' +
+            '<td><span class="status status-' + esc(item.status) + '" title="' + esc(item.status) + '">' + esc(item.statusLabel || item.status) + '</span></td>' +
+            '<td class="num">' + esc(amount) + '</td><td class="transaction-id" title="' + esc(item.id) + '">' + esc(item.id) + '</td><td>' +
+            (item.orderId ? '<a href="#/orders?order_id=' + encodeURIComponent(item.orderId) + '">' + esc(item.orderId) + '</a>' : '—') + '</td></tr>';
+        }).join('');
+        var totalPages = data.totalPages || 1;
+        results.innerHTML =
+          '<div class="transaction-summary">' + esc(String(data.totalItems)) + ' transaction' + (data.totalItems === 1 ? '' : 's') + ' found</div>' +
+          (rows ? '<div class="tablewrap"><table><thead><tr><th>When</th><th>Customer</th><th>Type</th><th>Status</th><th class="num">Amount</th><th>Transaction ID</th><th>Order ID</th></tr></thead><tbody>' + rows + '</tbody></table></div>' :
+            '<div class="empty">No transactions were returned for these dates.</div>') +
+          '<div class="pagination"><button class="btn btn-ghost" type="button" data-page-prev ' + (page <= 1 ? 'disabled' : '') + '>Previous</button><span>Page ' + esc(String(page)) + ' of ' + esc(String(totalPages)) + '</span><button class="btn btn-ghost" type="button" data-page-next ' + (page >= totalPages ? 'disabled' : '') + '>Next</button></div>' +
+          '<p class="note">PayPal transaction reporting can lag behind sandbox activity. Codes remain available in each row’s tooltip.</p>';
+        results.querySelector('[data-page-prev]').addEventListener('click', function () { page -= 1; loadTransactions(); });
+        results.querySelector('[data-page-next]').addEventListener('click', function () { page += 1; loadTransactions(); });
+      }).catch(function (error) {
+        results.innerHTML = '<p class="setup-error">' + esc(error.message) + '</p><p class="note">Choose a date range of 31 days or less and confirm the sandbox connection check succeeds.</p>';
+      });
+    }
+
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      page = 1;
+      loadTransactions();
+    });
+    loadTransactions();
+  }
+
+  function renderInvoices() {
+    var page = 1;
+    var pageSize = 25;
+    view.innerHTML = '<section class="panel"><h2>PayPal invoices</h2><p>Read-only invoices from your connected sandbox merchant.</p><div data-invoice-results><div class="loading">Loading invoices…</div></div></section>';
+    var results = view.querySelector('[data-invoice-results]');
+
+    function loadInvoices() {
+      results.innerHTML = '<div class="loading">Loading invoices…</div>';
+      transport.invoices({ page: page, pageSize: pageSize }).then(function (data) {
+        var rows = (data.invoices || []).map(function (item) {
+          var amount = item.amount == null ? '—' : (item.currency || '') + ' ' + item.amount;
+          var due = item.dueAmount == null ? '—' : (item.currency || '') + ' ' + item.dueAmount;
+          return '<tr><td>' + esc(item.number || item.id) + '</td><td>' + esc(item.recipient || 'Unknown') +
+            '</td><td>' + esc(item.date || '—') + '</td><td>' + esc(item.dueDate || '—') + '</td>' +
+            '<td><span class="status status-' + esc(item.status) + '" title="' + esc(item.status) + '">' + esc(item.statusLabel || item.status) + '</span></td>' +
+            '<td class="num">' + esc(amount) + '</td><td class="num">' + esc(due) + '</td></tr>';
+        }).join('');
+        var totalPages = data.totalPages || 1;
+        results.innerHTML =
+          '<div class="transaction-summary">' + esc(String(data.totalItems)) + ' invoice' + (data.totalItems === 1 ? '' : 's') + ' found</div>' +
+          (rows ? '<div class="tablewrap"><table><thead><tr><th>Invoice</th><th>Customer</th><th>Issued</th><th>Due</th><th>Status</th><th class="num">Amount</th><th class="num">Due amount</th></tr></thead><tbody>' + rows + '</tbody></table></div>' :
+            '<div class="empty">No invoices were returned.</div>') +
+          '<div class="pagination"><button class="btn btn-ghost" type="button" data-page-prev ' + (page <= 1 ? 'disabled' : '') + '>Previous</button><span>Page ' + esc(String(page)) + ' of ' + esc(String(totalPages)) + '</span><button class="btn btn-ghost" type="button" data-page-next ' + (page >= totalPages ? 'disabled' : '') + '>Next</button></div>' +
+          '<p class="note">This view only reads PayPal data. Pyp does not create, send, cancel, or update invoices here.</p>';
+        results.querySelector('[data-page-prev]').addEventListener('click', function () { page -= 1; loadInvoices(); });
+        results.querySelector('[data-page-next]').addEventListener('click', function () { page += 1; loadInvoices(); });
+      }).catch(function (error) {
+        results.innerHTML = '<p class="setup-error">' + esc(error.message) + '</p><p class="note">Confirm the PayPal app has Invoicing access enabled, then retry.</p>';
+      });
+    }
+    loadInvoices();
+  }
+
+  function renderDisputes() {
+    var page = 1;
+    var pageSize = 25;
+    view.innerHTML = '<section class="panel"><h2>PayPal disputes</h2><p>Read-only disputes from your connected sandbox merchant.</p><div data-dispute-results><div class="loading">Loading disputes…</div></div></section>';
+    var results = view.querySelector('[data-dispute-results]');
+
+    function loadDisputes() {
+      results.innerHTML = '<div class="loading">Loading disputes…</div>';
+      transport.disputes({ page: page, pageSize: pageSize }).then(function (data) {
+        var rows = (data.disputes || []).map(function (item) {
+          var amount = item.amount == null ? '—' : (item.currency || '') + ' ' + item.amount;
+          return '<tr><td class="transaction-id" title="' + esc(item.id) + '">' + esc(item.id) + '</td>' +
+            '<td><span class="status status-' + esc(item.status) + '" title="' + esc(item.status) + '">' + esc(item.statusLabel || item.status) + '</span></td>' +
+            '<td title="' + esc(item.reason) + '">' + esc(item.reasonLabel || item.reason) + '</td>' +
+            '<td>' + esc(item.createdAt ? item.createdAt.slice(0, 10) : '—') + '</td>' +
+            '<td>' + esc(item.responseDueDate ? item.responseDueDate.slice(0, 10) : '—') + '</td>' +
+            '<td class="num">' + esc(amount) + '</td></tr>';
+        }).join('');
+        var totalPages = data.totalPages || 1;
+        results.innerHTML =
+          '<div class="transaction-summary">' + esc(String(data.totalItems)) + ' dispute' + (data.totalItems === 1 ? '' : 's') + ' found</div>' +
+          (rows ? '<div class="tablewrap"><table><thead><tr><th>Dispute ID</th><th>Status</th><th>Reason</th><th>Created</th><th>Response due</th><th class="num">Amount</th></tr></thead><tbody>' + rows + '</tbody></table></div>' :
+            '<div class="empty">No disputes were returned.</div>') +
+          '<div class="pagination"><button class="btn btn-ghost" type="button" data-page-prev ' + (page <= 1 ? 'disabled' : '') + '>Previous</button><span>Page ' + esc(String(page)) + ' of ' + esc(String(totalPages)) + '</span><button class="btn btn-ghost" type="button" data-page-next ' + (page >= totalPages ? 'disabled' : '') + '>Next</button></div>' +
+          '<p class="note">This view only reads PayPal data. Pyp does not respond to, resolve, or change disputes here.</p>';
+        results.querySelector('[data-page-prev]').addEventListener('click', function () { page -= 1; loadDisputes(); });
+        results.querySelector('[data-page-next]').addEventListener('click', function () { page += 1; loadDisputes(); });
+      }).catch(function (error) {
+        results.innerHTML = '<p class="setup-error">' + esc(error.message) + '</p><p class="note">Confirm the PayPal app has Customer disputes access enabled, then retry.</p>';
+      });
+    }
+
+    loadDisputes();
+  }
+
+  function renderOrder() {
+    var orderId = new URLSearchParams(location.hash.split('?')[1] || '').get('order_id');
+    if (!orderId) {
+      view.innerHTML = '<section class="panel"><h2>Order details</h2><p>Open an order from a transaction row to view its PayPal details.</p></section>';
+      return;
+    }
+    view.innerHTML = '<section class="panel"><h2>Order details</h2><p>Read-only details for order ' + esc(orderId) + '.</p><div class="loading">Loading order…</div></section>';
+    transport.order(orderId).then(function (order) {
+      view.innerHTML = '<section class="panel"><h2>Order details</h2><p>Read-only PayPal order information.</p><dl class="kv">' +
+        '<dt>Order ID</dt><dd>' + esc(order.id) + '</dd><dt>Status</dt><dd>' + esc(order.status) + '</dd>' +
+        '<dt>Intent</dt><dd>' + esc(order.intent || '—') + '</dd><dt>Amount</dt><dd>' + esc(order.amount == null ? '—' : (order.currency || '') + ' ' + order.amount) + '</dd>' +
+        '<dt>Payer</dt><dd>' + esc(order.payerEmail || '—') + '</dd><dt>Created</dt><dd>' + esc(order.createdAt || '—') + '</dd><dt>Updated</dt><dd>' + esc(order.updatedAt || '—') + '</dd></dl>' +
+        '<p class="note">This view only reads PayPal data. Pyp does not modify this order.</p></section>';
+    }).catch(function (error) {
+      view.innerHTML = '<section class="panel"><h2>Order unavailable</h2><p class="setup-error">' + esc(error.message) + '</p><p class="note">PayPal order details require a valid order ID from a transaction.</p></section>';
+    });
+  }
 
   function renderInbox() {
     view.innerHTML =

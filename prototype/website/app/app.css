@@ -64,15 +64,25 @@ a { color: var(--blue); }
 .panel + .panel { margin-top: 18px; }
 .panel h2 { font-size: 20px; font-weight: 800; }
 .panel > p { margin: 6px 0 0; color: var(--muted); font-weight: 600; }
+.loading { color: var(--muted); font-weight: 700; }
+.overview-stats { margin-top: 16px; }
+.setup-error { border-radius: 12px; padding: 12px 14px; background: #FFF0EE; color: #A3261B !important; font-size: 14px; }
 
 /* activity */
 .filters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
 .filters label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .filters input, .filters select { height: 44px; min-width: 180px; border: 1.5px solid #C9D1DE; border-radius: 12px; padding: 0 12px; font: 600 15px inherit; font-family: inherit; color: var(--ink); background: #fff; }
+.transaction-filters { align-items: flex-end; margin-top: 18px; }
+.transaction-filters .btn { min-height: 44px; }
+.transaction-summary { margin: 18px 0 10px; color: var(--muted); font-weight: 800; }
+.transaction-id { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+.pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 16px; color: var(--muted); font-weight: 800; }
+.pagination .btn { min-height: 38px; padding: 0 14px; }
+.pagination .btn:disabled { cursor: not-allowed; opacity: .45; }
 .tablewrap { overflow-x: auto; background: #fff; border: 1px solid var(--line); border-radius: 18px; }
 table { width: 100%; border-collapse: collapse; font-size: 15px; }
 th { text-align: left; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 12px 16px; border-bottom: 1px solid var(--line); white-space: nowrap; background: #FAFBFD; }
-td { padding: 0; border-bottom: 1px solid var(--line); }
+td { padding: 13px 16px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 tr:last-child td { border-bottom: 0; }
 td > button { all: unset; display: block; width: 100%; box-sizing: border-box; padding: 13px 16px; cursor: pointer; font-weight: 600; }
 td > button:focus-visible { outline: 3px solid #1F6BFF; outline-offset: -3px; }
@@ -83,6 +93,13 @@ tr:hover td { background: #F7F9FD; }
 .st-Waiting { background: #FFF0D6; color: #8A4B00; }
 .st-Undo { background: #E6EFFF; color: #1747B8; }
 .st-Canceled, .st-Dismissed { background: #EEF1F6; color: #4A5B7C; }
+.status-PAID, .status-MARKED_AS_PAID { background: #DDF5E9; color: #0B6B47; }
+.status-SENT, .status-SCHEDULED { background: #E6EFFF; color: #1747B8; }
+.status-DRAFT { background: #FFF0D6; color: #8A4B00; }
+.status-CANCELLED, .status-REFUNDED, .status-PARTIALLY_REFUNDED { background: #EEF1F6; color: #4A5B7C; }
+.status-OPEN, .status-WAITING_FOR_SELLER_RESPONSE, .status-WAITING_FOR_BUYER_RESPONSE { background: #FFF0D6; color: #8A4B00; }
+.status-UNDER_REVIEW { background: #E6EFFF; color: #1747B8; }
+.status-RESOLVED, .status-CLOSED { background: #DDF5E9; color: #0B6B47; }
 .empty { padding: 28px; text-align: center; color: var(--muted); font-weight: 700; }
 .note { margin: 12px 0 0; font-size: 13px; font-weight: 600; color: var(--muted); }
 
