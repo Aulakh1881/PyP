@@ -52,6 +52,6 @@ export async function POST(request: Request) {
     return Response.json({ ok: true, synced });
   } catch (syncError) {
     console.error("PayPal webhook cache sync failed", syncError);
-    return Response.json({ ok: true, accepted: true, syncPending: true });
+    return Response.json({ error: "Webhook accepted but cache synchronization failed" }, { status: 503 });
   }
 }
