@@ -18,7 +18,7 @@ export async function verifyPayPalWebhook(
   headers: PayPalWebhookHeaders,
   event: unknown,
   webhookId: string,
-): Promise<boolean> {
+): Promise<{ verified: boolean; status: number; verificationStatus?: string; name?: string }> {
   const token = await getPayPalAccessToken();
   const response = await fetch(`${apiBase()}/v1/notifications/verify-webhook-signature`, {
     method: "POST",
@@ -38,8 +38,27 @@ export async function verifyPayPalWebhook(
     }),
     cache: "no-store",
   });
-  if (!response.ok) return false;
-  const body: unknown = await response.json();
-  return Boolean(body && typeof body === "object" && "verification_status" in body
-    && body.verification_status === "SUCCESS");
+  let body: unknown = null;
+  try {
+    body = await response.json();
+  } catch {
+    return { verified: false, status: response.status };
+  }
+  if (!response.ok) {
+    const record = body && typeof body === "object" ? body as Record<string, unknown> : {};
+    return {
+      verified: false,
+      status: response.status,
+      name: typeof record.name === "string" ? record.name : undefined,
+    };
+  }
+  const record = body && typeof body === "object" ? body as Record<string, unknown> : {};
+  const verificationStatus = typeof record.verification_status === "string"
+    ? record.verification_status
+    : undefined;
+  return {
+    verified: verificationStatus === "SUCCESS",
+    status: response.status,
+    verificationStatus,
+  };
 }

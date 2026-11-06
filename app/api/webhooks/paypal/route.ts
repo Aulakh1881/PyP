@@ -24,14 +24,23 @@ export async function POST(request: Request) {
   }
 
   const header = (name: string) => request.headers.get(name) ?? "";
-  const verified = await verifyPayPalWebhook({
+  const verification = await verifyPayPalWebhook({
     transmissionId: header("paypal-transmission-id"),
     transmissionTime: header("paypal-transmission-time"),
     transmissionSig: header("paypal-transmission-sig"),
     certUrl: header("paypal-cert-url"),
     authAlgo: header("paypal-auth-algo"),
   }, event, webhookId);
-  if (!verified) return Response.json({ error: "Webhook signature verification failed" }, { status: 401 });
+  if (!verification.verified) {
+    console.error("PayPal webhook verification failed", {
+      eventId: event.id,
+      eventType: event.event_type,
+      status: verification.status,
+      verificationStatus: verification.verificationStatus,
+      name: verification.name,
+    });
+    return Response.json({ error: "Webhook signature verification failed" }, { status: 401 });
+  }
 
   const supabase = createAdminClient();
   const { error } = await supabase.from("events").insert({
