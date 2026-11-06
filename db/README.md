@@ -24,6 +24,7 @@ psql "$DATABASE_URL" -f db/migrations/001_core_schema.sql
 psql "$DATABASE_URL" -f db/migrations/002_auth_accounts.sql
 psql "$DATABASE_URL" -f db/seed/001_demo_merchant.sql
 psql "$DATABASE_URL" -f db/migrations/003_provision_demo_account.sql
+psql "$DATABASE_URL" -f db/migrations/006_paypal_reporting_cache.sql
 ```
 
 The migration enables `pgcrypto` for UUID generation. It is intentionally
@@ -37,5 +38,10 @@ history is computed live from PayPal, merchant notes come from seeded demo
 data, and the spend cap sums today's `runs.cost_usd` against
 `SPEND_CAP_USD`. If Inngest does not run on Render, add the `jobs` table
 described in the design's Section 10.
+
+Migration `006_paypal_reporting_cache.sql` adds merchant-scoped read-only
+tables for the PayPal dashboard. `POST /api/paypal/sync` performs the initial
+31-day transaction and first-page invoice/dispute import. Webhooks can later
+upsert the same rows without changing the dashboard contract.
 
 **The engine contract** (what runs hand over, proposal ids, `resolved`, re-checking before a write): [`engine/README.md`](../engine/README.md#the-contract-for-owners-a-and-c).
