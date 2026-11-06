@@ -25,6 +25,7 @@ psql "$DATABASE_URL" -f db/migrations/002_auth_accounts.sql
 psql "$DATABASE_URL" -f db/seed/001_demo_merchant.sql
 psql "$DATABASE_URL" -f db/migrations/003_provision_demo_account.sql
 psql "$DATABASE_URL" -f db/migrations/006_paypal_reporting_cache.sql
+psql "$DATABASE_URL" -f db/migrations/007_paypal_reporting_cache_write_policies.sql
 ```
 
 The migration enables `pgcrypto` for UUID generation. It is intentionally
@@ -43,5 +44,8 @@ Migration `006_paypal_reporting_cache.sql` adds merchant-scoped read-only
 tables for the PayPal dashboard. `POST /api/paypal/sync` performs the initial
 31-day transaction and first-page invoice/dispute import. Webhooks can later
 upsert the same rows without changing the dashboard contract.
+
+Migration `007_paypal_reporting_cache_write_policies.sql` allows authenticated
+members of the relevant merchant to insert and update cache rows during sync.
 
 **The engine contract** (what runs hand over, proposal ids, `resolved`, re-checking before a write): [`engine/README.md`](../engine/README.md#the-contract-for-owners-a-and-c).
