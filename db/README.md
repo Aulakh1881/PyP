@@ -45,6 +45,11 @@ tables for the PayPal dashboard. `POST /api/paypal/sync` performs the initial
 31-day transaction and first-page invoice/dispute import. Webhooks can later
 upsert the same rows without changing the dashboard contract.
 
+The independent webhook endpoint is `POST /api/webhooks/paypal`. It verifies
+PayPal signatures, stores event IDs in `events`, and refreshes the reporting
+cache. Configure `PAYPAL_WEBHOOK_ID` and the server-only
+`SUPABASE_SERVICE_ROLE_KEY` before exposing this endpoint publicly.
+
 Migration `007_paypal_reporting_cache_write_policies.sql` allows authenticated
 members of the relevant merchant to insert and update cache rows during sync.
 
