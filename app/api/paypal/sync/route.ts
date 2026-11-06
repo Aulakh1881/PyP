@@ -49,8 +49,8 @@ export async function POST(request: Request) {
         new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
         { page: 1, pageSize: 100 },
       ),
-      getPayPalInvoices({ page: 1, pageSize: 100 }),
-      getPayPalDisputes({ page: 1, pageSize: 100 }),
+      getPayPalInvoices({ page: 1, pageSize: 25 }),
+      getPayPalDisputes({ page: 1, pageSize: 25 }),
     ]);
 
     const balanceRows = balances.map((item) => ({
