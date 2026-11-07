@@ -41,7 +41,11 @@
 
   document.querySelector('[data-signout]').addEventListener('click', function () {
     if (widget) { widget.destroy(); widget = null; }
-    window.location.href = transport.isDemo ? 'http://localhost:3000/login' : '/login';
+    if (transport.isDemo) { window.location.href = 'http://localhost:3000/login'; return; }
+    // Live: end the session on the server first, or /login would still find you signed in.
+    fetch('/api/auth/signout', { method: 'POST', credentials: 'include' })
+      .catch(function () { /* go to /login anyway */ })
+      .then(function () { window.location.href = '/login'; });
   });
 
   /* ---------------- shell ---------------- */
