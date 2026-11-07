@@ -26,6 +26,8 @@ psql "$DATABASE_URL" -f db/seed/001_demo_merchant.sql
 psql "$DATABASE_URL" -f db/migrations/003_provision_demo_account.sql
 psql "$DATABASE_URL" -f db/migrations/004_engine_records.sql
 psql "$DATABASE_URL" -f db/migrations/005_holds_and_events.sql
+psql "$DATABASE_URL" -f db/migrations/006_paypal_reporting_cache.sql
+psql "$DATABASE_URL" -f db/migrations/007_paypal_reporting_cache_write_policies.sql
 ```
 
 Migration `004_engine_records.sql` adds what the engine hands over (`resolved_json`, the case file for the executor's re-check, run failures, per-step executions), the spend ledger, and **turns on Row Level Security for every table**. The server connects over `DATABASE_URL` as the table owner, which bypasses RLS; the browser's publishable key sees none of Pyp's records. `executor/execute.test.ts` applies all migrations to a throwaway database and fails if any table is left without RLS.
@@ -43,5 +45,18 @@ history is computed live from PayPal, merchant notes come from seeded demo
 data, and the spend cap sums today's `runs.cost_usd` against
 `SPEND_CAP_USD`. If Inngest does not run on Render, add the `jobs` table
 described in the design's Section 10.
+
+Migration `006_paypal_reporting_cache.sql` adds merchant-scoped read-only
+tables for the PayPal dashboard. `POST /api/paypal/sync` performs the initial
+31-day transaction and first-page invoice/dispute import. Webhooks can later
+upsert the same rows without changing the dashboard contract.
+
+The independent webhook endpoint is `POST /api/webhooks/paypal`. It verifies
+PayPal signatures, stores event IDs in `events`, and refreshes the reporting
+cache. Configure `PAYPAL_WEBHOOK_ID` and the server-only
+`SUPABASE_SERVICE_ROLE_KEY` before exposing this endpoint publicly.
+
+Migration `007_paypal_reporting_cache_write_policies.sql` allows authenticated
+members of the relevant merchant to insert and update cache rows during sync.
 
 **The engine contract** (what runs hand over, proposal ids, `resolved`, re-checking before a write): [`engine/README.md`](../engine/README.md#the-contract-for-owners-a-and-c).

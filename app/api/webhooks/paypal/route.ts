@@ -8,6 +8,8 @@ import { serverAgent } from "@/lib/agent";
 import { getPool } from "@/jobs/db";
 import { processEvent, subjectFor, type PayPalEvent } from "@/jobs/event-run";
 import { insertEvent } from "@/jobs/store";
+import { syncPayPalReporting } from "@/lib/paypal/reporting-sync";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { PayPalReadClient } from "@/paypal/engine-reads";
 import { sharedPayPalHttp } from "@/paypal/http";
 import { verifyWebhook } from "@/paypal/webhook-verify";
@@ -52,6 +54,15 @@ export async function POST(request: Request) {
   if (!isNew) return Response.json({ ok: true, duplicate: true });
 
   after(async () => {
+    // Refresh the dashboard's reporting cache. Optional (needs the service-role key);
+    // a failed refresh must not stop the engine run below.
+    if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      try {
+        await syncPayPalReporting(createAdminClient());
+      } catch (error) {
+        console.error("PayPal webhook cache sync failed", error);
+      }
+    }
     await processEvent({ pool, read: new PayPalReadClient(http), agent: serverAgent() }, merchantId, event);
   });
   return Response.json({ ok: true });
