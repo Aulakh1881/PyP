@@ -8,7 +8,7 @@ A clickable, **UI-only** version of Pyp's three surfaces, running entirely on **
 |---|---|---|
 | **Website** | `website/index.html` | Landing page: what Pyp is, the live inbox, the safety rules, install steps. A live Pyp sits in the corner. |
 | **Dashboard** | `website/app/` | Demo sign-in (any password), then **Inbox** (cards with Approve / Review / Dismiss / Undo, filters, flip to "How I got here"), **Activity** (one AG Grid table of live sandbox payments, invoices and disputes plus Pyp's own actions: sort, filter, search, filter by type, export CSV, click a row for details), **Weekly brief**, and **Setup** (Off / Ask me / Auto per skill, limits, **Pause Pyp**, extension connection code, reset demo data). Pyp's chat widget is on every page. |
-| **Chrome extension** | `extension/` | Puts Pyp in the **bottom-right corner of paypal.com**. The toolbar popup has **Open the Pyp web app** and the list of actions **waiting on you**, plus settings (show on PayPal, web app address, connection code). |
+| **Chrome extension** | `extension/` | Puts Pyp in the **bottom-right corner of paypal.com**. The toolbar popup has **Open the Pyp web app** and the list of actions **waiting on you**, plus settings (show on PayPal, **Live data** on your real Pyp account, web app address, connection code). |
 
 ## Run it locally, step by step
 
@@ -66,6 +66,18 @@ To stop the server, press **Ctrl + C** in that terminal.
 2. Hover over Pyp (it blinks and looks at you), then click it. It hops into the chat.
 3. Click Pyp's **toolbar icon** to see the actions waiting on you, or **Open the Pyp web app**. That opens <http://localhost:8080/app/>, so keep step 2's server running.
 
+### 5. Use your real Pyp account in the extension (live data)
+
+The extension starts on demo data. To use your real cards and chat instead:
+
+1. Start the real app: `npm run dev` and `npm run live` from the repo folder (see the main README).
+2. Sign in at <http://localhost:3001/app/> in the same Chrome.
+3. In `chrome://extensions`, click the reload icon on Pyp's card (needed once, to pick up the new version).
+4. Click Pyp's toolbar icon → settings (slider icon) → switch on **Live data**. The pill changes to **LIVE · SANDBOX**.
+5. Reload your PayPal tab. Pyp's chat and Inbox now use your real account.
+
+If Pyp says you're signed out, sign in at <http://localhost:3001/app/> again and reload the PayPal tab. The extension's requests go through its background worker, which sends your Pyp sign-in cookie; it only talks to `/api/` on the Pyp server address in settings (default `http://localhost:3001`). Once the app is hosted on Render, put its address (e.g. `https://pyp.onrender.com`) in **Pyp server**; `*.onrender.com` is already allowed.
+
 ### Things to try
 
 - **Chat:** tap a quick action, or type “late invoices”, “refund status” or “how was my week?”.
@@ -102,9 +114,10 @@ prototype/
     pyp-figure.js      draws Pyp (modes: idle, perk, happy, avatar; 7 hats)
     policy.js          "The AI proposes. Code decides." Plain rules for auto / ask / blocked
     demo-data.js       the demo transport: cards, chat replies, activity, settings, pause
+    live-transport.js  the live transport: the same methods on the real API (dashboard on :3001, extension in live mode)
     pyp-inbox.js       the card inbox (flip, undo countdown, filters)
     pyp-widget.js      the corner widget: launcher, fly-in, chat, + menu, inbox tab, customize
-  extension/         Manifest V3: content script (corner widget), background (screenshots), popup
+  extension/         Manifest V3: content script (corner widget), background (screenshots + live API calls), live-bridge.js (demo or live), popup
   website/           landing page + app/ (dashboard)
   scripts/           sync-shared.mjs (copies shared/ into extension/ and website/), render-icons.py
   tests/             node --test
@@ -118,7 +131,7 @@ The widget renders inside a **shadow root**, so paypal.com's styles can't change
 
 - The dashboard, the landing page and other open tabs share one saved demo state (`localStorage`). Approve a card in one tab and the others update.
 - The extension's popup and every paypal.com tab share their own saved state (`chrome.storage.local`).
-- The extension and the web app don't share data yet. That needs the real API.
+- In demo mode the extension and the web app don't share data. In live mode both use your real Pyp account.
 
 ## Plugging in the real API
 
