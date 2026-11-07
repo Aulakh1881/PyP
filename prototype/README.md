@@ -68,13 +68,14 @@ To stop the server, press **Ctrl + C** in that terminal.
 
 ### 5. Use your real Pyp account in the extension (live data)
 
-The extension starts on demo data. To use your real cards and chat instead:
+The extension uses your **real Pyp account** by default (the popup's pill says **LIVE · SANDBOX**):
 
 1. Start the real app: `npm run dev` and `npm run live` from the repo folder (see the main README).
 2. Sign in at <http://localhost:3001/app/> in the same Chrome.
-3. In `chrome://extensions`, click the reload icon on Pyp's card (needed once, to pick up the new version).
-4. Click Pyp's toolbar icon → settings (slider icon) → switch on **Live data**. The pill changes to **LIVE · SANDBOX**.
-5. Reload your PayPal tab. Pyp's chat and Inbox now use your real account.
+3. In `chrome://extensions`, click the reload icon on Pyp's card after pulling new code.
+4. Reload your PayPal tab. Pyp's chat and Inbox now use your real account.
+
+To use made-up demo data instead (no server needed), open the popup's settings and switch off **Live data**.
 
 If Pyp says you're signed out, sign in at <http://localhost:3001/app/> again and reload the PayPal tab. The extension's requests go through its background worker, which sends your Pyp sign-in cookie; it only talks to `/api/` on the Pyp server address in settings (default `http://localhost:3001`). Once the app is hosted on Render, put its address (e.g. `https://pyp.onrender.com`) in **Pyp server**; `*.onrender.com` is already allowed.
 
@@ -95,6 +96,7 @@ If Pyp says you're signed out, sign in at <http://localhost:3001/app/> again and
 | “Load unpacked” shows a manifest error | You picked the wrong folder. Choose `prototype/extension` itself. |
 | “Open the Pyp web app” shows “site can't be reached” | The local server from step 2 isn't running. Start it again. |
 | Screenshot says it couldn't take one | Chrome only allows it after you click Pyp's toolbar icon once on that tab. Click it, close the popup, and try again. |
+| Pyp says the Pyp server isn't answering | Start `npm run dev` and `npm run live`, then reload the PayPal tab. Or switch off **Live data** in the popup's settings to use demo data. |
 | `localhost:8080` is already in use | Use another port, e.g. `python3 -m http.server 8081 --directory prototype/website`, and update the web app address in the popup's settings. |
 | The page looks stale after you pull new code | Hard-reload (Ctrl + Shift + R, or Cmd + Shift + R on Mac). For the extension, click the reload icon on its card in `chrome://extensions`. |
 

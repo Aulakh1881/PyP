@@ -1,6 +1,6 @@
 // Picks the data source for the corner widget and the toolbar popup.
-//   Demo (default): made-up data saved in chrome.storage.local.
-//   Live: your real Pyp account, through the Pyp server (npm run dev + npm run live).
+//   Live (default): your real Pyp account, through the Pyp server (npm run dev + npm run live).
+//   Demo: made-up data saved in chrome.storage.local (switch off "Live data" in settings).
 // Live requests go through background.js, which sends the Pyp sign-in cookie.
 
 (function (root) {
@@ -14,7 +14,7 @@
 
   async function loadMode() {
     const { live, server } = await chrome.storage.sync.get(['live', 'server']);
-    return { live: live === true, server: serverOf(server) };
+    return { live: live !== false, server: serverOf(server) };
   }
 
   // A fetch look-alike for the live transport: only the bits it uses.
