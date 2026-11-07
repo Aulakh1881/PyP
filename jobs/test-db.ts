@@ -26,6 +26,12 @@ export async function freshDatabase(): Promise<{ pool: Pool; drop: () => Promise
   const url = new URL(TEST_DB_URL);
   url.pathname = `/${name}`;
   const pool = new Pool({ connectionString: url.toString(), max: 4 });
+  // Dropping the database ends its connections ("57P01: terminating connection due
+  // to administrator command"). A client still closing then emits that as an error;
+  // with no listener it fails the whole Vitest run, so expect it here.
+  pool.on("error", (err: Error & { code?: string }) => {
+    if (err.code !== "57P01") throw err;
+  });
 
   await pool.query(AUTH_STUB);
   const migrations = readdirSync(join(root, "migrations")).filter((f) => f.endsWith(".sql")).sort();
@@ -39,6 +45,13 @@ export async function freshDatabase(): Promise<{ pool: Pool; drop: () => Promise
     pool,
     drop: async () => {
       await pool.end();
+      // pool.end() can return before the server has closed every connection. Wait
+      // for them to go, so the forced drop below doesn't cut one off mid-close.
+      for (let i = 0; i < 50; i++) {
+        const open = await admin.query("select count(*)::int as n from pg_stat_activity where datname = $1", [name]);
+        if (open.rows[0].n === 0) break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
       await admin.query(`drop database ${name} with (force)`);
       await admin.end();
     },
