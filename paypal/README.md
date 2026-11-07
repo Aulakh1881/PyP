@@ -19,6 +19,8 @@ returns the access token or PayPal credentials to the browser.
 
 `PAYPAL_WEBHOOK_ID` is not required for OAuth. It is only needed after a
 PayPal webhook is created and webhook signature verification is enabled.
+Webhook delivery also requires the server-only `SUPABASE_SERVICE_ROLE_KEY`;
+never expose or commit that key.
 
 ## Read-only reporting
 
