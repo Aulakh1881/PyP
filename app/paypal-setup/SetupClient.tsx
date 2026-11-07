@@ -60,7 +60,7 @@ export default function SetupClient() {
             <dd>Pyp Demo Business</dd>
           </div>
         </dl>
-        <a className="btn setup-button" href="http://localhost:8080/app/?authenticated=1">
+        <a className="btn setup-button" href="/dashboard">
           Open dashboard
         </a>
       </section>

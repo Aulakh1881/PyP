@@ -28,17 +28,17 @@
       </ul>
     </nav>
     <div class="sidefoot">
-      <p class="pausepill" data-pausepill hidden>Pyp is paused</p>
-      <div class="me"><span class="avatar" aria-hidden="true">M</span><div><b>Maya</b><span>Maya’s Ceramics · sandbox</span></div></div>
+      <p class="pausepill" data-pausepill hidden>Pyp is paused</p><!-- live mode: approvals from this browser -->
+      <div class="me"><span class="avatar" aria-hidden="true" data-me-initial>M</span><div><b data-me-name>Maya</b><span data-me-biz>Maya’s Ceramics · sandbox</span></div></div>
       <button class="link" type="button" data-signout>Sign out</button>
-      <p class="disc">DEMO DATA · Independent concept, not affiliated with PayPal</p>
+      <p class="disc"><span data-data-label>DEMO DATA</span> · Independent concept, not affiliated with PayPal</p>
     </div>
   </aside>
 
   <main class="main" id="main" tabindex="-1">
     <header class="top">
       <h1 id="page-title">Inbox</h1>
-      <span class="demo">DEMO DATA</span>
+      <span class="demo" data-data-label>DEMO DATA</span>
     </header>
     <div id="view"></div>
   </main>
@@ -49,6 +49,8 @@
 <script src="../shared/pyp-figure.js"></script>
 <script src="../shared/policy.js"></script>
 <script src="../shared/demo-data.js"></script>
+<script src="../shared/live-transport.js"></script>
+<script src="../shared/runtime-config.js"></script>
 <script src="../shared/pyp-inbox.js"></script>
 <script src="../shared/pyp-widget.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@36.2.0/dist/ag-grid-community.min.js"></script>

@@ -8,7 +8,7 @@
 
   var Fig = window.PypFigure;
 
-  var transport = window.PypDemo.createTransport({ persist: window.PypDemo.localPersist() });
+  var transport = window.PypTransport();
   var view = document.getElementById('view');
   var title = document.getElementById('page-title');
   var toastEl = document.querySelector('.toast');
@@ -41,12 +41,18 @@
 
   document.querySelector('[data-signout]').addEventListener('click', function () {
     if (widget) { widget.destroy(); widget = null; }
-    window.location.href = 'http://localhost:3000/login';
+    window.location.href = transport.isDemo ? 'http://localhost:3000/login' : '/login';
   });
 
   /* ---------------- shell ---------------- */
   function startApp() {
     fig('brand', { size: 30, mode: 'idle' });
+    if (!transport.isDemo) {
+      document.querySelectorAll('[data-data-label]').forEach(function (el) { el.textContent = 'LIVE · PAYPAL SANDBOX'; });
+      document.querySelector('[data-me-initial]').textContent = 'P';
+      document.querySelector('[data-me-name]').textContent = 'Pyp Demo Business';
+      document.querySelector('[data-me-biz]').textContent = 'PayPal sandbox';
+    }
     if (!widget) widget = window.PypWidget.mount({ transport: transport, right: 24, bottom: 24 });
     route();
   }
@@ -400,7 +406,9 @@
       '<label>Undo window for Auto actions<select data-undo>' + [[30, '30 seconds'], [60, '1 minute'], [300, '5 minutes'], [900, '15 minutes']].map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === s.undoSeconds ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
       '</div></section>' +
 
-      '<section class="panel"><h2 id="pause-t">Pause Pyp</h2><div class="pauserow"><p>Stops everything at once. Pyp keeps watching and drafting, but nothing is sent to PayPal, and Auto timers freeze, until you turn this off.</p>' +
+      '<section class="panel"><h2 id="pause-t">Pause Pyp</h2><div class="pauserow"><p>' + (transport.isDemo
+        ? 'Stops everything at once. Pyp keeps watching and drafting, but nothing is sent to PayPal, and Auto timers freeze, until you turn this off.'
+        : 'Turns off Approve in this browser until you turn this off. It doesn’t stop the server yet: other tabs and Auto actions still run.') + '</p>' +
       '<button type="button" class="bigswitch" role="switch" aria-checked="' + paused + '" aria-labelledby="pause-t" data-pause><span></span></button></div></section>' +
 
       '<section class="panel"><h2>Connect the Chrome extension</h2><p>The extension puts Pyp in the corner of paypal.com. Paste this code into the extension when it asks.</p>' +
@@ -408,8 +416,10 @@
       '<ol class="olist"><li>Install the extension (see the website’s “Get the extension” steps).</li><li>Click the Pyp icon in Chrome’s toolbar, then the settings button.</li><li>Paste the code under “Connection code” and press Connect.</li></ol>' +
       '<p class="note">UI preview: the code is a placeholder until the real API exists.</p></section>' +
 
-      '<section class="panel"><h2>Demo data</h2><p>Put every card, the activity log and these settings back to how they started.</p>' +
-      '<p style="margin-top:12px"><button type="button" class="btn btn-danger" data-reset>Reset demo data</button></p></section>';
+      (transport.isDemo
+        ? '<section class="panel"><h2>Demo data</h2><p>Put every card, the activity log and these settings back to how they started.</p>' +
+          '<p style="margin-top:12px"><button type="button" class="btn btn-danger" data-reset>Reset demo data</button></p></section>'
+        : '<section class="panel"><h2>Live data</h2><p>Cards, the activity log and PayPal data on this page are live from your sandbox. These settings are saved in this browser for now; the engine still asks you before every write.</p></section>');
 
     view.addEventListener('click', onSetupClick);
     cleanup.push(function () { view.removeEventListener('click', onSetupClick); });
@@ -445,7 +455,7 @@
       var on = b.getAttribute('aria-checked') !== 'true';
       transport.setPaused(on);
       b.setAttribute('aria-checked', String(on));
-      toast(on ? 'Pyp is paused. Nothing will be sent to PayPal.' : 'Pyp is back on.');
+      toast(on ? (transport.isDemo ? 'Pyp is paused. Nothing will be sent to PayPal.' : 'Approvals from this browser are paused.') : 'Pyp is back on.');
     } else if (b.hasAttribute('data-copy')) {
       var code = view.querySelector('[data-code]').textContent;
       (navigator.clipboard ? navigator.clipboard.writeText(code) : Promise.reject()).then(function () { toast('Code copied.'); }, function () { toast('Copy failed. Select the code and copy it.'); });
