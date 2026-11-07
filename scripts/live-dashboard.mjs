@@ -13,6 +13,7 @@
 
 import { createReadStream, statSync } from "node:fs";
 import http from "node:http";
+import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -92,6 +93,24 @@ const server = http.createServer((req, res) => {
   }
   res.writeHead(200, { "Content-Type": TYPES[path.extname(file)] ?? "application/octet-stream", "Cache-Control": "no-store" });
   createReadStream(file).pipe(res);
+});
+
+// Websockets (Next.js's dev connection at /_next/hmr) aren't plain requests, so the
+// handler above never sees them. Without them the dev pages never start: forms look
+// fine but do nothing (sign-in just reloads). Pass the raw connection through.
+server.on("upgrade", (req, socket, head) => {
+  const upstream = net.connect(Number(APP.port || 80), APP.hostname, () => {
+    const lines = [`${req.method} ${req.url} HTTP/${req.httpVersion}`];
+    for (let i = 0; i < req.rawHeaders.length; i += 2) lines.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}`);
+    lines.push("x-pyp-live-dashboard: 1");
+    upstream.write(lines.join("\r\n") + "\r\n\r\n");
+    if (head && head.length) upstream.write(head);
+    upstream.pipe(socket);
+    socket.pipe(upstream);
+  });
+  const close = () => { socket.destroy(); upstream.destroy(); };
+  upstream.on("error", close);
+  socket.on("error", close);
 });
 
 // Local only: this forwards to the app with your sign-in, so other machines mustn't reach it.
