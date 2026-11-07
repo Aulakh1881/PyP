@@ -1,5 +1,6 @@
 // Pyp dashboard (UI preview on demo data).
-// Pages: Overview, Transactions, Inbox, Activity, Weekly brief, Setup.
+// Pages: Overview, Transactions, Invoices, Disputes, Inbox, Activity (AG Grid,
+// see activity-grid.js), Weekly brief, Setup.
 // All data comes from one demo transport saved in localStorage, shared with the
 // landing page and with other open tabs. To use the real API, replace `transport`.
 (function () {
@@ -319,47 +320,12 @@
   }
 
   function renderActivity() {
-    view.innerHTML =
-      '<div class="filters">' +
-      '<label>Search<input type="search" data-q placeholder="Customer, invoice, order…"></label>' +
-      '<label>Skill<select data-skill><option value="">All skills</option><option>Collections</option><option>Disputes</option><option>Refunds</option><option>Insights</option></select></label>' +
-      '<label>Status<select data-status><option value="">Any status</option><option>Done</option><option>Waiting for you</option><option>Undo window</option><option>Canceled</option><option>Dismissed</option></select></label>' +
-      '</div>' +
-      '<div class="tablewrap"><table><caption class="sr" style="position:absolute;left:-9999px">Everything Pyp has done or proposed</caption>' +
-      '<thead><tr><th scope="col">When</th><th scope="col">Skill</th><th scope="col">What happened</th><th scope="col">For</th><th scope="col" class="num">Amount</th><th scope="col">Who</th><th scope="col">Status</th></tr></thead>' +
-      '<tbody data-rows></tbody></table></div>' +
-      '<p class="note">Click a row to see every step. (The real dashboard uses AG Grid here; this is a plain table with the same columns.)</p>';
-
-    var rows = [];
-    var q = view.querySelector('[data-q]');
-    var sk = view.querySelector('[data-skill]');
-    var st = view.querySelector('[data-status]');
-
-    function draw() {
-      var term = q.value.trim().toLowerCase();
-      var shown = rows.filter(function (r) {
-        if (sk.value && r.skill !== sk.value) return false;
-        if (st.value && r.status !== st.value) return false;
-        if (term && (r.action + ' ' + r.target + ' ' + r.skill + ' ' + r.amount).toLowerCase().indexOf(term) < 0) return false;
-        return true;
-      });
-      view.querySelector('[data-rows]').innerHTML = shown.length ? shown.map(function (r) {
-        var cell = function (content, cls) { return '<td' + (cls ? ' class="' + cls + '"' : '') + '><button type="button" data-row="' + esc(r.id) + '">' + content + '</button></td>'; };
-        return '<tr>' + cell(esc(fmtWhen(r.when))) + cell(esc(r.skill)) + cell('<b>' + esc(r.action) + '</b>') + cell(esc(r.target)) +
-          cell(esc(r.amount), 'num') + cell(esc(r.who)) + cell('<span class="status ' + statusClass(r.status) + '">' + esc(r.status) + '</span>') + '</tr>';
-      }).join('') : '<tr><td colspan="7"><div class="empty">No activity matches those filters.</div></td></tr>';
-    }
-
-    function load() { transport.activity().then(function (a) { rows = a; draw(); }); }
-    load();
-    cleanup.push(transport.subscribe(load));
-    [q, sk, st].forEach(function (el) { el.addEventListener('input', draw); });
-
-    view.querySelector('[data-rows]').addEventListener('click', function (e) {
-      var b = e.target.closest('[data-row]');
-      if (!b) return;
-      var r = rows.filter(function (x) { return x.id === b.getAttribute('data-row'); })[0];
-      if (r) openDrawer(r, b);
+    window.PypActivityGrid.render(view, {
+      transport: transport,
+      esc: esc,
+      fmtWhen: fmtWhen,
+      openPypDrawer: openDrawer,
+      onCleanup: function (fn) { cleanup.push(fn); }
     });
   }
 

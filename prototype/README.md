@@ -7,7 +7,7 @@ A clickable, **UI-only** version of Pyp's three surfaces, running entirely on **
 | Surface | Where | What it does |
 |---|---|---|
 | **Website** | `website/index.html` | Landing page: what Pyp is, the live inbox, the safety rules, install steps. A live Pyp sits in the corner. |
-| **Dashboard** | `website/app/` | Demo sign-in (any password), then **Inbox** (cards with Approve / Review / Dismiss / Undo, filters, flip to "How I got here"), **Activity** (filterable log with a detail drawer), **Weekly brief**, and **Setup** (Off / Ask me / Auto per skill, limits, **Pause Pyp**, extension connection code, reset demo data). Pyp's chat widget is on every page. |
+| **Dashboard** | `website/app/` | Demo sign-in (any password), then **Inbox** (cards with Approve / Review / Dismiss / Undo, filters, flip to "How I got here"), **Activity** (one AG Grid table of live sandbox payments, invoices and disputes plus Pyp's own actions: sort, filter, search, filter by type, export CSV, click a row for details), **Weekly brief**, and **Setup** (Off / Ask me / Auto per skill, limits, **Pause Pyp**, extension connection code, reset demo data). Pyp's chat widget is on every page. |
 | **Chrome extension** | `extension/` | Puts Pyp in the **bottom-right corner of paypal.com**. The toolbar popup has **Open the Pyp web app** and the list of actions **waiting on you**, plus settings (show on PayPal, web app address, connection code). |
 
 ## Run it locally, step by step
