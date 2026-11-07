@@ -1,6 +1,6 @@
 // Pyp content script: puts Pyp in the corner of paypal.com.
-// UI preview: Pyp runs on demo data from shared/demo-data.js. To connect a real
-// backend later, build a transport with the same methods and pass it to mount().
+// Demo data by default. With "Live data" on in the popup's settings, Pyp uses your
+// real Pyp account through the Pyp server (see live-bridge.js).
 
 (function () {
   'use strict';
@@ -25,9 +25,9 @@
     (document.head || document.documentElement).appendChild(style);
   }
 
-  function makeTransport() {
-    // Saved in chrome.storage.local, so the toolbar popup and every PayPal tab share it.
-    const transport = window.PypDemo.createTransport({ persist: window.PypDemo.chromePersist() });
+  function makeTransport(mode) {
+    // Demo data is saved in chrome.storage.local, so the toolbar popup and every PayPal tab share it.
+    const transport = window.PypBridge.createTransport(mode);
     transport.capture = () => new Promise((resolve, reject) => {
       chrome.runtime.sendMessage({ type: 'pyp:capture' }, (res) => {
         if (chrome.runtime.lastError || !res || !res.ok) {
@@ -46,10 +46,15 @@
     save: (p) => { lastSaved = JSON.stringify(p); return chrome.storage.sync.set({ prefs: p }); }
   };
 
+  let showing = null;
   function show() {
-    if (widget) return;
+    if (widget || showing) return showing;
     injectFonts();
-    widget = window.PypWidget.mount({ transport: makeTransport(), prefs, right: 24, bottom: 24 });
+    showing = window.PypBridge.loadMode().then((mode) => {
+      widget = window.PypWidget.mount({ transport: makeTransport(mode), prefs, right: 24, bottom: 24 });
+      showing = null;
+    });
+    return showing;
   }
 
   function hide() {
@@ -65,6 +70,8 @@
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'sync') return;
     if (changes.enabled) changes.enabled.newValue === false ? hide() : show();
+    // Switched between demo and live data (or a new server): start Pyp again on the new data.
+    if ((changes.live || changes.server) && widget) { hide(); show(); }
     // Another PayPal tab (or the popup) changed Pyp's look: follow it here too.
     if (changes.prefs && widget && changes.prefs.newValue) {
       const next = JSON.stringify(changes.prefs.newValue);
@@ -74,6 +81,6 @@
 
   // The popup can ask Pyp to open (e.g. "Open Pyp" button).
   chrome.runtime.onMessage.addListener((message) => {
-    if (message && message.type === 'pyp:open') { show(); widget.open(); }
+    if (message && message.type === 'pyp:open') Promise.resolve(show()).then(() => widget && widget.open());
   });
 })();

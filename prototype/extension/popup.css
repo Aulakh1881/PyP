@@ -36,3 +36,6 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .connect input { flex: 1; min-width: 0; height: 40px; border: 1.5px solid #C9D1DE; border-radius: 10px; padding: 0 10px; font: 600 14px Nunito, system-ui, sans-serif; color: var(--ink); text-transform: uppercase; letter-spacing: .06em; }
 .small { height: 40px; padding: 0 14px; border: 0; border-radius: 10px; background: var(--ink); color: #fff; font: 800 14px Nunito, system-ui, sans-serif; cursor: pointer; }
 .ok { margin: 0; font-size: 13px; font-weight: 700; color: #0B6B47; }
+.status { margin: 0 0 10px; padding: 10px 12px; border-radius: 12px; background: #FFF4E5; color: #7A4B00; font-size: 13px; font-weight: 700; line-height: 1.35; }
+.status a { color: inherit; }
+.pill.live { background: #E3F6EE; color: #0B6B47; border-color: #A8E0C8; }

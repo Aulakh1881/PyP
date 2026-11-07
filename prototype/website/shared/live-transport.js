@@ -9,6 +9,8 @@
  *
  * The page must be served from the same origin as the API (scripts/live-dashboard.mjs
  * on port 3001 does that), so the sign-in cookie rides along and no CORS is needed.
+ * The Chrome extension instead passes { apiBase, fetch, onSignedOut, signedOutText }:
+ * its fetch runs in the background worker, which may send the cookie to the server.
  * Settings and Pause live in this browser only until the engine reads them. Pause
  * blocks Approve from this browser; it doesn't stop the server (Auto cards, other tabs).
  */
@@ -76,10 +78,19 @@
     var lastJson = '';
     var loadError = null; // why the last /api/cards load failed, shown instead of "all caught up"
 
+    // The Chrome extension passes its own fetch, which goes through the background
+    // worker so the sign-in cookie for the Pyp server rides along from paypal.com.
+    var doFetch = options.fetch || function (url, init) { return fetch(url, init); };
+
     async function api(path, init) {
-      var res = await fetch(base + path, Object.assign({ credentials: 'include', cache: 'no-store' }, init || {}, {
+      var res = await doFetch(base + path, Object.assign({ credentials: 'include', cache: 'no-store' }, init || {}, {
         headers: Object.assign({ 'Content-Type': 'application/json' }, (init && init.headers) || {})
       }));
+      if (res.status === 401 && typeof options.onSignedOut === 'function') {
+        loadError = options.signedOutText || 'You’re signed out of Pyp.';
+        options.onSignedOut();
+        throw new Error(loadError);
+      }
       if (res.status === 401 && options.onSignedOut !== false) {
         root.location.href = base + '/login'; // sign-in ends at /dashboard, which sends :3001 back to /app/
         throw new Error('Signed out');
@@ -257,18 +268,25 @@
       name: 'live',
       isDemo: false,
       ready: ready,
+      lastError: function () { return loadError; },
       greet: async function () {
         await ready;
+        if (loadError) return 'Hi, I’m Pyp! ' + loadError;
         var open = openCount();
         return 'Hi, I’m Pyp! I’m connected to your PayPal sandbox. ' +
-          (open ? open + ' thing' + (open === 1 ? '' : 's') + ' need a look in your Inbox. ' : 'You’re all caught up. ') +
+          (open ? open + (open === 1 ? ' thing needs' : ' things need') + ' a look in your Inbox. ' : 'You’re all caught up. ') +
           'Try “Invoice PyP Test $450 for product photos, due in 30 days”.';
       },
       chat: async function (msg) {
         var text = ((msg && msg.text) || '').trim();
         if (msg && msg.attachment) return { text: 'I can’t read files or screenshots yet. Type what you need and I’ll look in PayPal.' };
         if (!text) return { text: 'Type what you need, like “Invoice PyP Test $300 for the logo, net 30”.' };
-        var r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ message: text.slice(0, 1000) }) });
+        var r;
+        try {
+          r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ message: text.slice(0, 1000) }) });
+        } catch (e) {
+          return { text: loadError || 'I couldn’t reach the Pyp server. Is it running?' };
+        }
         lastJson = '';
         refresh().catch(function () { /* the poll will catch up */ });
         if (!r.ok) return { text: r.body.error || 'Something went wrong on my side. Try again in a moment.' };

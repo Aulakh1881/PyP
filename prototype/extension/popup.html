@@ -11,7 +11,7 @@
     <div id="pyp" class="fig"></div>
     <div class="who">
       <h1>Pyp</h1>
-      <span class="pill">DEMO DATA</span>
+      <span id="pill" class="pill">DEMO DATA</span>
     </div>
     <button id="settings-btn" class="iconbtn" aria-label="Settings" aria-expanded="false" aria-controls="settings">
       <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="7" r="2.2" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="10" cy="17" r="2.2" stroke="currentColor" stroke-width="2" fill="none"/></svg>
@@ -27,7 +27,14 @@
       <span id="show-label">Show Pyp on PayPal</span>
       <button id="toggle" class="switch" role="switch" aria-checked="true" aria-labelledby="show-label"><span></span></button>
     </div>
-    <label class="field" for="app-url">Web app address
+    <div class="row">
+      <span id="live-label">Live data <span style="font-weight:600">(your real Pyp account)</span></span>
+      <button id="live" class="switch" role="switch" aria-checked="false" aria-labelledby="live-label"><span></span></button>
+    </div>
+    <label class="field" for="server" id="server-field" hidden>Pyp server
+      <input id="server" type="url" spellcheck="false">
+    </label>
+    <label class="field" for="app-url" id="app-url-field">Web app address
       <input id="app-url" type="url" spellcheck="false">
     </label>
     <label class="field" for="code">Connection code <span style="font-weight:600">(from Setup in the web app)</span></label>
@@ -38,6 +45,7 @@
 
   <section aria-labelledby="pending-t">
     <h2 id="pending-t" class="sectitle">Waiting on you <span id="count" class="count"></span></h2>
+    <p id="status" class="status" role="status" hidden></p>
     <div id="pending"></div>
   </section>
 
@@ -46,7 +54,9 @@
 <script src="shared/pyp-figure.js"></script>
 <script src="shared/policy.js"></script>
 <script src="shared/demo-data.js"></script>
+<script src="shared/live-transport.js"></script>
 <script src="shared/pyp-inbox.js"></script>
+<script src="live-bridge.js"></script>
 <script src="popup.js"></script>
 </body>
 </html>

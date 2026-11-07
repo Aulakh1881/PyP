@@ -91,6 +91,7 @@
     '.ttl b{font-family:"Baloo 2",Nunito,system-ui,sans-serif;font-weight:800;font-size:20px;line-height:1.1}',
     '.ttl span{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700}',
     '.ttl i{width:8px;height:8px;border-radius:4px;background:#7CF0B8;display:inline-block}',
+    '.ttl span.off i{background:#FFC23D}',
     '.hb{width:44px;height:44px;border:0;border-radius:12px;background:rgba(255,255,255,.16);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer}',
     '.hb:hover,.hb[aria-pressed=true]{background:rgba(255,255,255,.3)}',
     '.tabs{display:flex;gap:4px;margin-top:10px}',
@@ -213,7 +214,7 @@
       '<style>' + CSS + '</style>' +
       '<div class="w">' +
       '<div class="panel" role="dialog" aria-label="Chat with Pyp" hidden>' +
-      '<header class="hdr"><div class="hrow"><div class="ttl"><b data-title>Chat with Pyp</b><span><i></i>AI assistant · ' + (transport.isDemo ? 'demo data' : 'online') + '</span></div>' +
+      '<header class="hdr"><div class="hrow"><div class="ttl"><b data-title>Chat with Pyp</b><span data-status><i></i>AI assistant · ' + (transport.isDemo ? 'demo data' : 'online') + '</span></div>' +
       '<button class="hb" data-palette aria-label="Customize Pyp" aria-pressed="false">' + ICON.palette + '</button>' +
       '<button class="hb" data-min aria-label="Minimize chat">' + ICON.chevron + '</button></div>' +
       '<div class="tabs" role="tablist"><button class="tab" role="tab" data-tab="chat" aria-selected="true">Chat</button>' +
@@ -504,6 +505,7 @@
         reply = 'Sorry, I couldn’t reach my brain just now. Try again in a moment.';
       }
       pypSays(reply);
+      showStatus();
     }
 
     $('[data-form]').addEventListener('submit', function (e) {
@@ -618,6 +620,15 @@
       prefsStore.save(prefs);
     }
 
+    // Live data: "online" only while Pyp can load your cards (not when signed out or the server is off).
+    function showStatus() {
+      if (transport.isDemo || !transport.lastError) return;
+      var off = !!transport.lastError();
+      var el = $('[data-status]');
+      el.classList.toggle('off', off);
+      el.lastChild.textContent = 'AI assistant · ' + (off ? 'not connected' : 'online');
+    }
+
     /* ---------- start ---------- */
     function start(saved) {
       prefs = Object.assign({}, DEFAULT_PREFS, saved || {});
@@ -625,9 +636,11 @@
       renderLauncher();
       transport.inbox().then(function (d) {
         setCount(d.items.filter(function (i) { return i.state === 'open' || i.state === 'auto'; }).length);
+        showStatus();
       });
       transport.subscribe(function (items) {
         setCount(items.filter(function (i) { return i.state === 'open' || i.state === 'auto'; }).length);
+        showStatus();
       });
     }
     Promise.resolve(prefsStore.load()).then(start, function () { start({}); });

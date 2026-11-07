@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Pyp for PayPal (unofficial)",
   "short_name": "Pyp",
-  "version": "0.1.0",
-  "description": "A friendly helper in the corner of PayPal. UI preview on demo data. Independent concept, not affiliated with PayPal.",
+  "version": "0.2.0",
+  "description": "A friendly helper in the corner of PayPal. Demo data, or your real Pyp account in live mode. Independent concept, not affiliated with PayPal.",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -22,7 +22,7 @@
     "service_worker": "background.js"
   },
   "permissions": ["storage", "activeTab"],
-  "host_permissions": ["https://www.paypal.com/*", "https://*.paypal.com/*"],
+  "host_permissions": ["https://www.paypal.com/*", "https://*.paypal.com/*", "http://localhost/*", "http://127.0.0.1/*", "https://*.onrender.com/*"],
   "content_scripts": [
     {
       "matches": ["https://www.paypal.com/*", "https://*.paypal.com/*"],
@@ -30,8 +30,10 @@
         "shared/pyp-figure.js",
         "shared/policy.js",
         "shared/demo-data.js",
+        "shared/live-transport.js",
         "shared/pyp-inbox.js",
         "shared/pyp-widget.js",
+        "live-bridge.js",
         "content.js"
       ],
       "run_at": "document_idle"
