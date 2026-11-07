@@ -8,7 +8,7 @@
 
   var Fig = window.PypFigure;
 
-  var transport = window.PypDemo.createTransport({ persist: window.PypDemo.localPersist() });
+  var transport = window.PypTransport();
   var view = document.getElementById('view');
   var title = document.getElementById('page-title');
   var toastEl = document.querySelector('.toast');
@@ -41,12 +41,18 @@
 
   document.querySelector('[data-signout]').addEventListener('click', function () {
     if (widget) { widget.destroy(); widget = null; }
-    window.location.href = 'http://localhost:3000/login';
+    window.location.href = transport.isDemo ? 'http://localhost:3000/login' : '/login';
   });
 
   /* ---------------- shell ---------------- */
   function startApp() {
     fig('brand', { size: 30, mode: 'idle' });
+    if (!transport.isDemo) {
+      document.querySelectorAll('[data-data-label]').forEach(function (el) { el.textContent = 'LIVE · PAYPAL SANDBOX'; });
+      document.querySelector('[data-me-initial]').textContent = 'P';
+      document.querySelector('[data-me-name]').textContent = 'Pyp Demo Business';
+      document.querySelector('[data-me-biz]').textContent = 'PayPal sandbox';
+    }
     if (!widget) widget = window.PypWidget.mount({ transport: transport, right: 24, bottom: 24 });
     route();
   }
@@ -408,8 +414,10 @@
       '<ol class="olist"><li>Install the extension (see the website’s “Get the extension” steps).</li><li>Click the Pyp icon in Chrome’s toolbar, then the settings button.</li><li>Paste the code under “Connection code” and press Connect.</li></ol>' +
       '<p class="note">UI preview: the code is a placeholder until the real API exists.</p></section>' +
 
-      '<section class="panel"><h2>Demo data</h2><p>Put every card, the activity log and these settings back to how they started.</p>' +
-      '<p style="margin-top:12px"><button type="button" class="btn btn-danger" data-reset>Reset demo data</button></p></section>';
+      (transport.isDemo
+        ? '<section class="panel"><h2>Demo data</h2><p>Put every card, the activity log and these settings back to how they started.</p>' +
+          '<p style="margin-top:12px"><button type="button" class="btn btn-danger" data-reset>Reset demo data</button></p></section>'
+        : '<section class="panel"><h2>Live data</h2><p>Cards, the activity log and PayPal data on this page are live from your sandbox. These settings are saved in this browser for now; the engine still asks you before every write.</p></section>');
 
     view.addEventListener('click', onSetupClick);
     cleanup.push(function () { view.removeEventListener('click', onSetupClick); });

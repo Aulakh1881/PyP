@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "next dev",
+    "live": "node scripts/live-dashboard.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

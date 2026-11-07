@@ -38,7 +38,7 @@
 
   // The inbox section and the corner widget share one demo transport,
   // so approving a card in one shows up in the other.
-  var transport = window.PypDemo.createTransport({ persist: window.PypDemo.localPersist() });
+  var transport = window.PypTransport();
   window.PypInbox.mount(document.getElementById('inbox-demo'), transport, { layout: 'grid' });
   var widget = window.PypWidget.mount({ transport: transport, right: 24, bottom: 24 });
 

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { DASHBOARD_URL } from "@/lib/dashboard-url";
 import {
   getPayPalAccessToken,
   PayPalAuthenticationError,
@@ -32,5 +33,5 @@ export default async function DashboardPage() {
     throw error;
   }
 
-  redirect("http://localhost:8080/app/?authenticated=1");
+  redirect(DASHBOARD_URL);
 }
