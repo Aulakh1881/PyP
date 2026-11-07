@@ -131,6 +131,54 @@ describe("PayPal read client", () => {
     );
   });
 
+  it("asks for payer info, names payers without an alternate name, and labels account corrections", async () => {
+    vi.stubEnv("PAYPAL_CLIENT_ID", "client-id");
+    vi.stubEnv("PAYPAL_CLIENT_SECRET", "client-secret");
+    const fetcher = fetcherFor(
+      new Response(JSON.stringify({ access_token: "access-token", token_type: "Bearer", expires_in: 900 })),
+      new Response(JSON.stringify({
+        total_items: 3,
+        transaction_details: [
+          {
+            transaction_info: { transaction_id: "TX-A", transaction_event_code: "T0006", transaction_status: "S" },
+            payer_info: { payer_name: { given_name: "Sam", surname: "Lee" }, email_address: "sam@example.com" },
+          },
+          {
+            transaction_info: { transaction_id: "TX-B", transaction_event_code: "T0006", transaction_status: "S" },
+            payer_info: { email_address: "pat@example.com" },
+          },
+          { transaction_info: { transaction_id: "TX-C", transaction_event_code: "T1900", transaction_status: "S" } },
+        ],
+      })),
+    );
+
+    const result = await getPayPalTransactions("2026-11-01T00:00:00Z", "2026-11-03T23:59:59Z", fetcher);
+    expect(result.transactions.map((t) => [t.typeLabel, t.subject])).toEqual([
+      ["Checkout payment", "Sam Lee"],
+      ["Checkout payment", "pat@example.com"],
+      ["Account correction", null],
+    ]);
+    expect(fetcher).toHaveBeenLastCalledWith(
+      expect.stringContaining("fields=transaction_info%2Cpayer_info"),
+      expect.any(Object),
+    );
+  });
+
+  it("reads the invoice due date from payment_term (Invoicing v2)", async () => {
+    vi.stubEnv("PAYPAL_CLIENT_ID", "client-id");
+    vi.stubEnv("PAYPAL_CLIENT_SECRET", "client-secret");
+    const fetcher = fetcherFor(
+      new Response(JSON.stringify({ access_token: "access-token", token_type: "Bearer", expires_in: 900 })),
+      new Response(JSON.stringify({
+        total_items: 1,
+        items: [{ id: "INV-2", status: "SENT", detail: { invoice_number: "0009", payment_term: { due_date: "2026-11-21" } } }],
+      })),
+    );
+
+    const result = await getPayPalInvoices({ page: 1, pageSize: 10 }, fetcher);
+    expect(result.invoices[0].dueDate).toBe("2026-11-21");
+  });
+
   it("reports PayPal read failures without returning raw response bodies", async () => {
     vi.stubEnv("PAYPAL_CLIENT_ID", "client-id");
     vi.stubEnv("PAYPAL_CLIENT_SECRET", "client-secret");

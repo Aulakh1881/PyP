@@ -153,7 +153,7 @@
         createdAt: card.createdAt,
         badge: badge,
         title: f.title || 'Card',
-        amount: amount || '—',
+        amount: amount, // '' when the card has no amount (a question): the card then shows no amount
         meta: meta,
         box: box,
         buttons: buttons,
@@ -297,7 +297,7 @@
             skill: it.skill,
             action: it.title,
             target: it.meta,
-            amount: it.amount,
+            amount: it.amount || '—',
             who: card && card.state === 'rejected' ? 'You' : card && card.state === 'executed' ? 'Pyp' : '—',
             status: (card && STATUS[card.state]) || it.badge.text,
             run: it.run
