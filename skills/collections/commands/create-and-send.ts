@@ -10,7 +10,7 @@ import { formatMoney, toCents } from "@/engine/format";
 import type { CaseFile, CommandDef } from "@/engine/types";
 import { fail, ok } from "@/engine/validator";
 import type { CollectionsFacts, NewInvoiceFacts } from "../case-file";
-import { hasLink, onlyAmounts } from "../content-checks";
+import { hasLink, onlyAmounts } from "@/engine/content-checks";
 import { centsToDecimal, mentionsClient } from "../request-parser";
 
 export interface CreateAndSendParams {

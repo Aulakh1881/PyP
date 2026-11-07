@@ -5,8 +5,8 @@ import { z } from "zod";
 import { daysBetween, formatMoney, localDate, toCents } from "@/engine/format";
 import type { CommandDef } from "@/engine/types";
 import { fail, ok } from "@/engine/validator";
-import { REMINDABLE, reminderLimits, type CollectionsFacts } from "../case-file";
-import { hasLink, namesNumber, onlyAmounts, otherInvoiceNumber } from "../content-checks";
+import { holdActive, REMINDABLE, reminderLimits, type CollectionsFacts } from "../case-file";
+import { hasLink, namesNumber, onlyAmounts, otherInvoiceNumber } from "@/engine/content-checks";
 
 export interface SendReminderParams {
   invoiceId: string;
@@ -32,9 +32,10 @@ export const sendReminder: CommandDef<SendReminderParams, CollectionsFacts> = {
     }),
   available: (cf, rules) => {
     if (cf.facts.mode !== "overdue") return false;
-    const { invoice, daysOverdue, reminders } = cf.facts;
+    const { invoice, daysOverdue, reminders, hold } = cf.facts;
     const limits = reminderLimits(rules);
     return (
+      !hold &&
       REMINDABLE.includes(invoice.status) &&
       !invoice.disputed &&
       (daysOverdue ?? 0) > 0 &&
@@ -59,6 +60,12 @@ export const sendReminder: CommandDef<SendReminderParams, CollectionsFacts> = {
       if (inv.amountDue !== seen.amountDue || inv.currency !== seen.currency || inv.recipientEmail !== seen.recipientEmail) {
         return fail("The invoice changed since Pyp looked at it");
       }
+    }
+
+    // A hold set after the case file was built still stops the reminder.
+    if (ctx.db.activeHold) {
+      const hold = await ctx.db.activeHold(ctx.caseFile.subject);
+      if (holdActive(hold, ctx.now(), ctx.merchant.timezone)) return fail(`On hold: ${hold.reason}`);
     }
 
     const limits = reminderLimits(ctx.rules);

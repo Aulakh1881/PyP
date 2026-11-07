@@ -762,7 +762,7 @@ The engine depends only on an `AgentClient` port (contract in Appendix B.0). Thr
 Gateway duties, all carried over from Whizzy:
 - **Spend ledger:** reserve an estimate before each call, settle with real usage after, and **fail closed** if the daily cap would be exceeded or the ledger can't be reached.
 - **Stall timers:** abort if there's no first chunk in 45 s, or no next chunk in 20 s. (Built for Claude; the Ollama adapter is dev-only and has none.)
-- **Retry:** if the final JSON doesn't parse, take no actions and retry once: with more output room if the answer was cut off, else with the problem stated. *(Keeping a streamed summary for the trace: not built yet.)*
+- **Retry:** if the final JSON doesn't parse, take no actions and retry once: with more output room if the answer was cut off, else with the problem stated. The trace keeps the summary the model was writing (`partialSummary` in `engine/stream.ts`), so the back of the card can still say what it meant to propose.
 - **Refusals:** Sonnet and Opus calls turn on server-side fallbacks (`fallbacks: "default"`), so a safety-classifier refusal is retried on a suitable model by the API. Haiku has none. A refusal that still comes back fails the run; nothing is proposed.
 - **Scripted adapter:** replays recorded model outputs. It makes tests deterministic, and the demo can run with no network if it has to.
 

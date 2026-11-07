@@ -9,7 +9,10 @@ export const collectionsPolicy: SkillDef["policy"] = {
     "invoice.sendReminder": { dial: "ask", limits: DEFAULT_LIMITS },
     "invoice.scheduleFollowUp": { dial: "auto" },
     "invoice.createAndSend": { dial: "ask" },
+    "invoice.cancel": { dial: "ask" },
+    "invoice.suggestAutoReminders": { dial: "ask" },
     "merchant.ask": { dial: "ask" },
   },
-  neverAuto: ["invoice.cancel", "invoice.createAndSend"],
+  // suggestAutoReminders is a card with nothing to execute, so Auto would mean nothing.
+  neverAuto: ["invoice.cancel", "invoice.createAndSend", "invoice.suggestAutoReminders"],
 };

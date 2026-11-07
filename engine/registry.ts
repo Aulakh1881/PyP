@@ -1,10 +1,12 @@
 // The list of skills. Adding a skill = a new folder in skills/ + one line here.
 
 import { collections } from "@/skills/collections/skill";
+import { disputes } from "@/skills/disputes/skill";
 import type { AnySkill, SkillId } from "./types";
 
 export const SKILLS: Record<string, AnySkill> = {
   collections,
+  disputes,
 };
 
 export function getSkill(id: SkillId): AnySkill {
