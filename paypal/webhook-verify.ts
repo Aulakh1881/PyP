@@ -1,64 +1,48 @@
-import { getPayPalAccessToken } from "./oauth";
+// Checks a PayPal webhook really came from PayPal (design §9.2 step 2).
+// Uses PayPal's postback check: we send the headers and the event back and
+// PayPal says SUCCESS or FAILURE. The design's offline self-check (CRC32 +
+// PayPal's certificate) is faster; this is the simpler, safe first version.
+//
+// Note: the dashboard's webhook simulator sends events that the postback
+// check can't verify (they carry a placeholder webhook id). Test with real
+// sandbox events: create, pay or cancel an invoice in the sandbox.
 
-type PayPalWebhookHeaders = {
-  transmissionId: string;
-  transmissionTime: string;
-  transmissionSig: string;
-  certUrl: string;
-  authAlgo: string;
-};
+import type { PayPalHttp } from "./http";
 
-function apiBase(): string {
-  return (process.env.PAYPAL_ENVIRONMENT ?? "SANDBOX") === "LIVE"
-    ? "https://api-m.paypal.com"
-    : "https://api-m.sandbox.paypal.com";
-}
+/** Headers PayPal signs a delivery with. All are required. */
+const SIGNATURE_HEADERS = {
+  auth_algo: "paypal-auth-algo",
+  cert_url: "paypal-cert-url",
+  transmission_id: "paypal-transmission-id",
+  transmission_sig: "paypal-transmission-sig",
+  transmission_time: "paypal-transmission-time",
+} as const;
 
-export async function verifyPayPalWebhook(
-  headers: PayPalWebhookHeaders,
+export type VerifyResult = { ok: true } | { ok: false; reason: string };
+
+export async function verifyWebhook(
+  http: PayPalHttp,
+  headers: Headers,
   event: unknown,
   webhookId: string,
-): Promise<{ verified: boolean; status: number; verificationStatus?: string; name?: string }> {
-  const token = await getPayPalAccessToken();
-  const response = await fetch(`${apiBase()}/v1/notifications/verify-webhook-signature`, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      Authorization: `${token.token_type} ${token.access_token}`,
-    },
-    body: JSON.stringify({
-      auth_algo: headers.authAlgo,
-      cert_url: headers.certUrl,
-      transmission_id: headers.transmissionId,
-      transmission_sig: headers.transmissionSig,
-      transmission_time: headers.transmissionTime,
-      webhook_id: webhookId,
-      webhook_event: event,
-    }),
-    cache: "no-store",
-  });
-  let body: unknown = null;
+): Promise<VerifyResult> {
+  const signed: Record<string, string> = {};
+  for (const [field, header] of Object.entries(SIGNATURE_HEADERS)) {
+    const value = headers.get(header);
+    if (!value) return { ok: false, reason: `Missing ${header} header` };
+    signed[field] = value;
+  }
+  // PayPal's certificates live on PayPal's own domains; refuse anything else before asking.
+  let certHost: string;
   try {
-    body = await response.json();
+    certHost = new URL(signed.cert_url).hostname;
   } catch {
-    return { verified: false, status: response.status };
+    return { ok: false, reason: "Bad paypal-cert-url" };
   }
-  if (!response.ok) {
-    const record = body && typeof body === "object" ? body as Record<string, unknown> : {};
-    return {
-      verified: false,
-      status: response.status,
-      name: typeof record.name === "string" ? record.name : undefined,
-    };
-  }
-  const record = body && typeof body === "object" ? body as Record<string, unknown> : {};
-  const verificationStatus = typeof record.verification_status === "string"
-    ? record.verification_status
-    : undefined;
-  return {
-    verified: verificationStatus === "SUCCESS",
-    status: response.status,
-    verificationStatus,
-  };
+  if (!/(^|\.)paypal\.com$/.test(certHost)) return { ok: false, reason: "paypal-cert-url isn't a PayPal domain" };
+
+  const res = await http.request<{ verification_status?: string }>("POST", "/v1/notifications/verify-webhook-signature", {
+    body: { ...signed, webhook_id: webhookId, webhook_event: event },
+  });
+  return res.body.verification_status === "SUCCESS" ? { ok: true } : { ok: false, reason: "PayPal says the signature doesn't match" };
 }

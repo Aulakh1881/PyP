@@ -5,7 +5,7 @@
 import type { Pool } from "pg";
 import { cardFor, needsCard, type CardFront, type CardState } from "@/engine/card";
 import type { RunResult } from "@/engine/run-skill";
-import type { CaseFile, CommandRule, EngineDb, Merchant, MerchantRules, SkillId, SubjectRef } from "@/engine/types";
+import type { CaseFile, CommandId, CommandRule, EngineDb, Hold, Merchant, MerchantRules, SkillId, SubjectRef } from "@/engine/types";
 
 type Db = Pick<Pool, "query">;
 
@@ -58,7 +58,113 @@ export function engineDb(db: Db, merchantId: string): EngineDb {
     async merchantNotes() {
       return []; // seeded notes come with client_profiles (db/README.md)
     },
+    async activeHold(subject) {
+      const res = await db.query(
+        `select reason, set_at, until from holds
+          where merchant_id = $1 and subject_ref = $2 and lifted_at is null
+          order by set_at desc limit 1`,
+        [merchantId, subjectRef(subject)],
+      );
+      const row = res.rows[0];
+      if (!row) return null;
+      // The engine decides whether an `until` date has passed (merchant's timezone).
+      const hold: Hold = { reason: row.reason, setAt: new Date(row.set_at).toISOString(), until: row.until ? isoDate(row.until) : null };
+      return hold;
+    },
   };
+}
+
+export function subjectRef(subject: SubjectRef): string {
+  return `${subject.kind}:${subject.id}`;
+}
+
+function isoDate(d: Date | string): string {
+  return typeof d === "string" ? d.slice(0, 10) : d.toISOString().slice(0, 10);
+}
+
+// ---------- Holds ----------
+
+export async function setHold(db: Db, merchantId: string, subject: SubjectRef, reason: string, until: string | null): Promise<string> {
+  const res = await db.query(
+    `insert into holds (merchant_id, subject_ref, reason, until) values ($1, $2, $3, $4) returning id`,
+    [merchantId, subjectRef(subject), reason, until],
+  );
+  await db.query(`insert into activity_log (merchant_id, actor, summary, refs_json) values ($1, 'merchant', $2, $3)`, [
+    merchantId,
+    `Hold on ${subject.kind} ${subject.id}${until ? ` until ${until}` : ""}: ${reason}`,
+    JSON.stringify({ subject: subjectRef(subject) }),
+  ]);
+  return res.rows[0].id;
+}
+
+/** Lift every active hold on a subject. Returns how many were lifted. */
+export async function liftHolds(db: Db, merchantId: string, subject: SubjectRef): Promise<number> {
+  const res = await db.query(
+    `update holds set lifted_at = now() where merchant_id = $1 and subject_ref = $2 and lifted_at is null`,
+    [merchantId, subjectRef(subject)],
+  );
+  return res.rowCount ?? 0;
+}
+
+// ---------- Webhook events ----------
+
+/** Store a PayPal event once. False = we've seen this event id before (a duplicate delivery). */
+export async function insertEvent(
+  db: Db,
+  e: { id: string; merchantId: string; type: string; resourceId: string | null; raw: unknown },
+): Promise<boolean> {
+  const res = await db.query(
+    `insert into events (id, merchant_id, type, resource_id, raw_json) values ($1, $2, $3, $4, $5)
+     on conflict (id) do nothing`,
+    [e.id, e.merchantId, e.type, e.resourceId, JSON.stringify(e.raw)],
+  );
+  return (res.rowCount ?? 0) === 1;
+}
+
+export async function markEvent(db: Db, eventId: string, status: "done" | "ignored" | "failed", outcome: string): Promise<void> {
+  await db.query(`update events set status = $2, outcome = $3, processed_at = now() where id = $1`, [eventId, status, outcome]);
+}
+
+/**
+ * A stand-down (design §0.14): pending proposals for this subject whose
+ * command is listed become `obsolete`, their cards follow, and one activity
+ * entry says why. One transaction. Returns the proposals it closed.
+ */
+export async function applyStandDown(
+  pool: Pool,
+  input: { merchantId: string; subject: SubjectRef; obsoleteCommands: CommandId[]; message: string; eventId?: string },
+): Promise<string[]> {
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    const closed = await client.query(
+      `update proposals p set status = 'obsolete', decided_by = 'pyp', decided_at = now()
+         from runs r
+        where p.run_id = r.id and p.merchant_id = $1 and r.subject_ref = $2
+          and p.command_id = any($3) and p.status in ('awaiting_approval', 'scheduled')
+        returning p.id, p.run_id`,
+      [input.merchantId, subjectRef(input.subject), input.obsoleteCommands],
+    );
+    const ids: string[] = closed.rows.map((r) => r.id);
+    if (ids.length) {
+      await client.query(`update cards set state = 'obsolete', updated_at = now() where proposal_id = any($1)`, [ids]);
+      for (const row of closed.rows) {
+        await addStep(client, row.run_id, row.id, "act", input.message, true, input.eventId ? { event: input.eventId } : undefined);
+      }
+    }
+    await client.query(`insert into activity_log (merchant_id, actor, summary, refs_json) values ($1, 'pyp', $2, $3)`, [
+      input.merchantId,
+      input.message,
+      JSON.stringify({ subject: subjectRef(input.subject), event: input.eventId ?? null, obsoleted: ids }),
+    ]);
+    await client.query("commit");
+    return ids;
+  } catch (err) {
+    await client.query("rollback");
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export interface SaveRunInput {
@@ -67,19 +173,21 @@ export interface SaveRunInput {
   subject: SubjectRef;
   trigger: string;
   result: RunResult;
+  /** The PayPal event behind this run, if any. Unique: an event makes at most one run. */
+  triggerEventId?: string;
 }
 
 /** One transaction: the run, its proposals (ids assigned here), trace steps and cards. */
 export async function saveRun(pool: Pool, input: SaveRunInput): Promise<{ runId: string; cardIds: string[] }> {
-  const { merchantId, skill, subject, trigger, result } = input;
+  const { merchantId, skill, subject, trigger, result, triggerEventId } = input;
   const client = await pool.connect();
   try {
     await client.query("begin");
     const cf = result.caseFile;
     const run = await client.query(
       `insert into runs (merchant_id, skill, subject_ref, trigger, model, case_file_xml, case_file_json,
-                         output_json, usage_json, cost_usd, status, failure, ended_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now()) returning id`,
+                         output_json, usage_json, cost_usd, status, failure, trigger_event_id, ended_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now()) returning id`,
       [
         merchantId,
         skill,
@@ -93,6 +201,7 @@ export async function saveRun(pool: Pool, input: SaveRunInput): Promise<{ runId:
         result.usage.reduce((s, u) => s + u.costUsd, 0),
         result.status,
         result.failure ?? null,
+        triggerEventId ?? null,
       ],
     );
     const runId: string = run.rows[0].id;

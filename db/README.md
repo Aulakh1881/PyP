@@ -25,11 +25,14 @@ psql "$DATABASE_URL" -f db/migrations/002_auth_accounts.sql
 psql "$DATABASE_URL" -f db/seed/001_demo_merchant.sql
 psql "$DATABASE_URL" -f db/migrations/003_provision_demo_account.sql
 psql "$DATABASE_URL" -f db/migrations/004_engine_records.sql
+psql "$DATABASE_URL" -f db/migrations/005_holds_and_events.sql
 psql "$DATABASE_URL" -f db/migrations/006_paypal_reporting_cache.sql
 psql "$DATABASE_URL" -f db/migrations/007_paypal_reporting_cache_write_policies.sql
 ```
 
 Migration `004_engine_records.sql` adds what the engine hands over (`resolved_json`, the case file for the executor's re-check, run failures, per-step executions), the spend ledger, and **turns on Row Level Security for every table**. The server connects over `DATABASE_URL` as the table owner, which bypasses RLS; the browser's publishable key sees none of Pyp's records. `executor/execute.test.ts` applies all migrations to a throwaway database and fails if any table is left without RLS.
+
+Migration `005_holds_and_events.sql` adds `holds` (a merchant's "hold off" on an invoice or dispute, which stops reminders in code), lets one webhook event make at most one run, and records when and how each event was processed.
 
 The migration enables `pgcrypto` for UUID generation. It is intentionally
 ordered by foreign-key dependencies and should be applied once to a new

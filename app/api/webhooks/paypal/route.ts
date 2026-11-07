@@ -1,66 +1,69 @@
-import { createAdminClient } from "@/lib/supabase/admin";
-import { syncPayPalReporting } from "@/lib/paypal/reporting-sync";
-import { verifyPayPalWebhook } from "@/paypal/webhook-verify";
+// POST /api/webhooks/paypal: PayPal's webhook deliveries (design §9.2).
+// Verify the signature, store the event once (duplicates are a no-op),
+// answer 200 straight away, and do the work after the response, so PayPal
+// never waits on a model call. No sign-in: PayPal's signature is the auth.
 
+import { after } from "next/server";
+import { serverAgent } from "@/lib/agent";
+import { getPool } from "@/jobs/db";
+import { processEvent, subjectFor, type PayPalEvent } from "@/jobs/event-run";
+import { insertEvent } from "@/jobs/store";
+import { syncPayPalReporting } from "@/lib/paypal/reporting-sync";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { PayPalReadClient } from "@/paypal/engine-reads";
+import { sharedPayPalHttp } from "@/paypal/http";
+import { verifyWebhook } from "@/paypal/webhook-verify";
+
+// A model run can take a while; it happens after the 200, inside this budget.
+export const maxDuration = 300;
+
+/** Largest body we accept. PayPal events are a few KB. */
 const MAX_BODY = 256 * 1024;
-const MERCHANT_ID = "00000000-0000-0000-0000-000000000001";
 
 export async function POST(request: Request) {
   const webhookId = process.env.PAYPAL_WEBHOOK_ID;
-  if (!webhookId) return Response.json({ error: "PayPal webhook is not configured" }, { status: 503 });
+  // One demo merchant (master plan §2): the merchant whose PayPal app the webhook belongs to.
+  const merchantId = process.env.PAYPAL_WEBHOOK_MERCHANT_ID;
+  if (!webhookId || !merchantId) return Response.json({ error: "Webhooks aren't set up on this server" }, { status: 503 });
 
   const raw = await request.text();
-  if (raw.length > MAX_BODY) return Response.json({ error: "Request body too large" }, { status: 413 });
-
-  let event: unknown;
+  if (raw.length > MAX_BODY) return Response.json({ error: "Too large" }, { status: 413 });
+  let event: PayPalEvent;
   try {
     event = JSON.parse(raw);
   } catch {
-    return Response.json({ error: "Invalid JSON" }, { status: 400 });
+    return Response.json({ error: "Not JSON" }, { status: 400 });
   }
-  if (!event || typeof event !== "object" || !("id" in event) || !("event_type" in event)
-    || typeof event.id !== "string" || typeof event.event_type !== "string") {
-    return Response.json({ error: "Invalid PayPal event" }, { status: 400 });
-  }
-
-  const header = (name: string) => request.headers.get(name) ?? "";
-  const verification = await verifyPayPalWebhook({
-    transmissionId: header("paypal-transmission-id"),
-    transmissionTime: header("paypal-transmission-time"),
-    transmissionSig: header("paypal-transmission-sig"),
-    certUrl: header("paypal-cert-url"),
-    authAlgo: header("paypal-auth-algo"),
-  }, event, webhookId);
-  if (!verification.verified) {
-    console.error("PayPal webhook verification failed", {
-      eventId: event.id,
-      eventType: event.event_type,
-      status: verification.status,
-      verificationStatus: verification.verificationStatus,
-      name: verification.name,
-    });
-    return Response.json({ error: "Webhook signature verification failed" }, { status: 401 });
+  if (typeof event?.id !== "string" || typeof event?.event_type !== "string") {
+    return Response.json({ error: "Not a PayPal event" }, { status: 400 });
   }
 
-  const supabase = createAdminClient();
-  const { error } = await supabase.from("events").insert({
-    id: event.id,
-    merchant_id: MERCHANT_ID,
-    type: event.event_type,
-    resource_id: null,
-    raw_json: event,
-  });
-  if (error?.code === "23505") return Response.json({ ok: true, duplicate: true });
-  if (error) {
-    console.error("PayPal webhook event storage failed", { message: error.message });
-    return Response.json({ error: "Webhook event could not be stored" }, { status: 500 });
-  }
-
+  const http = sharedPayPalHttp();
+  let verified;
   try {
-    const synced = await syncPayPalReporting(supabase);
-    return Response.json({ ok: true, synced });
-  } catch (syncError) {
-    console.error("PayPal webhook cache sync failed", syncError);
-    return Response.json({ error: "Webhook accepted but cache synchronization failed" }, { status: 503 });
+    verified = await verifyWebhook(http, request.headers, event, webhookId);
+  } catch {
+    // PayPal couldn't be asked: a 5xx makes PayPal retry later (up to 25 times over 3 days).
+    return Response.json({ error: "Couldn't verify right now" }, { status: 503 });
   }
+  if (!verified.ok) return Response.json({ error: verified.reason }, { status: 401 });
+
+  const pool = getPool();
+  const subject = subjectFor(event);
+  const isNew = await insertEvent(pool, { id: event.id, merchantId, type: event.event_type, resourceId: subject?.id ?? null, raw: event });
+  if (!isNew) return Response.json({ ok: true, duplicate: true });
+
+  after(async () => {
+    // Refresh the dashboard's reporting cache. Optional (needs the service-role key);
+    // a failed refresh must not stop the engine run below.
+    if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      try {
+        await syncPayPalReporting(createAdminClient());
+      } catch (error) {
+        console.error("PayPal webhook cache sync failed", error);
+      }
+    }
+    await processEvent({ pool, read: new PayPalReadClient(http), agent: serverAgent() }, merchantId, event);
+  });
+  return Response.json({ ok: true });
 }

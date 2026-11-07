@@ -20,6 +20,9 @@ import { dismiss } from "@/jobs/store";
 const NOW = new Date("2026-10-31T16:00:00Z");
 const SENTENCE = "Invoice Jordan Kim $300 for the logo, net 30";
 
+/** The receptionist's answer (engine/chat.ts): chat goes to a new invoice. */
+const ROUTE_NEW_INVOICE = { route: "new_invoice", subjectRef: null, reply: "Drafting that invoice now." };
+
 function invoiceAnswer() {
   return {
     title: "Invoice Jordan Kim $300",
@@ -83,7 +86,7 @@ describe.skipIf(!TEST_DB_URL)("demo path: chat, card, approve, PayPal", () => {
   });
 
   const chat = (sentence = SENTENCE) =>
-    runChatMessage({ pool, read: pp.read, agent: new ScriptedAgentClient([invoiceAnswer()]), now: () => NOW }, DEMO_MERCHANT, sentence);
+    runChatMessage({ pool, read: pp.read, agent: new ScriptedAgentClient([ROUTE_NEW_INVOICE, invoiceAnswer()]), now: () => NOW }, DEMO_MERCHANT, sentence);
   const approve = (cardId: string, merchantId = DEMO_MERCHANT) =>
     approveAndExecute({ db: pool, read: pp.read, write: pp.write, now: () => NOW }, merchantId, cardId);
 
@@ -118,7 +121,9 @@ describe.skipIf(!TEST_DB_URL)("demo path: chat, card, approve, PayPal", () => {
     expect(card.state).toBe("executed");
 
     const trace = (await getTrace(pool, DEMO_MERCHANT, cardIds[0]))!;
-    expect(trace.map((s) => s.kind)).toEqual(["trigger", "gather", "menu", "decide", "validate", "policy", "merchant", "paypal"]);
+    // The receptionist's routing (trigger, decide), then the Collections run, then the approval.
+    expect(trace.map((s) => s.kind)).toEqual(["trigger", "decide", "trigger", "gather", "menu", "decide", "validate", "policy", "merchant", "paypal"]);
+    expect(trace[1].label).toBe("Routed to new_invoice");
     expect(trace.at(-1)).toMatchObject({ ok: true, label: out.message });
     const log = await pool.query("select actor, summary from activity_log where refs_json->>'cardId' = $1", [cardIds[0]]);
     expect(log.rows).toEqual([{ actor: "pyp", summary: out.message }]);
@@ -211,7 +216,7 @@ describe.skipIf(!TEST_DB_URL)("demo path: chat, card, approve, PayPal", () => {
   });
 
   it("a sentence that only names a first name makes no invoice card", async () => {
-    const agent = new ScriptedAgentClient([invoiceAnswer()]);
+    const agent = new ScriptedAgentClient([ROUTE_NEW_INVOICE, invoiceAnswer()]);
     const out = await runChatMessage({ pool, read: pp.read, agent, now: () => NOW }, DEMO_MERCHANT, "Invoice Jordan $300");
     expect(out.cardIds).toHaveLength(0);
   });
