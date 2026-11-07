@@ -406,7 +406,9 @@
       '<label>Undo window for Auto actions<select data-undo>' + [[30, '30 seconds'], [60, '1 minute'], [300, '5 minutes'], [900, '15 minutes']].map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === s.undoSeconds ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
       '</div></section>' +
 
-      '<section class="panel"><h2 id="pause-t">Pause Pyp</h2><div class="pauserow"><p>Stops everything at once. Pyp keeps watching and drafting, but nothing is sent to PayPal, and Auto timers freeze, until you turn this off.</p>' +
+      '<section class="panel"><h2 id="pause-t">Pause Pyp</h2><div class="pauserow"><p>' + (transport.isDemo
+        ? 'Stops everything at once. Pyp keeps watching and drafting, but nothing is sent to PayPal, and Auto timers freeze, until you turn this off.'
+        : 'Turns off Approve in this browser until you turn this off. It doesn’t stop the server yet: other tabs and Auto actions still run.') + '</p>' +
       '<button type="button" class="bigswitch" role="switch" aria-checked="' + paused + '" aria-labelledby="pause-t" data-pause><span></span></button></div></section>' +
 
       '<section class="panel"><h2>Connect the Chrome extension</h2><p>The extension puts Pyp in the corner of paypal.com. Paste this code into the extension when it asks.</p>' +
@@ -453,7 +455,7 @@
       var on = b.getAttribute('aria-checked') !== 'true';
       transport.setPaused(on);
       b.setAttribute('aria-checked', String(on));
-      toast(on ? 'Pyp is paused. Nothing will be sent to PayPal.' : 'Pyp is back on.');
+      toast(on ? (transport.isDemo ? 'Pyp is paused. Nothing will be sent to PayPal.' : 'Approvals from this browser are paused.') : 'Pyp is back on.');
     } else if (b.hasAttribute('data-copy')) {
       var code = view.querySelector('[data-code]').textContent;
       (navigator.clipboard ? navigator.clipboard.writeText(code) : Promise.reject()).then(function () { toast('Code copied.'); }, function () { toast('Copy failed. Select the code and copy it.'); });

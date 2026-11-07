@@ -9,8 +9,8 @@
  *
  * The page must be served from the same origin as the API (scripts/live-dashboard.mjs
  * on port 3001 does that), so the sign-in cookie rides along and no CORS is needed.
- * Settings and Pause live in this browser only until the engine reads them; Pause
- * still blocks Approve here, so nothing is sent while it's on.
+ * Settings and Pause live in this browser only until the engine reads them. Pause
+ * blocks Approve from this browser; it doesn't stop the server (Auto cards, other tabs).
  */
 (function (root) {
   'use strict';
@@ -35,6 +35,7 @@
     executing: 'Sending',
     executed: 'Done',
     failed: 'Failed',
+    blocked: 'Blocked',
     obsolete: 'Canceled',
     rejected: 'Dismissed',
     undone: 'Canceled'
@@ -73,13 +74,14 @@
     var notes = {};    // card id -> last message from approve/dismiss
     var local = loadSettings();
     var lastJson = '';
+    var loadError = null; // why the last /api/cards load failed, shown instead of "all caught up"
 
     async function api(path, init) {
       var res = await fetch(base + path, Object.assign({ credentials: 'include', cache: 'no-store' }, init || {}, {
         headers: Object.assign({ 'Content-Type': 'application/json' }, (init && init.headers) || {})
       }));
       if (res.status === 401 && options.onSignedOut !== false) {
-        root.location.href = base + '/login';
+        root.location.href = base + '/login'; // sign-in ends at /dashboard, which sends :3001 back to /app/
         throw new Error('Signed out');
       }
       var body = await res.json().catch(function () { return {}; });
@@ -102,8 +104,8 @@
       var skill = skillOf(card);
       var kind = skill === 'disputes' ? 'dispute' : skill === 'refunds' ? 'refund' : 'invoice';
       var label = kind === 'dispute' ? 'Disputes' : kind === 'refund' ? 'Refunds' : 'Invoices';
-      var open = card.state === 'awaiting_approval' || card.state === 'executing';
-      var state = open ? 'open' : card.state === 'scheduled' ? 'auto' : card.state === 'executed' ? 'done' : 'closed';
+      var sending = card.state === 'executing';
+      var state = card.state === 'awaiting_approval' ? 'open' : card.state === 'scheduled' || sending ? 'auto' : card.state === 'executed' ? 'done' : 'closed';
       var amount = f.amount ? money(f.amount.value, f.amount.currency) : '';
       var meta = f.subtitle || (f.lines && f.lines.length ? f.lines.map(function (l) { return l.description; }).join(', ') : shortDate(card.createdAt));
 
@@ -116,12 +118,15 @@
           title: f.approveLabel || f.body || 'Review and approve',
           sub: notes[card.id] || f.reason || f.body || ''
         };
+      } else if (sending) {
+        badge = { text: 'Sending', tone: 'blue' };
+        box = { tone: 'blue', eyebrow: 'Sending', title: 'Sending to PayPal…', sub: f.approveLabel || '' };
       } else if (state === 'auto') {
         badge = { text: 'Auto', tone: 'green' };
         box = { tone: 'green', eyebrow: 'Running on Auto', title: f.approveLabel || f.title, sub: f.reason || '' };
       } else if (state === 'done') {
         badge = { text: 'Done', tone: 'done' };
-        box = { tone: 'green', eyebrow: 'Done', title: 'Sent through PayPal', sub: notes[card.id] || clock(card.createdAt) + ' · you approved · logged to activity' };
+        box = { tone: 'green', eyebrow: 'Done', title: 'Sent through PayPal', sub: notes[card.id] || clock(card.createdAt) + ' · logged to activity' };
       } else {
         var word = STATUS[card.state] || card.state;
         badge = { text: word, tone: 'gray' };
@@ -172,7 +177,10 @@
       var key = card.id + ':' + card.state;
       if (traces[card.id] && traces[card.id].key === key) return false;
       var r = await api('/api/cards/' + encodeURIComponent(card.id) + '/trace');
-      if (!r.ok) return false;
+      if (!r.ok) {
+        traces[card.id] = { key: key, steps: [] }; // don't refetch a failed trace on every poll
+        return false;
+      }
       traces[card.id] = {
         key: key,
         steps: (r.body.steps || []).map(function (s) {
@@ -185,7 +193,11 @@
 
     async function refresh() {
       var r = await api('/api/cards');
-      if (!r.ok) throw new Error(r.body.error || 'The Inbox is unavailable.');
+      if (!r.ok) {
+        loadError = r.body.error || 'The Inbox is unavailable (' + r.status + ').';
+        throw new Error(loadError);
+      }
+      loadError = null;
       cards = r.body.cards || [];
       var json = JSON.stringify(cards);
       var changed = json !== lastJson;
@@ -198,7 +210,10 @@
       return cards;
     }
 
-    var ready = refresh().catch(function (e) { console.warn('[Pyp live] first load failed:', e.message); });
+    var ready = refresh().catch(function (e) {
+      loadError = loadError || 'Couldn’t reach Pyp: ' + e.message;
+      console.warn('[Pyp live] first load failed:', e.message);
+    });
 
     setInterval(function () {
       if (document.visibilityState === 'visible') refresh().catch(function () { /* try again next tick */ });
@@ -226,8 +241,11 @@
       try {
         var r = await api('/api/cards/' + encodeURIComponent(id) + '/' + action, { method: 'POST' });
         notes[id] = r.body.message || r.body.error || (r.ok ? '' : 'Request failed (' + r.status + ')');
+      } catch (e) {
+        notes[id] = 'Couldn’t reach Pyp, so nothing was sent. Try again in a moment.';
       } finally {
         busy[id] = false;
+        delete traces[id]; // a retry or failure adds trace steps without changing the state
         lastJson = '';
         await refresh().catch(function () { emit(); });
       }
@@ -262,7 +280,7 @@
         // The inbox view reads this line once, so it mustn't depend on the cards.
         return {
           greeting: greeting(),
-          summary: 'Here’s what Pyp is working on in your PayPal sandbox.',
+          summary: loadError || 'Here’s what Pyp is working on in your PayPal sandbox.',
           needLook: openCount(),
           items: all
         };
@@ -280,7 +298,7 @@
             action: it.title,
             target: it.meta,
             amount: it.amount,
-            who: card && card.state === 'executed' ? 'You approved' : card && card.state === 'rejected' ? 'You' : '—',
+            who: card && card.state === 'rejected' ? 'You' : card && card.state === 'executed' ? 'Pyp' : '—',
             status: (card && STATUS[card.state]) || it.badge.text,
             run: it.run
           };
@@ -299,18 +317,24 @@
         var inv = (got[1] && got[1].invoices) || [];
         var dis = (got[2] && got[2].disputes) || [];
         var cur = (tx[0] && tx[0].currency) || (inv[0] && inv[0].currency) || 'USD';
+        var inCur = function (x) { return !x.currency || x.currency === cur; }; // one currency per total
         var cents = function (v) { return Math.round(Number(v || 0) * 100); };
-        var inCents = tx.reduce(function (s, t) { var c = cents(t.amount); return c > 0 ? s + c : s; }, 0);
-        var payments = tx.filter(function (t) { return cents(t.amount) > 0; }).length;
-        var unpaid = inv.filter(function (i) { return /^(SENT|UNPAID|PARTIALLY_PAID|OVERDUE)$/.test(i.status); });
+        // Money in: completed (S) incoming payments (T00xx event codes) only. Not denied, pending or
+        // voided ones, and not balance corrections such as the sandbox's starting funds (T19xx).
+        var received = tx.filter(function (t) { return t.status === 'S' && /^T00/.test(t.type || '') && cents(t.amount) > 0 && inCur(t); });
+        var inCents = received.reduce(function (s, t) { return s + cents(t.amount); }, 0);
+        var payments = received.length;
+        var partial = !!(got[0] && got[0].totalItems > tx.length);
+        // Same unpaid statuses as the Activity grid (activity-grid.js isOverdue).
+        var unpaid = inv.filter(function (i) { return /^(SENT|UNPAID|PARTIALLY_PAID|MARKED_AS_PARTIALLY_PAID)$/.test(i.status) && inCur(i); });
         var dueCents = unpaid.reduce(function (s, i) { return s + cents(i.dueAmount != null ? i.dueAmount : i.amount); }, 0);
         var openDis = dis.filter(function (d) { return !/^(RESOLVED|CLOSED)$/.test(d.status); });
-        var disCents = openDis.reduce(function (s, d) { return s + cents(d.amount); }, 0);
+        var disCents = openDis.filter(inCur).reduce(function (s, d) { return s + cents(d.amount); }, 0);
         var needs = openCount();
         return {
           week: 'Week of ' + shortDate(start.toISOString()) + ' – ' + shortDate(end.toISOString()),
           stats: [
-            { label: 'Money in', value: money(inCents / 100, cur), note: payments + ' payment' + (payments === 1 ? '' : 's') + ' in the last 7 days' },
+            { label: 'Money in', value: money(inCents / 100, cur), note: payments + ' completed payment' + (payments === 1 ? '' : 's') + ' in the last 7 days' + (partial ? ' (first 100 only)' : '') },
             { label: 'Unpaid invoices', value: money(dueCents / 100, cur), note: unpaid.length + ' invoice' + (unpaid.length === 1 ? '' : 's') + ' waiting on payment' },
             { label: 'Open disputes', value: String(openDis.length), note: openDis.length ? money(disCents / 100, cur) + ' in question' : 'Nothing open' },
             { label: 'Needs you', value: String(needs), note: needs ? 'cards waiting in your Inbox' : 'You’re all caught up' }
@@ -318,7 +342,7 @@
           summary: (got[0] ? money(inCents / 100, cur) + ' came in this week from ' + payments + ' payment' + (payments === 1 ? '' : 's') + '. ' : 'I couldn’t read this week’s transactions from PayPal. ') +
             (unpaid.length ? unpaid.length + ' invoice' + (unpaid.length === 1 ? ' is' : 's are') + ' still unpaid, ' + money(dueCents / 100, cur) + ' in total. ' : 'No invoices are waiting on payment. ') +
             (openDis.length ? openDis.length + ' dispute' + (openDis.length === 1 ? ' is' : 's are') + ' open.' : 'No open disputes.'),
-          footnote: 'Built from your live PayPal sandbox data. Code did every calculation; no AI wrote this one yet.'
+          footnote: 'Built from your live PayPal sandbox data, in ' + cur + '. Code did every calculation; no AI wrote this one yet.'
         };
       },
       overview: function () { return read('/api/paypal/overview', 'PayPal overview'); },

@@ -8,6 +8,8 @@
 //
 //   npm run dev     # the app and API on :3000
 //   npm run live    # this, on :3001
+//
+// Signing in through :3001 lands back on :3001/app/ (app/dashboard/page.tsx).
 
 import { createReadStream, statSync } from "node:fs";
 import http from "node:http";
@@ -55,7 +57,8 @@ function staticFile(pathname) {
 
 function forward(req, res) {
   const upstream = http.request(
-    { hostname: APP.hostname, port: APP.port, method: req.method, path: req.url, headers: req.headers },
+    // x-pyp-live-dashboard tells /dashboard to send sign-in back to this server's /app/.
+    { hostname: APP.hostname, port: APP.port, method: req.method, path: req.url, headers: { ...req.headers, "x-pyp-live-dashboard": "1" } },
     (up) => {
       res.writeHead(up.statusCode ?? 502, up.headers);
       up.pipe(res);
@@ -91,6 +94,7 @@ const server = http.createServer((req, res) => {
   createReadStream(file).pipe(res);
 });
 
-server.listen(PORT, () => {
+// Local only: this forwards to the app with your sign-in, so other machines mustn't reach it.
+server.listen(PORT, "127.0.0.1", () => {
   console.log(`Pyp live dashboard: http://localhost:${PORT}/app/  (API and sign-in from ${APP.origin})`);
 });

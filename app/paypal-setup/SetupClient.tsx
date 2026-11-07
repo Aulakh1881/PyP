@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { DASHBOARD_URL } from "@/lib/dashboard-url";
 
 type ConnectionState =
   | { status: "idle" }
@@ -61,7 +60,7 @@ export default function SetupClient() {
             <dd>Pyp Demo Business</dd>
           </div>
         </dl>
-        <a className="btn setup-button" href={DASHBOARD_URL}>
+        <a className="btn setup-button" href="/dashboard">
           Open dashboard
         </a>
       </section>

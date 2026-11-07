@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { connection } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { DASHBOARD_URL } from "@/lib/dashboard-url";
@@ -33,5 +34,8 @@ export default async function DashboardPage() {
     throw error;
   }
 
-  redirect(DASHBOARD_URL);
+  // Came through scripts/live-dashboard.mjs (:3001)? Stay on it. A fixed path, so a
+  // forged header can only send you to this origin's /app/.
+  const viaLive = (await headers()).get("x-pyp-live-dashboard") === "1";
+  redirect(viaLive ? "/app/?authenticated=1" : DASHBOARD_URL);
 }

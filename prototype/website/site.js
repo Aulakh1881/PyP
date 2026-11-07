@@ -38,7 +38,8 @@
 
   // The inbox section and the corner widget share one demo transport,
   // so approving a card in one shows up in the other.
-  var transport = window.PypTransport();
+  // The landing page is public: always demo data, even on :3001.
+  var transport = window.PypDemo.createTransport({ persist: window.PypDemo.localPersist() });
   window.PypInbox.mount(document.getElementById('inbox-demo'), transport, { layout: 'grid' });
   var widget = window.PypWidget.mount({ transport: transport, right: 24, bottom: 24 });
 
