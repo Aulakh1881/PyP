@@ -45,7 +45,7 @@
     '.pypx-draft textarea:focus{outline:2px solid #1F6BFF;outline-offset:1px}',
     '.pypx-foot{margin-top:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-top:6px}',
     '.pypx-btn{min-height:44px;padding:0 18px;border-radius:12px;border:0;font:800 15px/1 inherit;font-family:inherit;cursor:pointer;transition:transform 120ms,filter 120ms}',
-    '.pypx-btn:active{transform:scale(.97)}.pypx-btn:disabled{cursor:default;transform:none}',
+    '.pypx-btn:active{transform:scale(.97)}.pypx-btn:disabled{cursor:default;transform:none}.pypx-btn:disabled:not(.s-success){opacity:.5;cursor:not-allowed}',
     '.pypx-btn:focus-visible,.pypx-flip:focus-visible{outline:2px solid #1F6BFF;outline-offset:2px}',
     '.s-primary{background:#1F5FE0;color:#fff}.s-primary:hover:not(:disabled){filter:brightness(1.08)}',
     '.s-secondary{background:#EEF1F6;color:var(--ink)}.s-secondary:hover{background:#E4E8F0}',
@@ -122,7 +122,7 @@
       '<div class="pypx-top"><span class="pypx-ico" style="background:' + ic.bg + ';color:' + ic.fg + '"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">' + ic.path + '</svg></span>' +
       '<span class="pypx-label">' + esc(item.label) + '</span><span class="pypx-badge b-' + item.badge.tone + '">' + esc(item.badge.text) + '</span></div>' +
       '<h3 class="pypx-title">' + esc(item.title) + '</h3>' +
-      '<p class="pypx-meta"><b>' + esc(item.amount) + '</b> · ' + esc(item.meta) + '</p>' +
+      '<p class="pypx-meta">' + (item.amount ? '<b>' + esc(item.amount) + '</b> · ' : '') + esc(item.meta) + '</p>' +
       middle +
       '<div class="pypx-foot">' + buttons + '<button type="button" class="pypx-flip" data-flip' + (flipped ? ' tabindex="-1"' : '') + '>' + FLIP_ICON + 'How I got here</button></div>' +
       '</section>' +

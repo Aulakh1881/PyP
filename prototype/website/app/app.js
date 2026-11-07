@@ -389,7 +389,8 @@
     var s = transport.getSettings();
     var paused = transport.isPaused();
     view.innerHTML =
-      '<section class="panel"><h2>What your Pyp can do</h2><p>Pick, skill by skill, whether Pyp is off, asks you first, or acts on its own within your limits. Changes apply from Pyp’s next run.</p>' +
+      '<section class="panel"><h2>What your Pyp can do</h2><p>Pick, skill by skill, whether Pyp is off, asks you first, or acts on its own within your limits. ' +
+      (transport.isDemo ? 'Changes apply from Pyp’s next run.' : 'For now these are saved in this browser only; the engine still asks you before every write.') + '</p>' +
       '<div class="skills">' + SKILLS.map(function (k) {
         var cur = s.skills[k.id];
         return '<div class="skill"><div><h3 id="sk-' + k.id + '">' + k.name + '</h3><p>' + k.desc + (k.noAuto ? ' ' + k.noAuto : '') + '</p></div>' +

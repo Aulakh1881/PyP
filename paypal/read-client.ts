@@ -62,9 +62,18 @@ export type PayPalDispute = {
   transactionId: string | null;
 };
 
+// PayPal transaction event codes (Transaction Search). T00xx are payments; T19xx are
+// account corrections, which is how the sandbox's starting balance shows up.
 const TRANSACTION_EVENT_LABELS: Record<string, string> = {
+  T0000: "Payment",
   T0001: "Payment",
-  T1900: "Payment received",
+  T0006: "Checkout payment",
+  T0007: "Website payment",
+  T0011: "Mobile payment",
+  T0300: "Bank deposit",
+  T0400: "Withdrawal",
+  T1107: "Refund",
+  T1900: "Account correction",
 };
 
 const TRANSACTION_STATUS_LABELS: Record<string, string> = {
@@ -230,6 +239,8 @@ export async function getPayPalTransactions(
     end_date: endDate,
     page: String(page),
     page_size: String(pageSize),
+    // Without this PayPal returns transaction_info only, so there'd be no payer names.
+    fields: "transaction_info,payer_info",
   });
   const body = objectValue(
     await paypalGet(`/v1/reporting/transactions?${query.toString()}`, fetcher),
@@ -264,7 +275,9 @@ export async function getPayPalTransactions(
         currency: stringValue(amount?.currency_code),
         fee: stringValue(fee?.value),
         net: stringValue(net?.value),
-        subject: stringValue(payerName?.alternate_full_name),
+        subject: stringValue(payerName?.alternate_full_name)
+          ?? ([stringValue(payerName?.given_name), stringValue(payerName?.surname)].filter(Boolean).join(" ") || null)
+          ?? stringValue(payer?.email_address),
       }];
     }),
   };
@@ -342,7 +355,8 @@ export async function getPayPalInvoices(
         status,
         statusLabel: invoiceStatusLabel(status),
         date: stringValue(detail?.invoice_date),
-        dueDate: stringValue(detail?.due_date),
+        // Invoicing v2 keeps the due date under payment_term; older shapes had it on detail.
+        dueDate: stringValue(objectValue(detail?.payment_term)?.due_date) ?? stringValue(detail?.due_date),
         recipient: recipientName || null,
         amount: stringValue(amount?.value),
         dueAmount: stringValue(dueAmount?.value),
