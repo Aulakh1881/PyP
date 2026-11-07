@@ -13,13 +13,18 @@ async function callApi(message) {
   if (!/^\/api\/[A-Za-z0-9/_\-.?=&%]*$/.test(path)) throw new Error('Not a Pyp API path: ' + path);
   const { server } = await chrome.storage.sync.get('server');
   const base = String(server || DEFAULT_SERVER).replace(/\/+$/, '');
-  const res = await fetch(base + path, {
-    method: message.method === 'POST' ? 'POST' : 'GET',
-    headers: { 'Content-Type': 'application/json' },
-    body: message.method === 'POST' ? message.body || '{}' : undefined,
-    credentials: 'include',
-    cache: 'no-store'
-  });
+  let res;
+  try {
+    res = await fetch(base + path, {
+      method: message.method === 'POST' ? 'POST' : 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      body: message.method === 'POST' ? message.body || '{}' : undefined,
+      credentials: 'include',
+      cache: 'no-store'
+    });
+  } catch (e) {
+    throw new Error('the Pyp server at ' + base + ' isn’t answering. Is it running (npm run dev and npm run live)?');
+  }
   let body = {};
   try { body = await res.json(); } catch (e) { /* not JSON */ }
   return { status: res.status, body };
