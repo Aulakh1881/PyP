@@ -12,7 +12,9 @@ import { answerCard } from "@/jobs/answer-run";
 import { getControls, updateControls } from "@/jobs/controls";
 import { listCards, saveRun } from "@/jobs/store";
 import { DEMO_MERCHANT, TEST_DB_URL, freshDatabase } from "@/jobs/test-db";
+import { PayPalError } from "@/paypal/http";
 import type { PayPalWriteClient } from "@/paypal/write-client";
+import { asksToCancel } from "@/skills/collections/case-file";
 import { acmeInvoice, context, friendlyReminder, NOW } from "@/skills/collections/evals/fixtures";
 import { approveAndExecute } from "./execute";
 
@@ -35,6 +37,7 @@ describe.skipIf(!TEST_DB_URL)("controls (Postgres)", () => {
   let pool: Pool;
   let drop: () => Promise<void>;
   let sent: { note: string; subject: string }[];
+  let timeouts: number;
 
   beforeAll(async () => {
     ({ pool, drop } = await freshDatabase());
@@ -42,6 +45,7 @@ describe.skipIf(!TEST_DB_URL)("controls (Postgres)", () => {
   afterAll(async () => drop?.());
   beforeEach(async () => {
     sent = [];
+    timeouts = 0;
     await pool.query("update proposals set status = 'obsolete' where status in ('awaiting_approval', 'scheduled', 'executing', 'executed')");
     await pool.query("delete from rules where merchant_id = $1", [DEMO_MERCHANT]);
     await pool.query("update merchants set kill_switch = false, undo_window_s = 60 where id = $1", [DEMO_MERCHANT]);
@@ -50,6 +54,10 @@ describe.skipIf(!TEST_DB_URL)("controls (Postgres)", () => {
   const read: PayPalReads = { getInvoice: async (id) => (id === acmeInvoice.id ? acmeInvoice : null), recentClients: async () => [] };
   const write = {
     async remindInvoice(_id: string, msg: { note: string; subject: string }) {
+      if (timeouts > 0) {
+        timeouts--;
+        throw new PayPalError("timed out", null, null, null);
+      }
       sent.push(msg);
       return { status: 204, debugId: "dbg", body: null };
     },
@@ -104,6 +112,37 @@ describe.skipIf(!TEST_DB_URL)("controls (Postgres)", () => {
       const id = await stored(friendlyReminder());
       expect(await approve(id, { invoiceId: "INV2-OTHER" })).toEqual({ status: "edit_rejected", message: "Not sent. Your edit: invoiceId can't be edited" });
       expect(sent).toEqual([]);
+    });
+
+    it("a refused edit leaves the card's own reason alone", async () => {
+      const id = await stored(friendlyReminder());
+      const before = (await card(id)).front.reason;
+      await approve(id, { note: "Pay at https://example.com" });
+      expect((await card(id)).front.reason).toBe(before);
+      expect((await approve(id)).status).toBe("executed");
+      expect((await card(id)).front.reason).toBe(before);
+    });
+
+    it("after a write timed out, the words can't change: the retry sends what PayPal may already have", async () => {
+      const id = await stored(friendlyReminder());
+      timeouts = 1;
+      expect((await approve(id)).status).toBe("retry");
+      expect((await card(id)).front.edit).toBeUndefined(); // no Edit button any more
+      const out = await approve(id, { note: "Hi Sam, a different note on invoice 0042 for $1,200.00." });
+      expect(out.status).toBe("edit_rejected");
+      expect(out.message).toMatch(/already tried sending this once/);
+      expect(sent).toEqual([]);
+      expect((await approve(id)).status).toBe("executed");
+      expect(sent).toEqual([{ subject: "Quick reminder: invoice 0042", note: NOTE }]);
+    });
+
+    it("an edit to the note shows on the card even when the note started empty", async () => {
+      // A new invoice with note "" has no body (engine/card.ts); the edited note must still show.
+      const id = await stored(friendlyReminder());
+      await pool.query("update cards set front_json = front_json - 'body' where id = $1", [id]);
+      const mine = "Hi Sam, a friendly nudge on invoice 0042 for $1,200.00.";
+      expect((await approve(id, { note: mine })).status).toBe("executed");
+      expect((await card(id)).front.body).toBe(mine);
     });
 
     it("an edit over the length limit is refused by the command's own schema", async () => {
@@ -162,7 +201,7 @@ describe.skipIf(!TEST_DB_URL)("controls (Postgres)", () => {
       expect(out).toMatchObject({ status: "answered", message: "Thanks. Pyp made 1 new card." });
       // Inside <merchant-instruction>, XML-escaped like any merchant text.
       expect(agent.requests[0].turn).toContain(
-        "<merchant-instruction>My answer to your question &quot;Sam hasn't paid invoice 0042. What should Pyp do?&quot;: Send one more reminder</merchant-instruction>",
+        "<merchant-instruction>You asked: &quot;Sam hasn't paid invoice 0042. What should Pyp do?&quot;\nMy answer: Send one more reminder</merchant-instruction>",
       );
       expect((await card(id)).state).toBe("executed");
       expect((await card(id)).front.reason).toBe("You answered: Send one more reminder");
@@ -174,6 +213,25 @@ describe.skipIf(!TEST_DB_URL)("controls (Postgres)", () => {
       expect((await answerCard(deps, DEMO_MERCHANT, id, 5)).status).toBe("bad_option");
       expect((await answerCard(deps, DEMO_MERCHANT, id, 1)).status).toBe("answered");
       expect((await answerCard(deps, DEMO_MERCHANT, id, 0)).status).toBe("not_waiting");
+    });
+
+    it("if the follow-up run fails, the answer isn't used up: the question waits to be tapped again", async () => {
+      const id = await stored(askAnswer());
+      const broken = { pool, read, agent: new ScriptedAgentClient([]), now: () => NOW }; // the model call throws
+      const out = await answerCard(broken, DEMO_MERCHANT, id, 0);
+      expect(out.status).toBe("retry");
+      expect((await card(id)).state).toBe("awaiting_approval");
+      const again = await answerCard({ pool, read, agent: new ScriptedAgentClient([friendlyReminder()]), now: () => NOW }, DEMO_MERCHANT, id, 0);
+      expect(again.status).toBe("answered");
+    });
+
+    it("only words that ask to cancel unlock cancel; Pyp's own question doesn't count", () => {
+      expect(asksToCancel("cancel 0042")).toBe(true);
+      expect(asksToCancel('You asked: "Cancel it or wait?"\nMy answer: Cancel the invoice')).toBe(true);
+      expect(asksToCancel('You asked: "Cancel it or wait?"\nMy answer: Wait a week')).toBe(false);
+      expect(asksToCancel("remind them again")).toBe(false);
+      expect(asksToCancel("just write it off")).toBe(true);
+      expect(asksToCancel(undefined)).toBe(false);
     });
 
     it("Approve can't be used on a question", async () => {

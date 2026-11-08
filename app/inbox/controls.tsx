@@ -72,6 +72,8 @@ export function ControlsPanel({ onCardsChanged }: { onCardsChanged: () => Promis
 
   const saveUndo = () =>
     run("undo", async () => {
+      // Number("") is 0: an emptied field must not turn the undo window off.
+      if (!/^\d+$/.test(undo.trim()) || Number(undo) > 600) return "Type a number of seconds from 0 to 600.";
       const next = await call<Controls>("/api/rules", { method: "PUT", body: JSON.stringify({ undoSeconds: Number(undo) }) });
       setC(next);
       return `Auto actions now wait ${next.undoSeconds} s before sending.`;
@@ -79,12 +81,13 @@ export function ControlsPanel({ onCardsChanged }: { onCardsChanged: () => Promis
 
   const sweep = (name: string, label: string) =>
     run(name, async () => {
-      const out = await call<{ found: number; skipped: number; ran: number; cardIds: string[]; failed: string[] }>(`/api/sweeps/${name}`, {
+      const out = await call<{ found: number; skipped: number; deferred?: number; ran: number; cardIds: string[]; failed: string[] }>(`/api/sweeps/${name}`, {
         method: "POST",
       });
       await onCardsChanged();
       const parts = [`${label}: found ${out.found}`, `${out.cardIds.length} new card${out.cardIds.length === 1 ? "" : "s"}`];
       if (out.skipped) parts.push(`${out.skipped} already in hand`);
+      if (out.deferred) parts.push(`${out.deferred} left for next time`);
       if (out.failed.length) parts.push(`${out.failed.length} couldn't be checked`);
       return parts.join(" · ");
     });

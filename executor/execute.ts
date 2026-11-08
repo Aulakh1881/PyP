@@ -10,10 +10,12 @@ import type { PayPalReads } from "@/engine/types";
 import { PayPalError, type PayPalResponse } from "@/paypal/http";
 import { PayPalWriteClient, type NewInvoice } from "@/paypal/write-client";
 import {
+  attempted,
   claimForExecution,
   engineDb,
   finish,
   loadMerchant,
+  lockEdits,
   recordExecution,
   succeededStep,
   saveEdits,
@@ -78,6 +80,8 @@ async function retryLater(deps: ExecutorDeps, merchantId: string, proposal: Clai
   }
   const reason = `${why}. Approve again to retry; it won't send twice.`;
   await finish(deps.db, { merchantId, proposal, status: "awaiting_approval", label, ok: false, reason, detail });
+  // Once a write went out, the retry must send the same words: no more editing.
+  if (await attempted(deps.db, proposal.id)) await lockEdits(deps.db, proposal.cardId);
   return { status: "retry", message: reason };
 }
 
@@ -123,11 +127,18 @@ async function executeClaimed(deps: ExecutorDeps, merchantId: string, proposal: 
 
   // The merchant's edits get the same gates as the model's words: the schema, then check().
   // A rejected edit hands the card back with the reason, so it can be fixed and approved.
+  // The reason goes back to the merchant's open edit box; the card keeps its own.
   if (proposal.edits) {
     const rejected = async (why: string) => {
-      await done("awaiting_approval", `Your edit: ${why}`, false, `Not sent. Your edit: ${why}`);
+      await done("awaiting_approval", `Your edit: ${why}`, false);
       return { status: "edit_rejected" as const, message: `Not sent. Your edit: ${why}` };
     };
+    // A write already reached PayPal with the original words (a timeout, then a retry).
+    // Its request id would replay the old text, so the words can't change now.
+    if (await attempted(deps.db, proposal.id)) {
+      await lockEdits(deps.db, proposal.cardId);
+      return rejected("Pyp already tried sending this once, so it can't be changed now. Approve to send it as it was, or dismiss it");
+    }
     const fields = Object.keys(proposal.edits);
     const allowed = cmd.editable ?? [];
     const wrong = fields.find((f) => !allowed.includes(f) || typeof proposal.edits![f] !== "string");

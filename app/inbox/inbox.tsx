@@ -190,9 +190,10 @@ function CardView({ card, onChanged }: { card: Card; onChanged: () => Promise<vo
         const edits = Object.fromEntries(Object.entries(draft).filter(([k, v]) => f.edit?.find((e) => e.field === k)?.value !== v));
         if (Object.keys(edits).length) body = JSON.stringify({ edits });
       }
-      const out = await api<{ message?: string }>(`/api/cards/${card.id}/${action.id}`, { method: "POST", body });
+      const out = await api<{ status?: string; message?: string }>(`/api/cards/${card.id}/${action.id}`, { method: "POST", body });
       setNote(out.message ?? null);
-      setEditing(false);
+      // Refused or paused: nothing was sent, so keep the merchant's words to fix and approve.
+      if (out.status !== "edit_rejected" && out.status !== "paused") setEditing(false);
       await onChanged();
     } catch (err) {
       setNote((err as Error).message);

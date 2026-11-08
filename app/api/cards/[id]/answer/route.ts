@@ -12,7 +12,8 @@ import { sharedPayPalHttp } from "@/paypal/http";
 // The follow-up run is a model call.
 export const maxDuration = 300;
 
-const STATUS = { answered: 200, not_waiting: 409, bad_option: 422 } as const;
+// retry: the follow-up run failed; the question is waiting again.
+const STATUS = { answered: 200, not_waiting: 409, bad_option: 422, retry: 503 } as const;
 
 export async function POST(request: Request, ctx: RouteContext<"/api/cards/[id]/answer">) {
   const session = await requireMerchant();

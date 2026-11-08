@@ -362,6 +362,9 @@ export interface ClaimedProposal {
 }
 
 /** An approved edit: the new params and resolved values, what changed, and the card's text to match. */
+/** The params a card shows as its body (engine/card.ts). */
+const BODY_FIELDS = ["note", "message"];
+
 export async function saveEdits(db: Db, p: ClaimedProposal, diff: Record<string, { from: unknown; to: string }>): Promise<void> {
   await db.query("update proposals set params_json = $2, resolved_json = $3, edit_diff = $4 where id = $1", [
     p.id,
@@ -374,7 +377,8 @@ export async function saveEdits(db: Db, p: ClaimedProposal, diff: Record<string,
   const front = card.rows[0]?.front_json as CardFront | undefined;
   if (front) {
     for (const [field, d] of Object.entries(diff)) {
-      if (front.body === d.from) front.body = d.to;
+      // The body is the note (or a dispute message); an empty note has no body until edited.
+      if (BODY_FIELDS.includes(field) || front.body === d.from) front.body = d.to || undefined;
       const e = front.edit?.find((x) => x.field === field);
       if (e) e.value = d.to;
     }
@@ -541,6 +545,17 @@ export async function succeededStep(db: Db, proposalId: string, step: string): P
     [proposalId, step],
   );
   return res.rows[0]?.response_json ?? null;
+}
+
+/** Has any write for this proposal reached (or tried to reach) PayPal? Then its words are fixed. */
+export async function attempted(db: Db, proposalId: string): Promise<boolean> {
+  const res = await db.query("select 1 from executions where proposal_id = $1 limit 1", [proposalId]);
+  return res.rows.length > 0;
+}
+
+/** Takes the Edit fields off a card: what's going to PayPal can't change any more. */
+export async function lockEdits(db: Db, cardId: string): Promise<void> {
+  await db.query("update cards set front_json = front_json - 'edit', updated_at = now() where id = $1", [cardId]);
 }
 
 export type FinishStatus = "executed" | "failed" | "obsolete" | "awaiting_approval" | "scheduled";
