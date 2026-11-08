@@ -69,7 +69,8 @@ function baseFront(skill: SkillId, p: Proposal, response: ModelResponse): CardFr
   const base = {
     eyebrow: `${skill.toUpperCase()} · ${mode}`,
     title: response.title,
-    reason: p.policy ? `Asked you because: ${p.policy.reason.toLowerCase()}` : undefined,
+    // "Asked you because" only when it asks; an Auto action says what will happen instead.
+    reason: p.policy ? (p.policy.decision === "auto" ? p.policy.reason : `Asked you because: ${p.policy.reason.toLowerCase()}`) : undefined,
     demoData: true,
   };
 
@@ -135,6 +136,17 @@ function baseFront(skill: SkillId, p: Proposal, response: ModelResponse): CardFr
         lines: r.metrics.map((m: { label: string; display: string }) => ({ description: m.label, amount: m.display })),
         reason: "Numbers computed by code from PayPal; Pyp only wrote the words.",
       };
+    case "invoice.scheduleFollowUp": {
+      // A timer, not a write: say when Pyp looks again, not the reminder's title or "Approve".
+      const days = Number((p.action.params as { inDays?: number }).inDays);
+      return {
+        ...base,
+        title: `Pyp checks this invoice again in ${days} day${days === 1 ? "" : "s"}`,
+        subtitle: response.title,
+        body: undefined,
+        reason: "Nothing is sent to the client. Pyp looks at the invoice again then. Undo to cancel.",
+      };
+    }
     case "merchant.ask": {
       const ask = p.action.params as { question: string; options: string[] };
       return { ...base, title: ask.question, body: response.summary, options: ask.options };

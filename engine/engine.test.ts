@@ -3,6 +3,8 @@ import { collections } from "@/skills/collections/skill";
 import { buildCollectionsCaseFile } from "@/skills/collections/case-file";
 import { acmeInvoice, context } from "@/skills/collections/evals/fixtures";
 import { daysBetween, formatMoney, toCents } from "./format";
+import { cardFor } from "./card";
+import type { Proposal } from "./run-skill";
 import { buildResponseSchema } from "./schema-builder";
 import { parseResponse } from "./validator";
 import { esc, untrusted } from "./xml";
@@ -82,5 +84,31 @@ describe("schema builder", () => {
     const empty = { title: "t", summary: "s", confidence: "high", questionForMerchant: null, actions: [] };
     expect(parseResponse(JSON.stringify(empty), schema).ok).toBe(true);
     expect(parseResponse(JSON.stringify({ ...empty, actions: [{ command: "merchant.ask" }] }), schema).ok).toBe(false);
+  });
+});
+
+describe("cards", () => {
+  const response = { title: "Invoice 0042 is 7 days overdue: friendly reminder", summary: "A nudge, then a look in 3 days.", actions: [], confidence: "high", questionForMerchant: null } as unknown as Parameters<typeof cardFor>[2];
+  const auto = { decision: "auto", rule: "dial_auto", reason: "Runs on Auto after 60s unless you tap Undo" } as const;
+
+  it("a follow-up card says when Pyp looks again, not the reminder's title, and isn't 'asked you'", () => {
+    const front = cardFor("collections", {
+      action: { command: "invoice.scheduleFollowUp", params: { invoiceId: acmeInvoice.id, inDays: 3 }, why: "" },
+      resolved: null,
+      check: { ok: true },
+      policy: auto,
+      status: "scheduled",
+    } as unknown as Proposal, response);
+    expect(front.title).toBe("Pyp checks this invoice again in 3 days");
+    expect(front.subtitle).toBe(response.title);
+    expect(front.approveLabel).toBeUndefined();
+    expect(front.reason).not.toMatch(/Asked you/);
+  });
+
+  it("an Auto card says what will happen; an Ask card says why it asked", () => {
+    const p = (policy: object) =>
+      ({ action: { command: "merchant.ask", params: { question: "Q?", options: ["A", "B"] }, why: "" }, resolved: null, check: { ok: true }, policy, status: "scheduled" }) as unknown as Proposal;
+    expect(cardFor("collections", p(auto), response).reason).toBe("Runs on Auto after 60s unless you tap Undo");
+    expect(cardFor("collections", p({ decision: "ask", rule: "dial_ask", reason: "You asked to approve these" }), response).reason).toBe("Asked you because: you asked to approve these");
   });
 });

@@ -184,8 +184,10 @@ describe.skipIf(!TEST_DB_URL)("controls (Postgres)", () => {
 
     it("the kill switch from the panel stops Approve", async () => {
       const id = await stored(friendlyReminder());
+      const reason = (await card(id)).front.reason;
       await updateControls(pool, DEMO_MERCHANT, { killSwitch: true });
       expect((await approve(id)).status).toBe("paused");
+      expect((await card(id)).front.reason).toBe(reason); // the card doesn't keep saying "paused" afterwards
       expect(sent).toEqual([]);
       await updateControls(pool, DEMO_MERCHANT, { killSwitch: false });
       expect((await approve(id)).status).toBe("executed");
