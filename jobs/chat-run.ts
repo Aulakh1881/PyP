@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import { handleChat, type ChatRoute, type ChatSubject, type ChatTurn } from "@/engine/chat";
 import { needsCard } from "@/engine/card";
+import type { Proposal } from "@/engine/run-skill";
 import type { AgentClient, PayPalReads } from "@/engine/types";
 import { engineDb, loadMerchant, saveRun } from "./store";
 
@@ -58,13 +59,27 @@ export async function runChatMessage(
   const { runId, cardIds } = await saveRun(deps.pool, { merchantId, skill, subject: chat.subject, trigger: "chat", result: stored });
 
   const invalid = result.proposals.filter((p) => p.status === "invalid").map((p) => p.check.reason);
+  const carded = result.proposals.filter(needsCard);
   const reply =
     result.status !== "ok"
       ? `Pyp couldn't finish that: ${result.failure ?? result.status}`
       : cardIds.length
-        ? result.response!.summary
+        ? `${result.response!.summary} ${whereItWent(carded)}`.trim()
         : `Pyp didn't make a card. ${invalid.length ? `It held back because: ${invalid.join("; ")}` : (result.response?.summary ?? "")}`.trim();
-  const carded = result.proposals.filter(needsCard);
   const waiting = result.status !== "ok" || !carded.length || carded.every((p) => p.action.command === "merchant.ask");
   return { runId, cardIds, route: chat.route, status: result.status, reply, waiting };
+}
+
+/**
+ * The line after Pyp's reply that says where the card went. A question can be
+ * answered right in the chat (the next message is read with this one); anything
+ * else waits in the Inbox.
+ */
+export function whereItWent(carded: Proposal[]): string {
+  if (!carded.length) return "";
+  if (carded.some((p) => p.status === "awaiting_approval" && p.action.command !== "merchant.ask")) {
+    return "It's in your Inbox, waiting for your approval.";
+  }
+  if (carded.some((p) => p.status === "scheduled")) return "It's in your Inbox and runs on its own unless you tap Undo.";
+  return "Just reply here.";
 }

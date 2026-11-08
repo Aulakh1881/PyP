@@ -263,7 +263,7 @@ export interface CardRow {
 }
 
 // cleared_at is read through to_jsonb so this still works on a database that
-// hasn't run migration 008 yet (every card then reads as not cleared).
+// hasn't run migration 010 yet (every card then reads as not cleared).
 const CARD_COLUMNS = "id, skill, state, front_json, proposal_id, created_at, updated_at, to_jsonb(cards) ->> 'cleared_at' as cleared_at";
 
 function toCard(row: Record<string, any>): CardRow { // eslint-disable-line @typescript-eslint/no-explicit-any
