@@ -11,4 +11,6 @@ function deps() {
 }
 
 export const runSweepNow = (merchantId: string, name: SweepName) => runSweep(deps(), merchantId, name);
-export const runDailySweepsFromEnv = () => runDailySweeps(deps());
+// The shared PayPal app is one merchant's account, so only that merchant is swept daily.
+const sweptMerchant = process.env.PAYPAL_WEBHOOK_MERCHANT_ID;
+export const runDailySweepsFromEnv = () => runDailySweeps({ ...deps(), merchantIds: sweptMerchant ? [sweptMerchant] : undefined });
