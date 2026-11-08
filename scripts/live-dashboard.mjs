@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 const PORT = Number(process.env.LIVE_PORT ?? 3001);
 const APP = new URL(process.env.LIVE_APP_URL ?? "http://localhost:3000");
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../prototype/website");
+const NODE_MODULES = path.resolve(ROOT, "../../node_modules");
 
 const TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -49,6 +50,18 @@ function staticFile(pathname) {
   if (rel.endsWith("/")) rel += "index.html";
   const file = path.resolve(ROOT, "." + rel);
   if (!file.startsWith(ROOT + path.sep)) return null;
+  try {
+    return statSync(file).isFile() ? file : null;
+  } catch {
+    return null;
+  }
+}
+
+function bryntumFile(pathname) {
+  const match = pathname.match(/^\/vendor\/bryntum\/((?:core|engine|grid|scheduler)-community)\/(.+)$/);
+  if (!match) return null;
+  const file = path.resolve(NODE_MODULES, "@bryntum", match[1], match[2]);
+  if (!file.startsWith(path.resolve(NODE_MODULES, "@bryntum") + path.sep)) return null;
   try {
     return statSync(file).isFile() ? file : null;
   } catch {
@@ -86,7 +99,9 @@ const server = http.createServer((req, res) => {
     return;
   }
   // The sign-in callback lands on "/?code=…": that's the app's, not the landing page's.
-  const file = req.method === "GET" && !(url.pathname === "/" && url.searchParams.has("code")) ? staticFile(url.pathname) : null;
+  const file = req.method === "GET" && !(url.pathname === "/" && url.searchParams.has("code"))
+    ? bryntumFile(url.pathname) ?? staticFile(url.pathname)
+    : null;
   if (!file) {
     forward(req, res);
     return;
