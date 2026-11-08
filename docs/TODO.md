@@ -19,7 +19,7 @@ Roles: **A** frontend · **B** engine and AI · **C** PayPal and infrastructure.
 
 ## Engine work still open (role B)
 
-- [ ] Run `npm run eval:live` once with a real `ANTHROPIC_API_KEY` (Collections and the new Disputes cases)
+- [x] Run `npm run eval:live` once with a real `ANTHROPIC_API_KEY` (Collections and the new Disputes cases): all 11 pass on Claude, Nov 7, about $0.19 total
 - [ ] Chat stage 2: read-only lookup tools for questions (design §7.8)
 - [ ] Insights lite (WP10)
 - [ ] Dispute evidence notes: check that every factual sentence cites an id (design B.2); today the note must carry at least one valid citation
@@ -74,7 +74,7 @@ Desk check done Oct 26 from the published `@paypal/mcp` 1.8.1 package and PayPal
 - [ ] `/remind`, create-invoice and `/send` accept `PayPal-Request-Id`, including a `:step` suffix (item 1)
 - [ ] Webhook self-check: what webhook id do simulator events carry, and how does the sandbox check accept it? (design §9.2) *Owner: C*
 - [x] Structured-output API shape: `output_config.format` with a JSON schema through the official SDK; limits enforced in code (design §6.2)
-- [ ] Run `npm run eval:live` once with a real `ANTHROPIC_API_KEY` to confirm the API accepts our generated schemas end to end, including Disputes' nullable `trackingRef` *Owner: B*
+- [x] Run `npm run eval:live` once with a real `ANTHROPIC_API_KEY` to confirm the API accepts our generated schemas end to end, including Disputes' nullable `trackingRef`: confirmed Nov 7 (11 of 11 pass, Haiku 5.5 / Sonnet 5.5 / Opus 5.5) *Owner: B*
 - [x] Ollama follows our `anyOf` / `enum` schemas: `qwen3:4b` passes all 7 live Collections cases on an 8 GB M1, 25–45 s each (Oct 28; setup in `gateway/README.md`)
 - [ ] Does PayPal expose its own auto-reminder history, or do we count only Pyp's reminders? (design B.1) *Owner: C*
 - [ ] Set the Render cron UTC hour for 08:00 merchant-local after US daylight saving ends Nov 1 (design §9.3) *Owner: C*
