@@ -56,7 +56,9 @@ describe("Insights: the numbers (code)", () => {
 
   it("PayPal's Transaction Search rows: T00xx payments, T11xx refunds, the rest other", () => {
     const row = (code: string) => ({ transaction_info: { transaction_id: code, transaction_event_code: code, transaction_status: "S", transaction_amount: { currency_code: "USD", value: "1.00" } } });
-    expect(["T0006", "T1107", "T0400", "T1900"].map((c) => toTransaction(row(c))[0].kind)).toEqual(["payment", "refund", "other", "other"]);
+    expect(["T0006", "T1107", "T1106", "T0400", "T1900"].map((c) => toTransaction(row(c))[0].kind)).toEqual(["payment", "refund", "refund", "other", "other"]);
+    // A dispute hold and its release, a fee reversal: not refunds.
+    expect(["T1110", "T1111", "T1108", "T1105"].map((c) => toTransaction(row(c))[0].kind)).toEqual(["other", "other", "other", "other"]);
     expect(toTransaction({ transaction_info: {} })).toEqual([]);
     expect(centsToAmount(-405n, "USD")).toBe("-4.05");
   });
@@ -78,13 +80,30 @@ describe("Insights: the brief (model words, code checks)", () => {
   });
 
   it.each([
-    ["a rounded amount", brief("About $1,500 in", "Money in was $1,500.00."), '"1,500" isn\'t a number Pyp computed'],
-    ["an invented total", brief("$1,500.00 in", "Fees and refunds came to $94.10."), '"94.10" isn\'t a number Pyp computed'],
+    ["a rounded amount", brief("About $1,500 in", "Money in was $1,500.00."), '"1,500" isn\'t a money figure Pyp computed'],
+    ["an invented total", brief("$1,500.00 in", "Fees and refunds came to $94.10."), '"94.10" isn\'t a money figure Pyp computed'],
+    ["a count written as money", brief("$1,500.00 in", "Fees came to $2 this week."), '"2" isn\'t a money figure Pyp computed'],
+    ["a count written as a percentage", brief("$1,500.00 in", "Sales rose 1% on last week."), '"1" isn\'t a percentage Pyp computed'],
     ["a made-up percentage", brief("$1,500.00 in", "That's 3x the usual, up 200%."), '"3" isn\'t a number Pyp computed'],
     ["a link", brief("$1,500.00 in", "Details at pyp.example/brief"), "Insights can't contain links"],
   ])("refuses %s", async (_name, answer, reason) => {
     const result = await run(answer);
     expect(result.proposals.map((p) => [p.status, p.check.reason])).toEqual([["invalid", reason]]);
+  });
+
+  it("a payer named by email or with digits in the name can be named in the brief", async () => {
+    const odd = [txn("T9", "2026-10-29T18:00:00Z", "10.00", { counterparty: "Studio 54" }), txn("T10", "2026-10-29T19:00:00Z", "5.00", { counterparty: "sam@acme.io" })];
+    const answer = brief("$15.00 in this week", "Studio 54 paid $10.00 and sam@acme.io paid $5.00.", ["m_in", "client_1", "client_2"]);
+    const result = await runSkill({ skill: insights, subject, ctx: ctx(odd, []), agent: new ScriptedAgentClient([answer]), trigger: "sweep:weekly-brief" });
+    expect(result.proposals.map((p) => [p.status, p.check.reason])).toEqual([["scheduled", undefined]]);
+  });
+
+  it("a row with no date isn't counted in either week; a week with only a refund isn't quiet", async () => {
+    const rows = [txn("T9", "", "900.00"), txn("T10", "2026-10-29T18:00:00Z", "-50.00", { kind: "refund" })];
+    const cf = await buildInsightsCaseFile(ctx(rows, []), subject);
+    const m = Object.fromEntries(cf.facts.metrics.map((x) => [x.id, x.display]));
+    expect(m).toMatchObject({ m_in: "$0.00", m_in_prev: "$0.00", m_refunds: "$50.00" });
+    expect(cf.facts.quiet).toBe(false);
   });
 
   it("a payer name that tries to give orders is data in an attribute, escaped", async () => {

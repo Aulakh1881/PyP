@@ -122,7 +122,10 @@ async function sweepLocked(deps: SweepDeps, merchantId: string, name: SweepName,
 async function busySubjects(pool: Pool, merchantId: string): Promise<Set<string>> {
   const res = await pool.query(
     `select distinct r.subject_ref from proposals p join runs r on r.id = p.run_id
-      where p.merchant_id = $1 and p.status in ('awaiting_approval', 'scheduled', 'executing')`,
+      where p.merchant_id = $1
+        and (p.status in ('awaiting_approval', 'scheduled', 'executing')
+             -- A brief is done once shown: "Weekly brief now" twice doesn't make two.
+             or (r.subject_ref like 'week:%' and p.status = 'executed'))`,
     [merchantId],
   );
   return new Set(res.rows.map((r) => r.subject_ref as string));

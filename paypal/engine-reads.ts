@@ -297,10 +297,13 @@ export interface PayPalTransactionDetail {
 }
 
 /**
- * Transaction Search event codes: T00xx are payments received, T11xx refunds.
- * Everything else (bank transfers, holds, T19xx corrections) is "other" and
- * never counts as money a client paid.
+ * Transaction Search event codes: T00xx are payments received; T1106 (a payment
+ * reversed by PayPal) and T1107 (a refund the merchant made) are refunds. The
+ * rest of T11xx is holds and their releases (T1110/T1111 for a dispute), fee and
+ * hold reversals: "other", like bank transfers and T19xx corrections. "Other"
+ * never counts as money a client paid or money refunded.
  */
+const REFUND_CODES = ["T1106", "T1107"];
 export function toTransaction(d: PayPalTransactionDetail): Transaction[] {
   const t = d.transaction_info;
   const value = t?.transaction_amount?.value;
@@ -312,7 +315,7 @@ export function toTransaction(d: PayPalTransactionDetail): Transaction[] {
     {
       id: t.transaction_id,
       at: t.transaction_initiation_date ?? "",
-      kind: code.startsWith("T00") ? "payment" : code.startsWith("T11") ? "refund" : "other",
+      kind: code.startsWith("T00") ? "payment" : REFUND_CODES.includes(code) ? "refund" : "other",
       status: t.transaction_status ?? "",
       currency: t.transaction_amount.currency_code,
       amount: value,

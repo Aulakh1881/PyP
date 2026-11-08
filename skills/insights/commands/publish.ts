@@ -7,7 +7,7 @@ import { z } from "zod";
 import { hasLink } from "@/engine/content-checks";
 import type { CommandDef } from "@/engine/types";
 import { fail, ok } from "@/engine/validator";
-import { numbersIn, type InsightsFacts } from "../case-file";
+import { numbersWithRole, type InsightsFacts } from "../case-file";
 
 export const INSIGHT_KINDS = ["brief", "alert", "pattern"] as const;
 
@@ -38,12 +38,16 @@ export const publishInsight: CommandDef<PublishParams, InsightsFacts> = {
   risk: "read",
 
   check: async (p, ctx) => {
-    const text = `${p.title}\n${p.body}`;
     if (!p.title.trim() || !p.body.trim()) return fail("The title and body can't be empty");
+    const { allowed, names } = ctx.caseFile.facts;
+    // Names come from PayPal, not the model ("Studio 54", "sam@acme.com"): read around them.
+    let text = `${p.title}\n${p.body}`;
+    for (const name of [...names].sort((a, b) => b.length - a.length)) text = text.split(name).join(" ");
     if (hasLink(text)) return fail("Insights can't contain links");
-    const allowed = new Set(ctx.caseFile.facts.allowedNumbers);
-    const stray = numbersIn(text).find((n) => !allowed.has(n));
-    if (stray) return fail(`"${stray}" isn't a number Pyp computed`);
+    // A number must be one code computed, in the same role: a count can't be written as money.
+    const sets = { money: new Set(allowed.money), percent: new Set(allowed.percent), plain: new Set(allowed.plain) };
+    const stray = numbersWithRole(text).find(({ n, role }) => !sets[role].has(n));
+    if (stray) return fail(`"${stray.n}" isn't a ${stray.role === "plain" ? "number" : stray.role === "money" ? "money figure" : "percentage"} Pyp computed`);
     if (new Set(p.metricRefs).size !== p.metricRefs.length) return fail("A metric is cited twice");
     return ok();
   },
