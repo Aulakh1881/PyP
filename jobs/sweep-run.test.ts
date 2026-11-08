@@ -142,4 +142,65 @@ describe.skipIf(!TEST_DB_URL)("sweeps (Postgres)", () => {
     expect(card.rows[0].state).toBe("executed");
     expect(card.rows[0].front_json).toMatchObject({ eyebrow: "INSIGHTS · WEEKLY BRIEF", title: "$1,200.00 in this week", lines: [{ description: "Money in this week", amount: "$1,200.00" }, { description: "Payments this week", amount: "1" }] });
   });
+
+  it("the cap rotates: the subject left out today goes first next time", async () => {
+    const r = reads({ overdue: [acmeInvoice, second] });
+    const one = (at: Date) =>
+      runSweep({ pool, read: r.read, agent: new ScriptedAgentClient([friendlyReminder(), reminder0043()]), now: () => at }, DEMO_MERCHANT, "overdue-invoices", 1);
+    const first = await one(NOW);
+    expect(first).toMatchObject({ status: "ok", found: 2, deferred: 1 });
+    await pool.query("update proposals set status = 'obsolete' where status = 'awaiting_approval'");
+    await one(new Date(NOW.getTime() + 86_400_000));
+    const runs = await pool.query("select subject_ref from runs where trigger = 'sweep:overdue-invoices' order by started_at desc limit 2");
+    expect(new Set(runs.rows.map((x) => x.subject_ref)).size).toBe(2);
+  });
+
+  it("one sweep per merchant at a time: a second gets busy, with no reads", async () => {
+    const holder = await pool.connect();
+    try {
+      await holder.query("select pg_advisory_lock(hashtext($1))", [`pyp-sweep:${DEMO_MERCHANT}`]);
+      const r = reads();
+      expect(await sweep(r, new ScriptedAgentClient([]))).toEqual({ status: "busy" });
+      expect(r.asked.today).toBeUndefined();
+    } finally {
+      await holder.query("select pg_advisory_unlock_all()");
+      holder.release();
+    }
+  });
+
+  it("daily: a failed sweep is tried again after the backoff, not lost for the day", async () => {
+    const r = reads({ overdue: [acmeInvoice], disputes: [] });
+    let down = true;
+    const overdue = r.read.overdueInvoices;
+    r.read.overdueInvoices = async (today, limit) => {
+      if (down) throw new Error("PayPal timed out");
+      return overdue(today, limit);
+    };
+    const at = (iso: string) => ({ pool, read: r.read, agent: new ScriptedAgentClient([friendlyReminder()]), now: () => new Date(iso) });
+
+    const first = await runDailySweeps(at("2026-10-28T15:01:00Z"));
+    expect(first.find((s) => s.name === "overdue-invoices")?.outcome).toMatchObject({ status: "error" });
+    down = false;
+    expect(await runDailySweeps(at("2026-10-28T15:10:00Z"))).toEqual([]); // inside the backoff
+    const retried = await runDailySweeps(at("2026-10-28T15:20:00Z"));
+    expect(retried.map((s) => [s.name, s.outcome.status])).toEqual([["overdue-invoices", "ok"]]);
+  });
+
+  it("daily: one merchant with a bad time zone doesn't stop the others", async () => {
+    const broken = await pool.query("insert into merchants (name, timezone) values ('Broken', 'Mars/Base') returning id");
+    try {
+      const r = reads({ overdue: [], disputes: [] });
+      const out = await runDailySweeps({ pool, read: r.read, agent: new ScriptedAgentClient([]), now: () => new Date("2026-10-28T15:01:00Z") });
+      expect(out.find((s) => s.merchantId === broken.rows[0].id)?.outcome.status).toBe("error");
+      expect(out.filter((s) => s.merchantId === DEMO_MERCHANT).map((s) => s.outcome.status)).toEqual(["ok", "ok"]);
+    } finally {
+      await pool.query("delete from merchants where id = $1", [broken.rows[0].id]);
+    }
+  });
+
+  it("daily: limited to the given merchants", async () => {
+    const r = reads({ overdue: [], disputes: [] });
+    const out = await runDailySweeps({ pool, read: r.read, agent: new ScriptedAgentClient([]), now: () => NOW, merchantIds: ["00000000-0000-0000-0000-00000000ffff"] });
+    expect(out).toEqual([]);
+  });
 });
