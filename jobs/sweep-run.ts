@@ -2,6 +2,7 @@
 //
 //   overdue-invoices    unpaid invoices past their due date → Collections
 //   dispute-deadlines   disputes waiting on the merchant, due within 72 h → Disputes
+//   weekly-brief        Fridays only: the last 7 days in numbers → Insights
 //
 // A subject that already has a card waiting, an Auto action in its undo window
 // or a follow-up scheduled is skipped: the merchant (or the follow-up) already
@@ -19,10 +20,12 @@ import { runSkill } from "@/engine/run-skill";
 import type { AgentClient, Dispute, Invoice, PayPalReads, SkillId, SubjectRef } from "@/engine/types";
 import { engineDb, loadMerchant, saveRun, subjectRef } from "./store";
 
-export const SWEEP_NAMES = ["overdue-invoices", "dispute-deadlines"] as const;
+export const SWEEP_NAMES = ["overdue-invoices", "dispute-deadlines", "weekly-brief"] as const;
 export type SweepName = (typeof SWEEP_NAMES)[number];
 
-const SKILL: Record<SweepName, SkillId> = { "overdue-invoices": "collections", "dispute-deadlines": "disputes" };
+const SKILL: Record<SweepName, SkillId> = { "overdue-invoices": "collections", "dispute-deadlines": "disputes", "weekly-brief": "insights" };
+/** The weekly brief runs on this merchant-local weekday (design §9.3: Friday). */
+export const BRIEF_WEEKDAY = "Fri";
 /** A dispute due within this many hours is swept (design §9.3, B.2 urgency). */
 export const DEADLINE_HOURS = 72;
 /** The merchant-local hour the daily sweeps start. */
@@ -80,7 +83,9 @@ async function sweepLocked(deps: SweepDeps, merchantId: string, name: SweepName,
   const subjects: SubjectRef[] =
     name === "overdue-invoices"
       ? (await deps.read.overdueInvoices(localDate(now(), merchant.timezone))).map((i) => ({ kind: "invoice", id: i.id }))
-      : (await deps.read.disputesDueBefore(new Date(now().getTime() + DEADLINE_HOURS * 3_600_000))).map((d) => ({ kind: "dispute", id: d.id }));
+      : name === "dispute-deadlines"
+        ? (await deps.read.disputesDueBefore(new Date(now().getTime() + DEADLINE_HOURS * 3_600_000))).map((d) => ({ kind: "dispute", id: d.id }))
+        : [{ kind: "week", id: localDate(now(), merchant.timezone) }];
 
   const busy = await busySubjects(deps.pool, merchantId);
   const last = await lastSwept(deps.pool, merchantId);
@@ -117,7 +122,10 @@ async function sweepLocked(deps: SweepDeps, merchantId: string, name: SweepName,
 async function busySubjects(pool: Pool, merchantId: string): Promise<Set<string>> {
   const res = await pool.query(
     `select distinct r.subject_ref from proposals p join runs r on r.id = p.run_id
-      where p.merchant_id = $1 and p.status in ('awaiting_approval', 'scheduled', 'executing')`,
+      where p.merchant_id = $1
+        and (p.status in ('awaiting_approval', 'scheduled', 'executing')
+             -- A brief is done once shown: "Weekly brief now" twice doesn't make two.
+             or (r.subject_ref like 'week:%' and p.status = 'executed'))`,
     [merchantId],
   );
   return new Set(res.rows.map((r) => r.subject_ref as string));
@@ -152,6 +160,7 @@ export async function runDailySweeps(deps: SweepDeps): Promise<{ merchantId: str
       if (localHour(now, m.timezone) < SWEEP_HOUR) continue;
       const today = localDate(now, m.timezone);
       for (const name of SWEEP_NAMES) {
+        if (name === "weekly-brief" && localWeekday(now, m.timezone) !== BRIEF_WEEKDAY) continue;
         const claimed = await deps.pool.query(
           `insert into sweep_runs (merchant_id, name, local_date, started_at) values ($1, $2, $3, $4)
            on conflict (merchant_id, name, local_date) do update set started_at = $4, finished_at = null, outcome = null
@@ -176,6 +185,10 @@ export async function runDailySweeps(deps: SweepDeps): Promise<{ merchantId: str
     }
   }
   return done;
+}
+
+function localWeekday(at: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(at);
 }
 
 function localHour(at: Date, timeZone: string): number {

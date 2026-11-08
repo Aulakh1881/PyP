@@ -249,7 +249,10 @@ export async function saveRun(pool: Pool, input: SaveRunInput): Promise<{ runId:
 
     const cardIds: string[] = [];
     for (const p of result.proposals) {
-      const scheduledFor = p.status === "scheduled" ? dueAt(p.action.command, p.action.params, now, undoSeconds) : null;
+      // A read-only action on Auto (an insight card) sends nothing, so there is nothing to undo: it's done now.
+      const def = getSkill(skill).commands.find((c) => c.id === p.action.command);
+      const status = p.status === "scheduled" && def?.risk === "read" ? "executed" : p.status;
+      const scheduledFor = status === "scheduled" ? dueAt(p.action.command, p.action.params, now, undoSeconds) : null;
       const prop = await client.query(
         `insert into proposals (run_id, merchant_id, command_id, params_json, why, decision, policy_rule,
                                 status, resolved_json, check_reason, scheduled_for)
@@ -262,19 +265,19 @@ export async function saveRun(pool: Pool, input: SaveRunInput): Promise<{ runId:
           p.action.why,
           p.policy?.decision ?? null,
           p.policy?.rule ?? null,
-          p.status,
+          status,
           p.resolved ? JSON.stringify(p.resolved) : null,
           p.check.ok ? null : (p.check.reason ?? null),
           scheduledFor,
         ],
       );
       if (!needsCard(p) || !result.response) continue;
-      const editable = getSkill(skill).commands.find((c) => c.id === p.action.command)?.editable;
+      const editable = def?.editable;
       const front = { ...cardFor(skill, p, result.response, editable), ...(scheduledFor ? { scheduledFor: scheduledFor.toISOString() } : {}) };
       const card = await client.query(
         `insert into cards (merchant_id, run_id, proposal_id, skill, state, front_json)
          values ($1, $2, $3, $4, $5, $6) returning id`,
-        [merchantId, runId, prop.rows[0].id, skill, p.status, JSON.stringify(front)],
+        [merchantId, runId, prop.rows[0].id, skill, status, JSON.stringify(front)],
       );
       cardIds.push(card.rows[0].id);
     }

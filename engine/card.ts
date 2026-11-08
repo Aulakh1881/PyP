@@ -2,6 +2,7 @@
 // summary, the proposal's resolved values and the policy's reason, so it shows
 // exactly what the executor will send. The buttons depend on the card's state.
 
+import { shortDate } from "./format";
 import type { Proposal } from "./run-skill";
 import type { ModelResponse, SkillId } from "./types";
 
@@ -123,6 +124,16 @@ function baseFront(skill: SkillId, p: Proposal, response: ModelResponse): CardFr
         body: r.note,
         amount: { value: r.refundAmount, currency: r.currency },
         approveLabel: `Accept the claim and refund ${r.refundDisplay}`,
+      };
+    case "insight.publish":
+      return {
+        ...base,
+        eyebrow: `INSIGHTS · ${String(r.kind).toUpperCase() === "BRIEF" ? "WEEKLY BRIEF" : String(r.kind).toUpperCase()}`,
+        title: r.title,
+        subtitle: `${shortDate(r.from)} to ${shortDate(r.to)}`,
+        body: r.body,
+        lines: r.metrics.map((m: { label: string; display: string }) => ({ description: m.label, amount: m.display })),
+        reason: "Numbers computed by code from PayPal; Pyp only wrote the words.",
       };
     case "merchant.ask": {
       const ask = p.action.params as { question: string; options: string[] };

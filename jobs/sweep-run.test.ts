@@ -7,6 +7,8 @@ import type { Dispute, Invoice } from "@/engine/types";
 import { ScriptedAgentClient } from "@/gateway/scripted";
 import { acmeInvoice, friendlyReminder, NOW } from "@/skills/collections/evals/fixtures";
 import { calmFacts, evidenceAnswer, notReceived } from "@/skills/disputes/evals/fixtures";
+import { approveAndExecute, type ExecutorDeps } from "@/executor/execute";
+import { updateControls } from "./controls";
 import { runDailySweeps, runSweep, type SweepReads } from "./sweep-run";
 import { DEMO_MERCHANT, TEST_DB_URL, freshDatabase } from "./test-db";
 
@@ -35,6 +37,10 @@ function reads(over: { overdue?: Invoice[]; disputes?: Dispute[] } = {}) {
       asked.before = before;
       return disputes.filter((d) => Date.parse(d.sellerResponseDueDate!) < before.getTime());
     },
+    transactions: async () => [
+      { id: "T1", at: "2026-10-29T18:00:00Z", kind: "payment", status: "S", currency: "USD", amount: "1200.00", fee: "-35.10", counterparty: "Acme Studio" },
+    ],
+    unpaidInvoices: async () => invoices,
   };
   return { read, asked };
 }
@@ -118,6 +124,54 @@ describe.skipIf(!TEST_DB_URL)("sweeps (Postgres)", () => {
     expect(await runDailySweeps(at("2026-10-28T20:00:00Z"))).toEqual([]); // same local day
     const row = await pool.query("select outcome from sweep_runs where name = 'overdue-invoices'");
     expect(JSON.parse(row.rows[0].outcome)).toMatchObject({ status: "ok", ran: 1 });
+  });
+
+  it("Fridays only: the weekly brief joins the daily run, and its card shows at once (nothing to undo)", async () => {
+    const r = reads({ overdue: [], disputes: [] });
+    const briefAnswer = {
+      title: "Weekly brief",
+      summary: "This week in numbers.",
+      actions: [{ command: "insight.publish", params: { kind: "brief", title: "$1,200.00 in this week", body: "1 payment brought in $1,200.00.", metricRefs: ["m_in", "m_payments"] }, why: "Friday." }],
+      confidence: "high",
+      questionForMerchant: null,
+    };
+    // Friday Oct 30, 08:01 in Los Angeles.
+    const out = await runDailySweeps({ pool, read: r.read, agent: new ScriptedAgentClient([briefAnswer]), now: () => new Date("2026-10-30T15:01:00Z") });
+    expect(out.map((s) => s.name)).toEqual(["overdue-invoices", "dispute-deadlines", "weekly-brief"]);
+    const brief = out.find((s) => s.name === "weekly-brief")!.outcome;
+    expect(brief).toMatchObject({ status: "ok", ran: 1 });
+    const card = await pool.query("select state, front_json from cards where id = $1", [(brief as { cardIds: string[] }).cardIds[0]]);
+    expect(card.rows[0].state).toBe("executed");
+    expect(card.rows[0].front_json).toMatchObject({ eyebrow: "INSIGHTS · WEEKLY BRIEF", title: "$1,200.00 in this week", lines: [{ description: "Money in this week", amount: "$1,200.00" }, { description: "Payments this week", amount: "1" }] });
+  });
+
+  it("the brief: 'Weekly brief now' twice makes one; on Ask me, Approve shows it", async () => {
+    const r = reads({ overdue: [], disputes: [] });
+    const briefAnswer = () => ({
+      title: "Weekly brief",
+      summary: "This week in numbers.",
+      actions: [{ command: "insight.publish", params: { kind: "brief", title: "$1,200.00 in this week", body: "1 payment brought in $1,200.00.", metricRefs: ["m_in", "m_payments"] }, why: "Friday." }],
+      confidence: "high",
+      questionForMerchant: null,
+    });
+    const friday = new Date("2026-10-30T16:00:00Z");
+    const now = (agent: ScriptedAgentClient) => runSweep({ pool, read: r.read, agent, now: () => friday }, DEMO_MERCHANT, "weekly-brief");
+
+    expect(await now(new ScriptedAgentClient([briefAnswer()]))).toMatchObject({ status: "ok", ran: 1 });
+    expect(await now(new ScriptedAgentClient([]))).toMatchObject({ status: "ok", found: 1, skipped: 1, ran: 0 }); // no model call
+
+    await pool.query("update proposals set status = 'obsolete' where status = 'executed'");
+    await updateControls(pool, DEMO_MERCHANT, { dials: { "insight.publish": "ask" } });
+    try {
+      const asked = await now(new ScriptedAgentClient([briefAnswer()]));
+      const cardId = (asked as { cardIds: string[] }).cardIds[0];
+      expect((await pool.query("select state from cards where id = $1", [cardId])).rows[0].state).toBe("awaiting_approval");
+      const out = await approveAndExecute({ db: pool, read: r.read, write: {} as ExecutorDeps["write"], now: () => friday }, DEMO_MERCHANT, cardId);
+      expect(out).toEqual({ status: "executed", message: "Brief shown: $1,200.00 in this week" });
+      expect((await pool.query("select state from cards where id = $1", [cardId])).rows[0].state).toBe("executed");
+    } finally {
+      await pool.query("delete from rules where merchant_id = $1", [DEMO_MERCHANT]);
+    }
   });
 
   it("the cap rotates: the subject left out today goes first next time", async () => {

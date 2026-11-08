@@ -219,6 +219,9 @@ async function run(deps: ExecutorDeps, p: ClaimedProposal): Promise<string> {
         deps.write.acceptClaim(r.disputeId, { note: r.note, refundAmount: r.refundAmount, currency: r.currency }, p.id),
       );
       return `Claim accepted on dispute ${r.disputeId}; PayPal refunds the buyer ${r.refundDisplay}`;
+    case "insight.publish":
+      // Read-only: approving a brief shows it. Nothing goes to PayPal.
+      return `Brief shown: ${r.title}`;
     default:
       throw new PayPalError(`Pyp can't run ${p.commandId} yet`, 400, null, null);
   }

@@ -24,6 +24,7 @@ const LABEL: Record<string, string> = {
   "dispute.sendMessage": "Message buyers in disputes",
   "dispute.makeOffer": "Offer refunds in disputes",
   "dispute.acceptClaim": "Accept dispute claims",
+  "insight.publish": "Show the weekly brief",
 };
 
 export const UNDO_MAX_S = 600;
