@@ -173,9 +173,10 @@ export async function runDailySweeps(deps: SweepDeps): Promise<{ merchantId: str
         );
         if (!claimed.rows[0]) continue;
         const outcome = await runSweep(deps, m.id, name).catch((err: Error) => ({ status: "error" as const, message: err.message }));
+        const finished = (deps.now ?? (() => new Date()))(); // when it really ended, not when the tick began
         await deps.pool.query(
           "update sweep_runs set finished_at = $4, outcome = $5 where merchant_id = $1 and name = $2 and local_date = $3",
-          [m.id, name, today, now, JSON.stringify(outcome)],
+          [m.id, name, today, finished, JSON.stringify(outcome)],
         );
         done.push({ merchantId: m.id, name, outcome });
       }

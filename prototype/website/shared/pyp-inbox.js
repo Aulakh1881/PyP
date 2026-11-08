@@ -64,6 +64,7 @@
     '.t-ai{background:#EEE8FF;color:#5B3CC4}.t-safety{background:#FFF0D6;color:#8A4B00}.t-action{background:#DDF5E9;color:#0B6B47}.t-check,.t-policy{background:#E6EFFF;color:#1747B8}',
     '.d-ai{border-color:#7B5CFA!important}.d-safety{border-color:#E59A1A!important}.d-action{border-color:#0E7A50!important;background:#0E7A50}',
     '.pypx-bfoot{display:flex;align-items:center;gap:8px;border-top:1px solid var(--line);padding-top:6px;font-size:13px;font-weight:700;color:var(--muted)}',
+    '.pypx-rnote{margin:6px 0 0;font-size:13px;font-weight:700;color:#8A4B00}',
     '.pypx-empty{margin:0;padding:28px;border:1.5px dashed var(--line);border-radius:18px;text-align:center;font-size:16px;font-weight:700;color:var(--muted);background:#fff}',
     '.pypx-paused{display:flex;align-items:center;gap:10px;margin:0 0 16px;padding:12px 16px;border-radius:14px;background:#FFF0D6;color:#6B3A00;font-size:15px;font-weight:800}',
     '@media (prefers-reduced-motion: reduce){.pypx-inner{transition:none}}'
@@ -72,6 +73,7 @@
   var ICONS = {
     invoice: { bg: '#E6EFFF', fg: '#1747B8', path: '<path d="M7 3h7l4 4v14H7z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M10 11h5M10 15h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>' },
     dispute: { bg: '#FFF0D6', fg: '#A35A00', path: '<path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M12 8v4M12 15.5v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>' },
+    insight: { bg: '#EEE8FF', fg: '#5B3CC4', path: '<path d="M5 20V10M12 20V4M19 20v-7" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/>' },
     refund: { bg: '#DDF5E9', fg: '#0B6B47', path: '<path d="M9 7L4 12l5 5" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12h11a5 5 0 0 1 0 10h-2" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/>' }
   };
   var FLIP_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14-4.9M4 4v4h4M4 13a8 8 0 0 0 14 4.9M20 20v-4h-4" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -107,7 +109,8 @@
 
     var middle = item.reviewing
       ? '<div class="pypx-draft"><label for="d-' + item.id + '">Pyp’s draft · edit before sending</label>' +
-        '<textarea id="d-' + item.id + '" data-draft>' + esc(draftValue != null ? draftValue : item.draft) + '</textarea></div>'
+        '<textarea id="d-' + item.id + '" data-draft>' + esc(draftValue != null ? draftValue : item.draft) + '</textarea>' +
+        (item.reviewNote ? '<p class="pypx-rnote" role="status">' + esc(item.reviewNote) + '</p>' : '') + '</div>'
       : '<div class="pypx-box x-' + item.box.tone + '"><span class="e">' + esc(item.box.eyebrow) + '</span><span class="t">' + esc(item.box.title) + '</span><span class="s">' + esc(item.box.sub) + '</span></div>';
 
     var steps = item.run.steps.map(function (s) {
@@ -155,7 +158,7 @@
           '<header class="pypx-head"><div class="pypx-hello"><h2>' + esc(data.greeting) + '</h2>' +
           (transport.isDemo ? '<span class="pypx-demo">DEMO DATA</span>' : '') + '</div>' +
           '<p class="pypx-sum">' + esc(data.summary) + ' <b>' + (open ? open + ' need' + (open === 1 ? 's' : '') + ' a look.' : 'You’re all caught up.') + '</b></p></header>') +
-        (transport.isPaused && transport.isPaused() ? '<p class="pypx-paused" role="status">' + (transport.isDemo ? 'Pyp is paused. Nothing will be sent to PayPal until you resume it in Setup.' : 'Approvals from this browser are paused. Resume them in Setup.') + '</p>' : '') +
+        (transport.isPaused && transport.isPaused() ? '<p class="pypx-paused" role="status">' + (transport.isDemo ? 'Pyp is paused. Nothing will be sent to PayPal until you resume it in Setup.' : 'Pyp is paused (kill switch). Nothing goes to PayPal until you turn it off in Setup.') + '</p>' : '') +
         (function () {
           var shown = filter ? data.items.filter(filter) : data.items;
           if (!shown.length) return '<p class="pypx-empty">' + esc(options.emptyText || 'Nothing here right now.') + '</p>';

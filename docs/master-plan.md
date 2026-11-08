@@ -203,7 +203,7 @@ Each work package (WP) below is sized for **two people to finish in 3–4 days**
 ## 10. Demo script (about 3 minutes)
 
 1. **The problem** (15 s). "29% of freelance invoices are paid late. Chasing feels awkward, so small merchants put it off."
-2. **Open Pyp** (20 s). Click the mascot, chat opens. Type: "Invoice Acme $1,200, net 30." A card appears: *Ask me* before sending anything to a client. Approve. It sends.
+2. **Open Pyp** (20 s). Click the mascot, chat opens. Type: "Invoice PyP Test $450 for product photos, net 30." (PyP Test is the sandbox's client: Pyp only invoices clients PayPal already knows.) A card appears: *Ask me* before sending anything to a client. Approve. It sends.
 3. **While you were away** (40 s). The morning sweep has already run: one reminder sent automatically (with a visible Undo countdown), one invoice put on hold because the client said the check is coming, one needing a decision from the merchant.
 4. **Flip a card** (20 s). Show the trace: what Pyp saw, what it proposed, which checks passed, what PayPal returned.
 5. **A dispute arrives** (45 s). Pyp drafts evidence from the order and tracking, shows the deadline, and waits. The merchant edits one line and approves. Evidence submitted.

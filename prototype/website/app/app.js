@@ -385,11 +385,92 @@
     { id: 'collections', name: 'Collections', desc: 'Create invoices, send reminders, follow up on late payments.', modes: ['off', 'ask', 'auto'] },
     { id: 'disputes', name: 'Disputes', desc: 'Gather facts and draft evidence when a buyer opens a dispute.', modes: ['off', 'ask', 'auto'], noAuto: 'Evidence is never Auto. You always review it.' },
     { id: 'refunds', name: 'Refunds', desc: 'Small refunds you ask for in chat.', modes: ['off', 'ask', 'auto'], limit: true },
-    { id: 'insights', name: 'Weekly brief', desc: 'A short summary every Monday. Read-only.', modes: ['off', 'on'] }
+    { id: 'insights', name: 'Weekly brief', desc: 'A short summary every Friday. Read-only.', modes: ['off', 'on'] }
   ];
   var MODE_LABEL = { off: 'Off', ask: 'Ask me', auto: 'Auto', on: 'On' };
 
+  /* Live: the server's own controls (GET /api/rules). What a dial may be is checked on the server. */
+  var SKILL_NAMES = { collections: 'Collections', disputes: 'Disputes', insights: 'Weekly brief' };
+  var UNDO_CHOICES = [[30, '30 seconds'], [60, '1 minute'], [300, '5 minutes'], [600, '10 minutes']];
+
+  function renderSetupLive() {
+    view.innerHTML = '<section class="panel"><h2>Your controls</h2><p>Loading from Pyp…</p></section>';
+    transport.controls().then(draw, function (e) {
+      view.innerHTML = '<section class="panel"><h2>Your controls</h2><p class="setup-error">' + esc(e.message) + '</p></section>';
+    });
+
+    function draw(c) {
+      var skills = [];
+      c.commands.forEach(function (x) { if (skills.indexOf(x.skill) < 0) skills.push(x.skill); });
+      var undoChoices = UNDO_CHOICES.some(function (o) { return o[0] === c.undoSeconds; }) ? UNDO_CHOICES : UNDO_CHOICES.concat([[c.undoSeconds, c.undoSeconds + ' seconds']]);
+      view.innerHTML =
+        '<section class="panel"><h2 id="pause-t">Pause Pyp (kill switch)</h2><div class="pauserow"><p>' +
+        (c.killSwitch ? '<b>Pyp is paused.</b> ' : '') +
+        'Stops every write to PayPal at once: Approve, Auto actions waiting out their undo window, and the daily checks. Pyp keeps reading and drafting, and nothing is lost: turn it off and Approve works again.</p>' +
+        '<button type="button" class="bigswitch" role="switch" aria-checked="' + c.killSwitch + '" aria-labelledby="pause-t" data-pause><span></span></button></div></section>' +
+
+        '<section class="panel"><h2>What your Pyp can do</h2><p>For each action: Off, Ask me first, or Auto (it runs after the undo window unless you tap Undo). Actions that move money or answer a request you typed always ask.</p>' +
+        '<div class="skills">' + skills.map(function (sk) {
+          return '<h3 class="skillhead">' + esc(SKILL_NAMES[sk] || sk) + '</h3>' + c.commands.filter(function (x) { return x.skill === sk; }).map(function (x) {
+            return '<div class="skill"><div><h3 id="cmd-' + esc(x.id.replace('.', '-')) + '">' + esc(x.label) + '</h3>' + (x.canAuto ? '' : '<p>Always asks you first.</p>') + '</div>' +
+              '<div class="seg" role="group" aria-labelledby="cmd-' + esc(x.id.replace('.', '-')) + '">' + ['off', 'ask', 'auto'].map(function (m) {
+                var disabled = m === 'auto' && !x.canAuto;
+                return '<button type="button" data-cmd="' + esc(x.id) + '" data-mode="' + m + '" aria-pressed="' + (x.dial === m) + '"' + (disabled ? ' disabled title="This always needs your approval"' : '') + '>' + MODE_LABEL[m] + '</button>';
+              }).join('') + '</div></div>';
+          }).join('');
+        }).join('') + '</div></section>' +
+
+        '<section class="panel"><h2>Undo window</h2><p>How long an Auto action waits before it goes to PayPal, so you can tap Undo.</p><div class="limits">' +
+        '<label>Undo window for Auto actions<select data-undo>' + undoChoices.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === c.undoSeconds ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
+        '</div></section>' +
+
+        '<section class="panel"><h2>Check now</h2><p>Pyp checks these every morning from 8:00 your time. Run one now: anything that needs you shows up in your Inbox.</p>' +
+        '<p class="sweeps"><button type="button" class="btn btn-ghost" data-sweep="overdue-invoices">Check overdue invoices</button> ' +
+        '<button type="button" class="btn btn-ghost" data-sweep="dispute-deadlines">Check dispute deadlines</button> ' +
+        '<button type="button" class="btn btn-ghost" data-sweep="weekly-brief">Weekly brief now</button></p></section>' +
+
+        '<section class="panel"><h2>Live data</h2><p>Cards, the activity log and PayPal data on this page are live from your sandbox. These controls are saved on the Pyp server and apply everywhere: this page, the Chrome extension and the worker.</p></section>';
+    }
+
+    function onClick(e) {
+      var b = e.target.closest('button');
+      if (!b || b.disabled) return;
+      if (b.hasAttribute('data-pause')) {
+        var on = b.getAttribute('aria-checked') !== 'true';
+        b.disabled = true;
+        transport.setPaused(on).then(function () {
+          toast(on ? 'Pyp is paused. Nothing will be sent to PayPal until you turn this off.' : 'Pyp is running again.');
+          transport.controls().then(draw);
+        }, function (err) { b.disabled = false; toast(err.message); });
+      } else if (b.hasAttribute('data-cmd')) {
+        var mode = b.getAttribute('data-mode');
+        transport.setDial(b.getAttribute('data-cmd'), mode).then(function (c) {
+          draw(c);
+          toast('Saved: ' + MODE_LABEL[mode] + '.');
+        }, function (err) { toast(err.message); });
+      } else if (b.hasAttribute('data-sweep')) {
+        var label = b.textContent;
+        b.disabled = true;
+        transport.runSweep(b.getAttribute('data-sweep')).then(function (out) {
+          b.disabled = false;
+          var made = (out.cardIds || []).length;
+          toast(label + ': found ' + out.found + ', ' + made + ' new card' + (made === 1 ? '' : 's') + (out.skipped ? ', ' + out.skipped + ' already in hand' : '') + (out.deferred ? ', ' + out.deferred + ' left for next time' : '') + '.');
+        }, function (err) { b.disabled = false; toast(err.message); });
+      }
+    }
+    function onChange(e) {
+      if (!e.target.matches('[data-undo]')) return;
+      transport.setUndoSeconds(Number(e.target.value)).then(function (c) {
+        toast('Saved. Auto actions now wait ' + c.undoSeconds + ' s before sending.');
+      }, function (err) { toast(err.message); });
+    }
+    view.addEventListener('click', onClick);
+    view.addEventListener('change', onChange);
+    cleanup.push(function () { view.removeEventListener('click', onClick); view.removeEventListener('change', onChange); });
+  }
+
   function renderSetup() {
+    if (!transport.isDemo) return renderSetupLive();
     var s = transport.getSettings();
     var paused = transport.isPaused();
     view.innerHTML =

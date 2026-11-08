@@ -94,7 +94,8 @@ async function executeClaimed(deps: ExecutorDeps, merchantId: string, proposal: 
   // The kill switch pauses every write, including one already claimed (design §8.2 rule 1).
   if (rules.killSwitch) {
     const reason = proposal.auto ? "Pyp is paused; this runs when you turn the kill switch off" : "Pyp is paused. Turn the kill switch off, then approve again";
-    await done(proposal.auto ? "scheduled" : "awaiting_approval", "Kill switch on: not sent", false, reason);
+    // Approve gets the reason back in its reply; only an Auto card keeps it, to say why it's waiting.
+    await done(proposal.auto ? "scheduled" : "awaiting_approval", "Kill switch on: not sent", false, proposal.auto ? reason : undefined);
     return { status: "paused", message: reason };
   }
 
