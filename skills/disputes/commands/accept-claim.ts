@@ -26,6 +26,7 @@ export const acceptClaim: CommandDef<AcceptClaimParams, DisputeFacts> = {
     }),
   available: (cf) => AWAITING_SELLER.includes(cf.facts.dispute.status) && !cf.facts.deadlinePassed,
   risk: "money",
+  editable: ["note"],
 
   check: async (p, ctx) => {
     const fresh = await freshDispute(ctx, p.disputeId);

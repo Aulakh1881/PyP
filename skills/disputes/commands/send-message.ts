@@ -26,6 +26,7 @@ export const sendMessage: CommandDef<SendMessageParams, DisputeFacts> = {
     }),
   available: (cf) => OPEN_STATES.includes(cf.facts.dispute.status) && !cf.facts.deadlinePassed,
   risk: "message",
+  editable: ["message"],
 
   check: async (p, ctx) => {
     const fresh = await freshDispute(ctx, p.disputeId, OPEN_STATES);

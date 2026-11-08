@@ -43,6 +43,7 @@ export const cancelInvoice: CommandDef<CancelParams, CollectionsFacts> = {
     return merchantAsked || reminders.sent >= reminderLimits(rules).maxPerInvoice;
   },
   risk: "message",
+  editable: ["reason"],
 
   check: async (p, ctx) => {
     const inv = await ctx.read.getInvoice(p.invoiceId);

@@ -48,6 +48,7 @@ export const sendReminder: CommandDef<SendReminderParams, CollectionsFacts> = {
       ? `sent=${cf.facts.reminders.sent} of max ${reminderLimits(rules).maxPerInvoice}; last=${cf.facts.reminders.lastSentAt ?? "never"}`
       : undefined,
   risk: "message",
+  editable: ["subject", "note"],
 
   check: async (p, ctx) => {
     const inv = await ctx.read.getInvoice(p.invoiceId); // fresh, not from the case file

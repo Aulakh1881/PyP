@@ -43,6 +43,7 @@ export const provideEvidence: CommandDef<ProvideEvidenceParams, DisputeFacts> = 
   },
   available: (cf) => AWAITING_SELLER.includes(cf.facts.dispute.status) && !cf.facts.deadlinePassed,
   risk: "message",
+  editable: ["note"],
 
   check: async (p, ctx) => {
     const fresh = await freshDispute(ctx, p.disputeId);

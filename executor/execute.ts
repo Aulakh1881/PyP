@@ -16,6 +16,7 @@ import {
   loadMerchant,
   recordExecution,
   succeededStep,
+  saveEdits,
   type ClaimedProposal,
   type FinishStatus,
 } from "@/jobs/store";
@@ -31,7 +32,7 @@ export interface ExecutorDeps {
 export type ExecuteOutcome =
   | { status: "executed"; message: string }
   | { status: "failed" | "obsolete" | "retry"; message: string }
-  | { status: "paused" | "held"; message: string }
+  | { status: "paused" | "held" | "edit_rejected"; message: string }
   | { status: "not_waiting"; message: string };
 
 /** An Auto action that PayPal didn't answer is retried this many times, then comes to the merchant. */
@@ -39,9 +40,13 @@ export const AUTO_ATTEMPTS = 3;
 /** First retry after this many seconds, doubling each time. */
 export const AUTO_BACKOFF_S = 60;
 
-export async function approveAndExecute(deps: ExecutorDeps, merchantId: string, cardId: string): Promise<ExecuteOutcome> {
+/** The merchant's rewrites of a card's text before approving: param → new words. */
+export type Edits = Record<string, string>;
+
+export async function approveAndExecute(deps: ExecutorDeps, merchantId: string, cardId: string, edits?: Edits): Promise<ExecuteOutcome> {
   const proposal = await claimForExecution(deps.db, merchantId, cardId);
   if (!proposal) return { status: "not_waiting", message: "This card isn't waiting for approval" };
+  if (edits && Object.keys(edits).length) proposal.edits = edits;
   return executeProposal(deps, merchantId, proposal);
 }
 
@@ -114,6 +119,28 @@ async function executeClaimed(deps: ExecutorDeps, merchantId: string, proposal: 
   if (!check.ok) {
     await done("obsolete", `Re-check before sending: ${check.reason}`, false, `Not sent: ${check.reason}`);
     return { status: "obsolete", message: `Not sent: ${check.reason}` };
+  }
+
+  // The merchant's edits get the same gates as the model's words: the schema, then check().
+  // A rejected edit hands the card back with the reason, so it can be fixed and approved.
+  if (proposal.edits) {
+    const rejected = async (why: string) => {
+      await done("awaiting_approval", `Your edit: ${why}`, false, `Not sent. Your edit: ${why}`);
+      return { status: "edit_rejected" as const, message: `Not sent. Your edit: ${why}` };
+    };
+    const fields = Object.keys(proposal.edits);
+    const allowed = cmd.editable ?? [];
+    const wrong = fields.find((f) => !allowed.includes(f) || typeof proposal.edits![f] !== "string");
+    if (wrong) return rejected(`${wrong} can't be edited`);
+    const params = { ...(proposal.params as Record<string, unknown>), ...proposal.edits };
+    const parsed = cmd.params(proposal.caseFile).safeParse(params);
+    if (!parsed.success) return rejected(parsed.error.issues[0]?.message ?? "not valid");
+    const edited = await cmd.check(parsed.data, { ...ctx, caseFile: proposal.caseFile });
+    if (!edited.ok) return rejected(edited.reason ?? "it didn't pass the checks");
+    const diff = Object.fromEntries(fields.map((f) => [f, { from: (proposal.params as Record<string, unknown>)[f], to: proposal.edits![f] }]));
+    proposal.params = parsed.data as Record<string, unknown>;
+    proposal.resolved = cmd.resolve ? cmd.resolve(parsed.data, proposal.caseFile) : proposal.resolved;
+    await saveEdits(deps.db, proposal, diff);
   }
 
   try {
