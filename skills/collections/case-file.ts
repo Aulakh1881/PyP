@@ -20,7 +20,11 @@ export interface OverdueFacts {
   history: ClientHistory | null;
   /** An active "hold off" the merchant set. While set, no reminders (code-enforced). */
   hold: Hold | null;
-  /** The run came from the merchant's own words in chat (e.g. "cancel 0042"). */
+  /**
+   * The merchant's own words ask to cancel or write off this invoice ("cancel 0042",
+   * or tapping "Cancel the invoice" on a question). Only then is cancel offered
+   * before every reminder has gone out. Pyp's question text doesn't count.
+   */
   merchantAsked: boolean;
 }
 
@@ -73,6 +77,15 @@ export const MAX_CLIENTS = 25;
 
 /** Longest chat sentence we put in a case file. */
 export const MAX_REQUEST_CHARS = 1000;
+
+/** Does the merchant's text (not a "You asked:" line quoting Pyp) ask to cancel? */
+export function asksToCancel(instruction?: string): boolean {
+  const own = (instruction ?? "")
+    .split("\n")
+    .filter((l) => !l.trimStart().startsWith("You asked:"))
+    .join("\n");
+  return /\b(cancel|void|write (it |this |that )?off)/i.test(own);
+}
 
 export function reminderLimits(rules: MerchantRules) {
   return { ...DEFAULT_LIMITS, ...rules.commands["invoice.sendReminder"]?.limits };
@@ -149,7 +162,7 @@ async function overdueCaseFile(ctx: SkillContext, subject: SubjectRef, instructi
     notes,
     history,
     hold,
-    merchantAsked: Boolean(instruction?.trim()),
+    merchantAsked: asksToCancel(instruction),
   };
   const limits = reminderLimits(ctx.rules);
 

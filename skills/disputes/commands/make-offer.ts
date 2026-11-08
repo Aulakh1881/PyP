@@ -39,6 +39,7 @@ export const makeOffer: CommandDef<MakeOfferParams, DisputeFacts> = {
   available: (cf) =>
     AWAITING_SELLER.includes(cf.facts.dispute.status) && !cf.facts.deadlinePassed && cf.facts.problems.length === 0,
   risk: "money",
+  editable: ["note"],
 
   check: async (p, ctx) => {
     const fresh = await freshDispute(ctx, p.disputeId);

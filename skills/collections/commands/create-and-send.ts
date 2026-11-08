@@ -46,6 +46,7 @@ export const createAndSend: CommandDef<CreateAndSendParams, CollectionsFacts> = 
     cf.facts.amounts.length > 0 &&
     cf.facts.problems.length === 0,
   risk: "message",
+  editable: ["note"],
 
   check: async (p, ctx) => {
     const facts = newInvoiceFacts(ctx.caseFile);

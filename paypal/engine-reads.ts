@@ -170,6 +170,32 @@ export class PayPalReadClient implements PayPalReads {
     }
   }
 
+  /**
+   * Sweep read (design §9.3): unpaid invoices whose due date is before `today`
+   * (merchant-local, YYYY-MM-DD), oldest due first. search-invoices filters by
+   * status and due date; code filters again in case PayPal ignores a field.
+   */
+  async overdueInvoices(today: string, limit = 50): Promise<Invoice[]> {
+    const res = await this.http.request<{ items?: PayPalInvoiceResource[] }>(
+      "POST",
+      `/v2/invoicing/search-invoices?page=1&page_size=${Math.min(Math.max(limit, 1), 100)}&total_required=false`,
+      { body: { status: OPEN_INVOICE, due_date_range: { start: "2000-01-01", end: dayBefore(today) } } },
+    );
+    return (res.body.items ?? [])
+      .map(toInvoice)
+      .filter((i) => OPEN_INVOICE.includes(i.status) && !!i.dueDate && i.dueDate < today)
+      .sort((a, b) => a.dueDate!.localeCompare(b.dueDate!));
+  }
+
+  /** Sweep read: disputes waiting on the merchant whose response is due before `before`. */
+  async disputesDueBefore(before: Date): Promise<Dispute[]> {
+    const res = await this.http.request<{ items?: PayPalDisputeResource[] }>("GET", `/v1/customer/disputes?page_size=50`);
+    return (res.body.items ?? [])
+      .map((d) => toDispute(d))
+      .filter((d) => d.status === "WAITING_FOR_SELLER_RESPONSE" && !!d.sellerResponseDueDate && Date.parse(d.sellerResponseDueDate) < before.getTime())
+      .sort((a, b) => a.sellerResponseDueDate!.localeCompare(b.sellerResponseDueDate!));
+  }
+
   /** Open invoices and disputes for the chat receptionist to choose from, one line each. */
   async openSubjects(): Promise<ChatSubject[]> {
     const [invoices, disputes] = await Promise.all([
@@ -224,4 +250,11 @@ function created(p: PayPalInvoiceResource): string {
 function personName(n: { given_name?: string; surname?: string; full_name?: string } | undefined): string | null {
   const name = n?.full_name ?? [n?.given_name, n?.surname].filter(Boolean).join(" ");
   return name || null;
+}
+
+/** "2026-11-07" → "2026-11-06" (plain calendar dates, no time zone). */
+function dayBefore(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
 }

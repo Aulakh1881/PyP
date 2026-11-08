@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { PayPalError, PayPalHttp } from "./http";
-import { clientsFrom, toInvoice, type PayPalInvoiceResource } from "./engine-reads";
+import { clientsFrom, PayPalReadClient, toInvoice, type PayPalInvoiceResource } from "./engine-reads";
 import { PayPalWriteClient } from "./write-client";
 
 function fakeFetch(responses: { status: number; body: unknown; headers?: Record<string, string> }[]) {
@@ -152,6 +152,26 @@ describe("reading invoices", () => {
       { id: "cl_1", name: "Sam Lee", businessName: null, email: "SAM@acme.example" },
       { id: "cl_2", name: "Jordan Kim", businessName: null, email: "jordan@example.com" },
     ]);
+  });
+
+  it("overdue sweep read: searches open invoices due before today, then filters and sorts in code", async () => {
+    const due = (id: string, status: string, dueDate: string): PayPalInvoiceResource => ({
+      ...inv(id, "a@b.example", "2026-10-01T00:00:00Z"),
+      status,
+      detail: { invoice_number: id, currency_code: "USD", payment_term: { due_date: dueDate } },
+    } as PayPalInvoiceResource);
+    const f = fakeFetch([
+      TOKEN,
+      { status: 200, body: { items: [due("late", "UNPAID", "2026-10-20"), due("today", "SENT", "2026-11-07"), due("paid", "PAID", "2026-10-01"), due("older", "SENT", "2026-10-10")] } },
+    ]);
+    const read = new PayPalReadClient(new PayPalHttp({ clientId: "id", secret: "s" }, f.fn));
+    const out = await read.overdueInvoices("2026-11-07");
+    expect(out.map((i) => i.id)).toEqual(["older", "late"]);
+    expect(f.calls[1].url).toContain("/v2/invoicing/search-invoices");
+    expect(JSON.parse(f.calls[1].init.body as string)).toEqual({
+      status: ["SENT", "UNPAID", "PARTIALLY_PAID"],
+      due_date_range: { start: "2000-01-01", end: "2026-11-06" },
+    });
   });
 
   it("an invoice keeps PayPal's decimal strings; amount due falls back to the total", () => {

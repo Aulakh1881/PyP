@@ -53,3 +53,34 @@
   .chat-row { flex-direction: column; }
   .trace li { grid-template-columns: 1fr; gap: 0; }
 }
+
+/* Controls: kill switch, check now, the dials */
+.controls { display: grid; gap: 12px; background: #fff; border-radius: 22px; padding: 18px 20px; box-shadow: 0 10px 30px rgb(11 31 77 / 8%); border: 2px solid transparent; }
+.controls.paused { border-color: #f1c3bd; background: #fff8f7; }
+.controls-top { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.controls-top strong { font-size: 17px; }
+.controls-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.rules { display: grid; gap: 12px; border-top: 1px solid #e2e8f2; padding-top: 12px; }
+.undo-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-weight: 700; }
+.undo-row input { width: 84px; height: 40px; border: 1.5px solid #c9d1de; border-radius: 10px; padding: 0 10px; font: 700 15px inherit; font-family: inherit; }
+.dials { border: 0; display: grid; gap: 8px; }
+.dials legend { font-weight: 800; margin-bottom: 4px; }
+.dial-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.dial-row > span { font-weight: 600; }
+.segmented { display: inline-flex; border-radius: 10px; box-shadow: inset 0 0 0 1.5px #e2e8f2; overflow: hidden; }
+.segmented button { min-height: 40px; min-width: 68px; padding: 0 12px; border: 0; background: #fff; color: #0b1f4d; font: 700 14px inherit; font-family: inherit; cursor: pointer; }
+.segmented button + button { border-left: 1.5px solid #e2e8f2; }
+.segmented button.on { background: #1f5fe0; color: #fff; }
+.segmented button:disabled { color: #a6b0c3; cursor: not-allowed; }
+.segmented button.on:disabled { color: #fff; opacity: .7; }
+.state-scheduled { background: #e6eeff; color: #1f3f8a; }
+
+/* Editing a card's text before Approve */
+.edit { display: grid; gap: 10px; }
+.edit label { display: grid; gap: 4px; font-weight: 700; }
+.edit textarea { width: 100%; border: 1.5px solid #c9d1de; border-radius: 12px; padding: 10px 12px; font: 600 15px/1.4 inherit; font-family: inherit; color: #0b1f4d; resize: vertical; }
+
+@media (max-width: 560px) {
+  .dial-row { flex-direction: column; align-items: stretch; }
+  .segmented button { flex: 1; min-width: 0; }
+}

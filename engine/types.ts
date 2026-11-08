@@ -66,6 +66,12 @@ export interface CommandDef<P = unknown, F = unknown> {
    * sends them, so nothing is re-derived later (design §7.1 step 5).
    */
   resolve?: (p: P, cf: CaseFile<F>) => Record<string, unknown>;
+  /**
+   * Text params the merchant may rewrite on the card before approving (design §11.3
+   * "optional edits"). Edits go through params(cf) and check() again, exactly like
+   * the model's text. Amounts, ids and recipients are never editable.
+   */
+  editable?: (keyof P & string)[];
   // execute() and undo() belong to the executor (owner C) and are added there.
 }
 

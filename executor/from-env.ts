@@ -7,11 +7,11 @@ import { PayPalReadClient } from "@/paypal/engine-reads";
 import { PayPalWriteClient } from "@/paypal/write-client";
 import { runDueWork, type DueRunResult } from "@/jobs/due-run";
 import { serverAgent } from "@/lib/agent";
-import { approveAndExecute, executeProposal, type ExecuteOutcome } from "./execute";
+import { approveAndExecute, executeProposal, type Edits, type ExecuteOutcome } from "./execute";
 
-export function approveCard(merchantId: string, cardId: string): Promise<ExecuteOutcome> {
+export function approveCard(merchantId: string, cardId: string, edits?: Edits): Promise<ExecuteOutcome> {
   const http = sharedPayPalHttp();
-  return approveAndExecute({ db: getPool(), read: new PayPalReadClient(http), write: new PayPalWriteClient(http) }, merchantId, cardId);
+  return approveAndExecute({ db: getPool(), read: new PayPalReadClient(http), write: new PayPalWriteClient(http) }, merchantId, cardId, edits);
 }
 
 /** One worker tick against the real sandbox and database (instrumentation.ts runs it on a timer). */

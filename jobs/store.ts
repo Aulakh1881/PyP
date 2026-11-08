@@ -4,6 +4,7 @@
 
 import type { Pool } from "pg";
 import { cardFor, needsCard, type CardFront, type CardState } from "@/engine/card";
+import { getSkill } from "@/engine/registry";
 import type { RunResult } from "@/engine/run-skill";
 import type { CaseFile, CommandId, CommandRule, EngineDb, Hold, Merchant, MerchantRules, SkillId, SubjectRef } from "@/engine/types";
 
@@ -268,7 +269,8 @@ export async function saveRun(pool: Pool, input: SaveRunInput): Promise<{ runId:
         ],
       );
       if (!needsCard(p) || !result.response) continue;
-      const front = { ...cardFor(skill, p, result.response), ...(scheduledFor ? { scheduledFor: scheduledFor.toISOString() } : {}) };
+      const editable = getSkill(skill).commands.find((c) => c.id === p.action.command)?.editable;
+      const front = { ...cardFor(skill, p, result.response, editable), ...(scheduledFor ? { scheduledFor: scheduledFor.toISOString() } : {}) };
       const card = await client.query(
         `insert into cards (merchant_id, run_id, proposal_id, skill, state, front_json)
          values ($1, $2, $3, $4, $5, $6) returning id`,
@@ -360,6 +362,34 @@ export interface ClaimedProposal {
   caseFile: CaseFile;
   /** Set when the worker claimed it (Auto, after the undo window), with the pickup count. */
   auto?: { attempts: number };
+  /** The merchant's rewrites from Approve (executor/execute.ts applies and checks them). */
+  edits?: Record<string, string>;
+}
+
+/** An approved edit: the new params and resolved values, what changed, and the card's text to match. */
+/** The params a card shows as its body (engine/card.ts). */
+const BODY_FIELDS = ["note", "message"];
+
+export async function saveEdits(db: Db, p: ClaimedProposal, diff: Record<string, { from: unknown; to: string }>): Promise<void> {
+  await db.query("update proposals set params_json = $2, resolved_json = $3, edit_diff = $4 where id = $1", [
+    p.id,
+    JSON.stringify(p.params),
+    p.resolved ? JSON.stringify(p.resolved) : null,
+    JSON.stringify(diff),
+  ]);
+  // The card shows what was actually sent: the edited fields, and the body if it was one of them.
+  const card = await db.query("select front_json from cards where id = $1", [p.cardId]);
+  const front = card.rows[0]?.front_json as CardFront | undefined;
+  if (front) {
+    for (const [field, d] of Object.entries(diff)) {
+      // The body is the note (or a dispute message); an empty note has no body until edited.
+      if (BODY_FIELDS.includes(field) || front.body === d.from) front.body = d.to || undefined;
+      const e = front.edit?.find((x) => x.field === field);
+      if (e) e.value = d.to;
+    }
+    await db.query("update cards set front_json = $2, updated_at = now() where id = $1", [p.cardId, JSON.stringify(front)]);
+  }
+  await addStep(db, p.runId, p.id, "merchant", `You edited: ${Object.keys(diff).join(", ")}`, true, diff);
 }
 
 /**
@@ -539,6 +569,17 @@ export async function succeededStep(db: Db, proposalId: string, step: string): P
   return res.rows[0]?.response_json ?? null;
 }
 
+/** Has any write for this proposal reached (or tried to reach) PayPal? Then its words are fixed. */
+export async function attempted(db: Db, proposalId: string): Promise<boolean> {
+  const res = await db.query("select 1 from executions where proposal_id = $1 limit 1", [proposalId]);
+  return res.rows.length > 0;
+}
+
+/** Takes the Edit fields off a card: what's going to PayPal can't change any more. */
+export async function lockEdits(db: Db, cardId: string): Promise<void> {
+  await db.query("update cards set front_json = front_json - 'edit', updated_at = now() where id = $1", [cardId]);
+}
+
 export type FinishStatus = "executed" | "failed" | "obsolete" | "awaiting_approval" | "scheduled";
 
 /** Where a claimed proposal ends up, with the trace step and activity-log line that say so. */
@@ -578,6 +619,10 @@ export async function finish(
 async function setCardState(db: Db, cardId: string, state: CardState): Promise<void> {
   await db.query("update cards set state = $2, updated_at = now() where id = $1", [cardId, state]);
 }
+
+/** A trace step on a proposal, for job code outside this file (e.g. answering a question). */
+export const addStepFor = (db: Db, runId: string, proposalId: string, kind: string, label: string, ok: boolean, detail?: unknown) =>
+  addStep(db, runId, proposalId, kind, label, ok, detail);
 
 async function addStep(db: Db, runId: string, proposalId: string, kind: string, label: string, ok: boolean, detail?: unknown) {
   await db.query(
