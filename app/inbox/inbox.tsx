@@ -38,10 +38,10 @@ function Countdown({ at, onDue }: { at: string; onDue: () => void }) {
     return () => clearInterval(t);
   }, []);
   useEffect(() => {
-    // Give the worker a moment to run it, then refresh the card.
+    // Give the worker a moment to run it, then keep refreshing until the card moves on.
     if (left !== 0) return;
-    const t = setTimeout(onDue, 20_000);
-    return () => clearTimeout(t);
+    const t = setInterval(onDue, 15_000);
+    return () => clearInterval(t);
   }, [left, onDue]);
   if (left === 0) return <p className="reason">Running now…</p>;
   if (left >= 3600) {

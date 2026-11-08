@@ -10,10 +10,11 @@
 // The executor is passed in, so this file never touches the PayPal write client.
 
 import type { Pool } from "pg";
+import { ruleFor } from "@/engine/policy";
 import { getSkill } from "@/engine/registry";
 import { runSkill } from "@/engine/run-skill";
 import type { AgentClient, PayPalReads, SubjectRef } from "@/engine/types";
-import { claimDue, engineDb, finish, FOLLOW_UP, loadMerchant, saveRun, type DueProposal } from "./store";
+import { claimDue, engineDb, finish, FOLLOW_UP, loadMerchant, reapStale, saveRun, type DueProposal } from "./store";
 
 export interface DueRunDeps {
   pool: Pool;
@@ -33,9 +34,13 @@ export interface DueRunResult {
 
 export async function runDueWork(deps: DueRunDeps, limit = 20): Promise<DueRunResult[]> {
   const now = deps.now ?? (() => new Date());
-  const due = await claimDue(deps.pool, now(), limit);
+  await reapStale(deps.pool);
   const results: DueRunResult[] = [];
-  for (const p of due) {
+  // One claim at a time: if the process stops, at most one proposal is mid-run
+  // (and reapStale puts it back).
+  for (let i = 0; i < limit; i++) {
+    const [p] = await claimDue(deps.pool, now(), 1);
+    if (!p) break;
     // One proposal failing never stops the others.
     const out = await (p.commandId === FOLLOW_UP ? followUp(deps, p, now) : deps.execute(p.merchantId, p)).catch(async (err: Error) => {
       await finish(deps.pool, { merchantId: p.merchantId, proposal: p, status: "failed", label: `Error: ${err.message}`, ok: false, reason: err.message });
@@ -50,8 +55,14 @@ async function followUp(deps: DueRunDeps, p: DueProposal, now: () => Date) {
   const [kind, ...rest] = p.subjectRef.split(":");
   const subject: SubjectRef = { kind, id: rest.join(":") };
   const { merchant, rules } = await loadMerchant(deps.pool, p.merchantId);
+  const skill = getSkill("collections");
+  if (ruleFor(FOLLOW_UP, rules, skill).dial === "off") {
+    await finish(deps.pool, { merchantId: p.merchantId, proposal: p, status: "obsolete", label: "Follow-ups are Off now", ok: false, reason: "Not run: you switched follow-ups off" });
+    return { status: "obsolete", message: "Not run: you switched follow-ups off" };
+  }
+  // The follow-up being run is "executing", not pending, so this run may schedule the next one.
   const ctx = { merchant, rules, read: deps.read, db: engineDb(deps.pool, p.merchantId), now };
-  const result = await runSkill({ skill: getSkill("collections"), subject, ctx, agent: deps.agent, trigger: "follow-up" });
+  const result = await runSkill({ skill, subject, ctx, agent: deps.agent, trigger: "follow-up" });
   const { cardIds } = await saveRun(deps.pool, { merchantId: p.merchantId, skill: "collections", subject, trigger: "follow-up", result, now: now() });
   const message = cardIds.length
     ? `Followed up on invoice ${subject.id}: ${cardIds.length} new card${cardIds.length > 1 ? "s" : ""}`

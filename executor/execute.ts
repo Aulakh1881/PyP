@@ -4,6 +4,7 @@
 // records every PayPal call. Request ids make a retry safe: "<proposal id>"
 // for one write, "<proposal id>:create" and ":send" for createAndSend.
 
+import { ruleFor } from "@/engine/policy";
 import { getSkill } from "@/engine/registry";
 import type { PayPalReads } from "@/engine/types";
 import { PayPalError, type PayPalResponse } from "@/paypal/http";
@@ -16,6 +17,7 @@ import {
   recordExecution,
   succeededStep,
   type ClaimedProposal,
+  type FinishStatus,
 } from "@/jobs/store";
 import type { Pool } from "pg";
 
@@ -29,7 +31,13 @@ export interface ExecutorDeps {
 export type ExecuteOutcome =
   | { status: "executed"; message: string }
   | { status: "failed" | "obsolete" | "retry"; message: string }
+  | { status: "paused" | "held"; message: string }
   | { status: "not_waiting"; message: string };
+
+/** An Auto action that PayPal didn't answer is retried this many times, then comes to the merchant. */
+export const AUTO_ATTEMPTS = 3;
+/** First retry after this many seconds, doubling each time. */
+export const AUTO_BACKOFF_S = 60;
 
 export async function approveAndExecute(deps: ExecutorDeps, merchantId: string, cardId: string): Promise<ExecuteOutcome> {
   const proposal = await claimForExecution(deps.db, merchantId, cardId);
@@ -47,24 +55,61 @@ export async function executeProposal(deps: ExecutorDeps, merchantId: string, pr
   } catch (err) {
     // Anything unexpected (a database blip, a read that timed out) hands the card back
     // instead of leaving it on "Sending…"; the request ids make approving again safe.
-    const reason = `Something went wrong (${(err as Error).message}). Approve again to retry; it won't send twice.`;
-    await finish(deps.db, { merchantId, proposal, status: "awaiting_approval", label: `Error: ${(err as Error).message}`, ok: false, reason });
+    return retryLater(deps, merchantId, proposal, `Something went wrong (${(err as Error).message})`, `Error: ${(err as Error).message}`);
+  }
+}
+
+/**
+ * A failure worth retrying. Approve: back to the merchant's button. Auto: back in
+ * the worker's queue with a growing wait, until AUTO_ATTEMPTS, then to the merchant.
+ */
+async function retryLater(deps: ExecutorDeps, merchantId: string, proposal: ClaimedProposal, why: string, label: string, detail?: unknown): Promise<ExecuteOutcome> {
+  const now = (deps.now ?? (() => new Date()))();
+  if (proposal.auto && proposal.auto.attempts < AUTO_ATTEMPTS) {
+    const retryAt = new Date(now.getTime() + AUTO_BACKOFF_S * 2 ** (proposal.auto.attempts - 1) * 1000);
+    const reason = `${why}. Pyp tries again at ${retryAt.toISOString().slice(11, 16)} UTC; it won't send twice.`;
+    await finish(deps.db, { merchantId, proposal, status: "scheduled", label, ok: false, reason, detail, retryAt });
     return { status: "retry", message: reason };
   }
+  const reason = `${why}. Approve again to retry; it won't send twice.`;
+  await finish(deps.db, { merchantId, proposal, status: "awaiting_approval", label, ok: false, reason, detail });
+  return { status: "retry", message: reason };
 }
 
 async function executeClaimed(deps: ExecutorDeps, merchantId: string, proposal: ClaimedProposal): Promise<ExecuteOutcome> {
   const { merchant, rules } = await loadMerchant(deps.db, merchantId);
   const ctx = { merchant, rules, read: deps.read, db: engineDb(deps.db, merchantId, proposal.id), now: deps.now ?? (() => new Date()) };
-  const done = (status: "executed" | "failed" | "obsolete" | "awaiting_approval", label: string, ok: boolean, reason?: string, detail?: unknown) =>
+  const done = (status: FinishStatus, label: string, ok: boolean, reason?: string, detail?: unknown) =>
     finish(deps.db, { merchantId, proposal, status, label, ok, reason, detail });
 
-  // The world may have changed since the card was made (paid, cancelled, client gone).
-  const cmd = getSkill(proposal.skill).commands.find((c) => c.id === proposal.commandId);
+  // The kill switch pauses every write, including one already claimed (design §8.2 rule 1).
+  if (rules.killSwitch) {
+    const reason = proposal.auto ? "Pyp is paused; this runs when you turn the kill switch off" : "Pyp is paused. Turn the kill switch off, then approve again";
+    await done(proposal.auto ? "scheduled" : "awaiting_approval", "Kill switch on: not sent", false, reason);
+    return { status: "paused", message: reason };
+  }
+
+  const skill = getSkill(proposal.skill);
+  const cmd = skill.commands.find((c) => c.id === proposal.commandId);
   if (!cmd) {
     await done("failed", `Unknown command ${proposal.commandId}`, false, "Pyp can't run this action");
     return { status: "failed", message: "Pyp can't run this action" };
   }
+
+  // Auto was the dial when this was scheduled. If the merchant has changed it since, follow the new setting.
+  if (proposal.auto) {
+    const dial = ruleFor(cmd.id, rules, skill).dial;
+    if (dial === "off") {
+      await done("obsolete", "Dial is Off now: not sent", false, "Not sent: you switched this action off");
+      return { status: "obsolete", message: "Not sent: you switched this action off" };
+    }
+    if (dial === "ask") {
+      await done("awaiting_approval", "Dial is Ask me now: waiting for you", true, "You changed this to Ask me. Approve to send.");
+      return { status: "held", message: "You changed this to Ask me. Approve to send." };
+    }
+  }
+
+  // The world may have changed since the card was made (paid, cancelled, client gone).
   const check = await cmd.check(proposal.params, { ...ctx, caseFile: proposal.caseFile });
   if (!check.ok) {
     await done("obsolete", `Re-check before sending: ${check.reason}`, false, `Not sent: ${check.reason}`);
@@ -78,10 +123,8 @@ async function executeClaimed(deps: ExecutorDeps, merchantId: string, proposal: 
   } catch (err) {
     if (!(err instanceof PayPalError)) throw err;
     if (err.retryable) {
-      // Same request ids next time, so approving again can't act twice.
-      const reason = `PayPal didn't answer (${err.message}). Approve again to retry; it won't send twice.`;
-      await done("awaiting_approval", `PayPal: ${err.message}`, false, reason, { status: err.status, debugId: err.debugId });
-      return { status: "retry", message: reason };
+      // Same request ids next time, so trying again can't act twice.
+      return retryLater(deps, merchantId, proposal, `PayPal didn't answer (${err.message})`, `PayPal: ${err.message}`, { status: err.status, debugId: err.debugId });
     }
     await done("failed", `PayPal refused: ${err.message}`, false, `PayPal refused: ${err.message}`, { status: err.status, debugId: err.debugId });
     return { status: "failed", message: `PayPal refused: ${err.message}` };

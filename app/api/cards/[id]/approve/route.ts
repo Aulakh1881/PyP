@@ -3,7 +3,7 @@
 import { approveCard } from "@/executor/from-env";
 import { requireMerchant } from "@/lib/session";
 
-const STATUS = { executed: 200, not_waiting: 409, obsolete: 409, retry: 503, failed: 422 } as const;
+const STATUS = { executed: 200, not_waiting: 409, obsolete: 409, paused: 409, held: 409, retry: 503, failed: 422 } as const;
 
 export async function POST(_request: Request, ctx: RouteContext<"/api/cards/[id]/approve">) {
   const session = await requireMerchant();

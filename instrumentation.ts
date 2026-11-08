@@ -9,6 +9,8 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   if (process.env.PYP_WORKER === "off" || !process.env.DATABASE_URL) return;
+  // `next build` loads this file in its workers too; they must never claim work.
+  if (process.env.NEXT_PHASE === "phase-production-build") return;
 
   // Dev reloads can call register again; keep one loop per process.
   const g = globalThis as { pypWorker?: NodeJS.Timeout };

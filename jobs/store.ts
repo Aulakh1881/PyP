@@ -63,6 +63,17 @@ export function engineDb(db: Db, merchantId: string, executing?: string): Engine
     async merchantNotes() {
       return []; // seeded notes come with client_profiles (db/README.md)
     },
+    async followUps(invoiceId) {
+      const res = await db.query(
+        `select count(*) filter (where status = 'scheduled')::int as pending,
+                count(*) filter (where status in ('executing', 'executed'))::int as done
+           from proposals
+          where merchant_id = $1 and command_id = 'invoice.scheduleFollowUp' and params_json->>'invoiceId' = $2`,
+        [merchantId, invoiceId],
+      );
+      // A follow-up being run is "executing", so it counts as done, not pending.
+      return res.rows[0];
+    },
     async activeHold(subject) {
       const res = await db.query(
         `select reason, set_at, until from holds
@@ -342,6 +353,8 @@ export interface ClaimedProposal {
   params: Record<string, unknown>;
   resolved: Record<string, unknown> | null;
   caseFile: CaseFile;
+  /** Set when the worker claimed it (Auto, after the undo window), with the pickup count. */
+  auto?: { attempts: number };
 }
 
 /**
@@ -389,7 +402,7 @@ export interface DueProposal extends ClaimedProposal {
  * without taking the same row. A merchant with the kill switch on is left alone;
  * their proposals wait until it is off.
  */
-export async function claimDue(db: Db, now: Date, limit = 20): Promise<DueProposal[]> {
+export async function claimDue(db: Db, now: Date, limit = 1): Promise<DueProposal[]> {
   const res = await db.query(
     `with due as (
        select p.id from proposals p join merchants m on m.id = p.merchant_id
@@ -399,9 +412,9 @@ export async function claimDue(db: Db, now: Date, limit = 20): Promise<DuePropos
         for update of p skip locked
      ),
      claimed as (
-       update proposals p set status = 'executing', decided_by = 'pyp', decided_at = now()
+       update proposals p set status = 'executing', decided_by = 'pyp', decided_at = now(), attempts = p.attempts + 1
          from due where p.id = due.id
-       returning p.id, p.run_id, p.merchant_id, p.command_id, p.params_json, p.resolved_json
+       returning p.id, p.run_id, p.merchant_id, p.command_id, p.params_json, p.resolved_json, p.attempts
      )
      select claimed.*, c.id as card_id, r.skill, r.subject_ref, r.case_file_json
        from claimed join runs r on r.id = claimed.run_id
@@ -424,9 +437,32 @@ export async function claimDue(db: Db, now: Date, limit = 20): Promise<DuePropos
       params: row.params_json,
       resolved: row.resolved_json,
       caseFile: row.case_file_json,
+      auto: { attempts: row.attempts },
     });
   }
   return out;
+}
+
+/** A write in flight longer than this is taken to have died with its process. */
+export const STALE_EXECUTING_MINUTES = 5;
+
+/**
+ * Proposals left on "executing" by a process that stopped mid-run (a deploy, a
+ * crash) go back where they came from: the worker's queue, or the merchant's
+ * Approve button. Safe to run again: every write carries the same request id.
+ */
+export async function reapStale(db: Db): Promise<string[]> {
+  const res = await db.query(
+    `update proposals set status = case when decided_by = 'pyp' then 'scheduled' else 'awaiting_approval' end
+      where status = 'executing' and decided_at < now() - make_interval(mins => $1)
+      returning id, run_id, status`,
+    [STALE_EXECUTING_MINUTES],
+  );
+  for (const row of res.rows) {
+    await db.query("update cards set state = $2, updated_at = now() where proposal_id = $1", [row.id, row.status]);
+    await addStep(db, row.run_id, row.id, "act", "Pyp stopped mid-run; this went back to wait", false);
+  }
+  return res.rows.map((r) => r.id);
 }
 
 /** Undo: a scheduled proposal is cancelled before it runs. Nothing has left Pyp. */
@@ -481,17 +517,31 @@ export async function succeededStep(db: Db, proposalId: string, step: string): P
   return res.rows[0]?.response_json ?? null;
 }
 
+export type FinishStatus = "executed" | "failed" | "obsolete" | "awaiting_approval" | "scheduled";
+
 /** Where a claimed proposal ends up, with the trace step and activity-log line that say so. */
 export async function finish(
   db: Db,
-  p: { merchantId: string; proposal: ClaimedProposal; status: "executed" | "failed" | "obsolete" | "awaiting_approval"; label: string; ok: boolean; reason?: string; detail?: unknown },
+  p: {
+    merchantId: string;
+    proposal: ClaimedProposal;
+    status: FinishStatus;
+    label: string;
+    ok: boolean;
+    reason?: string;
+    detail?: unknown;
+    /** With status "scheduled": when the worker tries again. */
+    retryAt?: Date;
+  },
 ): Promise<void> {
-  await db.query("update proposals set status = $2 where id = $1", [p.proposal.id, p.status]);
+  const retryAt = p.status === "scheduled" ? (p.retryAt ?? null) : null;
+  await db.query("update proposals set status = $2, scheduled_for = coalesce($3, scheduled_for) where id = $1", [p.proposal.id, p.status, retryAt]);
+  const front: Record<string, string> = {};
+  if (p.reason) front.reason = p.reason;
+  if (retryAt) front.scheduledFor = retryAt.toISOString();
   await db.query(
-    `update cards set state = $2, updated_at = now(),
-            front_json = case when $3::text is null then front_json else front_json || jsonb_build_object('reason', $3::text) end
-      where id = $1`,
-    [p.proposal.cardId, p.status, p.reason ?? null],
+    `update cards set state = $2, updated_at = now(), front_json = front_json || $3::jsonb where id = $1`,
+    [p.proposal.cardId, p.status, JSON.stringify(front)],
   );
   await addStep(db, p.proposal.runId, p.proposal.id, "paypal", p.label, p.ok, p.detail);
   if (p.status === "executed") {
