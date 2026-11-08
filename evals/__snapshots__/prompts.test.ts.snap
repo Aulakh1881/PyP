@@ -392,7 +392,6 @@ exports[`golden prompts > disputes turn > disputes schema 1`] = `
                   "offerType": {
                     "enum": [
                       "REFUND",
-                      "REFUND_WITH_RETURN",
                     ],
                     "type": "string",
                   },

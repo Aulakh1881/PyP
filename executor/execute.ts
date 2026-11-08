@@ -121,10 +121,18 @@ async function run(deps: ExecutorDeps, p: ClaimedProposal): Promise<string> {
       await single(deps, p.id, () =>
         deps.write.makeOffer(r.disputeId, { offerType: r.offerType, amount: r.amount, currency: r.currency, note: r.note }, p.id),
       );
-      return `Offered ${r.amountDisplay} (${r.offerType === "REFUND_WITH_RETURN" ? "refund on return" : "refund"}) on dispute ${r.disputeId}`;
-    case "dispute.sendMessage":
+      return `Offered a ${r.amountDisplay} refund on dispute ${r.disputeId}`;
+    case "dispute.sendMessage": {
+      // PayPal accepts the same message twice, and the request id may not stop a
+      // repeat. So if a timeout hid a send that worked, the thread already shows
+      // it: read the thread first and don't post it again.
+      const thread = (await deps.read.getDispute?.(r.disputeId))?.messages ?? [];
+      if (thread.some((m) => m.postedBy === "SELLER" && m.text.trim() === String(r.message).trim())) {
+        return `Message to ${r.buyerName ?? "the buyer"} was already on dispute ${r.disputeId}; not sent again`;
+      }
       await single(deps, p.id, () => deps.write.sendDisputeMessage(r.disputeId, r.message, p.id));
       return `Message sent to ${r.buyerName ?? "the buyer"} on dispute ${r.disputeId}`;
+    }
     case "dispute.acceptClaim":
       await single(deps, p.id, () =>
         deps.write.acceptClaim(r.disputeId, { note: r.note, refundAmount: r.refundAmount, currency: r.currency }, p.id),

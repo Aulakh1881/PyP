@@ -13,7 +13,9 @@ import { fail, ok } from "@/engine/validator";
 import { AWAITING_SELLER, type DisputeFacts } from "../case-file";
 import { freshDispute, textProblem } from "../checks";
 
-export const OFFER_TYPES = ["REFUND", "REFUND_WITH_RETURN"] as const;
+// REFUND only for now: PayPal wants a return_shipping_address with
+// REFUND_WITH_RETURN, and Pyp doesn't hold the merchant's return address yet.
+export const OFFER_TYPES = ["REFUND"] as const;
 
 export interface MakeOfferParams {
   disputeId: string;
