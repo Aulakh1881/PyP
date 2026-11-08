@@ -155,6 +155,8 @@ export interface EngineDb {
    * doesn't have to notice a note. Optional until C adds the table.
    */
   activeHold?(subject: SubjectRef): Promise<Hold | null>;
+  /** Follow-ups on an invoice: still waiting, and already run. Optional (the job layer implements it). */
+  followUps?(invoiceId: string): Promise<{ pending: number; done: number }>;
 }
 
 export interface Hold {

@@ -28,6 +28,8 @@ export interface CardFront {
   options?: string[];
   /** The primary button's words: says the action and the amount. */
   approveLabel?: string;
+  /** A scheduled card: when it runs unless the merchant taps Undo (set by jobs/store.ts). */
+  scheduledFor?: string;
   demoData: boolean;
 }
 
