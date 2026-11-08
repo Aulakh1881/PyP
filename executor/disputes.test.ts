@@ -18,6 +18,17 @@ import { approveAndExecute } from "./execute";
 
 const NOW = new Date("2026-10-31T16:00:00Z");
 const subject = { kind: "dispute", id: notReceived.id };
+const MESSAGE = "Hi Alex, we're looking into this and will reply by tomorrow.";
+
+function messageAnswer() {
+  return {
+    title: "Reply to Alex",
+    summary: "Let the buyer know the merchant is on it.",
+    actions: [{ command: "dispute.sendMessage", params: { disputeId: notReceived.id, message: MESSAGE }, why: "The buyer is waiting." }],
+    confidence: "high",
+    questionForMerchant: null,
+  };
+}
 
 function fakePayPal() {
   const calls: { op: string; disputeId: string; body: unknown; requestId: string }[] = [];
@@ -100,8 +111,22 @@ describe.skipIf(!TEST_DB_URL)("executor: dispute writes (Postgres)", () => {
   it("offer: Approve sends code's amount, capped at the disputed amount", async () => {
     const id = await card(offerAnswer("amt_1"), "Refund the buyer $500");
     const out = await approve(id);
-    expect(out).toEqual({ status: "executed", message: "Offered $500.00 (refund) on dispute PP-D-123" });
+    expect(out).toEqual({ status: "executed", message: "Offered a $500.00 refund on dispute PP-D-123" });
     expect(pp.calls[0]).toMatchObject({ op: "offer", body: { offerType: "REFUND", amount: "500.00", currency: "USD" } });
+  });
+
+  it("a message PayPal already has (a timeout hid the send) isn't posted twice", async () => {
+    const id = await card(messageAnswer());
+    pp.setDispute({ ...notReceived, messages: [...notReceived.messages, { postedBy: "SELLER", at: "2026-10-31T15:59:00Z", text: MESSAGE }] });
+    const out = await approve(id);
+    expect(out).toEqual({ status: "executed", message: "Message to Alex Rivera was already on dispute PP-D-123; not sent again" });
+    expect(pp.calls).toEqual([]);
+  });
+
+  it("a message not yet in the thread is sent", async () => {
+    const id = await card(messageAnswer());
+    expect(await approve(id)).toEqual({ status: "executed", message: "Message sent to Alex Rivera on dispute PP-D-123" });
+    expect(pp.calls).toMatchObject([{ op: "message", disputeId: "PP-D-123", body: MESSAGE }]);
   });
 
   it("a dispute closed while the card waited: nothing is sent", async () => {
