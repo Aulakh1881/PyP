@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ScriptedAgentClient } from "@/gateway/scripted";
 import { acmeInvoice, context, demoClients, rules } from "@/skills/collections/evals/fixtures";
-import { handleChat, type ChatSubject } from "./chat";
+import { handleChat, requestWithFollowUps, RECEPTIONIST_SYSTEM, type ChatSubject, type ChatTurn } from "./chat";
 import { codeFlags, quarantine } from "./quarantine";
 import { partialSummary } from "./stream";
 
@@ -76,6 +76,43 @@ describe("chat receptionist", () => {
     const agent = new ScriptedAgentClient([{ route: "none", subjectRef: null, reply: "See evil.example for help" }]);
     const res = await handleChat({ message: "help", chatId: "c_6", subjects, ctx: context(world), agent });
     expect(res.reply).toBe("On it.");
+  });
+});
+
+describe("chat follow-ups", () => {
+  const asked: ChatTurn[] = [
+    { from: "merchant", text: "Invoice Acme for the design work, net 30" },
+    { from: "pyp", text: "How much should the invoice be?", waiting: true },
+  ];
+
+  it("the receptionist sees the conversation, and the skill gets the merchant's earlier words too", async () => {
+    const agent = new ScriptedAgentClient([{ route: "new_invoice", subjectRef: null, reply: "Drafting that invoice now." }, createAnswer]);
+    const res = await handleChat({ message: "$1,200", chatId: "c_7", subjects, history: asked, ctx: context(world), agent });
+    expect(agent.requests[0].turn).toContain("<conversation");
+    expect(agent.requests[0].turn).toContain("<pyp>How much should the invoice be?</pyp>");
+    expect(agent.requests[1].turn).toMatch(/<merchant-request>Invoice Acme for the design work, net 30\n\s*\$1,200<\/merchant-request>/);
+    expect(agent.requests[1].turn).toContain('named-in-request="yes"');
+    expect(res.run?.proposals[0]).toMatchObject({ status: "awaiting_approval", resolved: { totalDisplay: "$1,200.00" } });
+  });
+
+  it("only the merchant's words since Pyp last finished something, never Pyp's", () => {
+    const history: ChatTurn[] = [
+      { from: "merchant", text: "Invoice Beta $50 for prints" },
+      { from: "pyp", text: "Drafting that invoice now.", waiting: false },
+      ...asked,
+    ];
+    expect(requestWithFollowUps(history, "$1,200")).toBe("Invoice Acme for the design work, net 30\n$1,200");
+    expect(requestWithFollowUps([], "hi")).toBe("hi");
+  });
+
+  it("no history: no conversation block", async () => {
+    const agent = new ScriptedAgentClient([{ route: "none", subjectRef: null, reply: "What can I help with?" }]);
+    await handleChat({ message: "hello", chatId: "c_8", subjects, ctx: context(world), agent });
+    expect(agent.requests[0].turn).not.toContain("<conversation");
+  });
+
+  it("the receptionist is told to talk to the merchant as you", () => {
+    expect(RECEPTIONIST_SYSTEM).toContain('Never write "the merchant"');
   });
 });
 

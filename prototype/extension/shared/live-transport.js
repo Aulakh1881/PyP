@@ -2,7 +2,7 @@
  * Live transport: the same methods as the demo transport (see the top of
  * demo-data.js), backed by the real Next.js API instead of made-up data.
  *
- *   inbox / act / activity   /api/cards, /api/cards/{id}/approve|dismiss, /api/cards/{id}/trace
+ *   inbox / act / activity   /api/cards, /api/cards/{id}/approve|dismiss|clear, /api/cards/{id}/trace
  *   chat                     /api/chat (the receptionist routes the sentence to a skill)
  *   overview … disputes      /api/paypal/* (read-only sandbox data)
  *   brief                    built here from /api/paypal/* and the cards (code does the maths)
@@ -72,11 +72,13 @@
     var listeners = [];
     var cards = [];
     var traces = {};   // card id -> { key, steps }
-    var busy = {};     // card id -> true while approve/dismiss is in flight
+    var busy = {};     // card id -> the action (approve/dismiss/clear) while it's in flight
     var notes = {};    // card id -> last message from approve/dismiss
     var local = loadSettings();
     var lastJson = '';
     var loadError = null; // why the last /api/cards load failed, shown instead of "all caught up"
+    // This chat so far (this page only), sent with each message so Pyp follows up on what you said.
+    var chatHistory = [];
 
     // The Chrome extension passes its own fetch, which goes through the background
     // worker so the sign-in cookie for the Pyp server rides along from paypal.com.
@@ -145,13 +147,15 @@
       }
 
       var buttons = busy[card.id]
-        ? [{ id: 'noop', label: 'Sending…', style: 'primary', disabled: true }]
+        ? [{ id: 'noop', label: busy[card.id] === 'clear' ? 'Removing…' : 'Sending…', style: 'primary', disabled: true }]
         : (card.actions || []).map(function (a) {
           // Answering a question and Undo aren't wired to the API yet.
-          var wired = a.id === 'approve' || a.id === 'dismiss';
+          var wired = a.id === 'approve' || a.id === 'dismiss' || a.id === 'clear';
           return { id: a.id, label: a.label, style: a.style === 'danger' ? 'outline' : a.style, disabled: !wired };
         });
-      if (state === 'done') buttons = [{ id: 'noop', label: 'Sent ✓', style: 'success', disabled: true }];
+      if (state === 'done' && !busy[card.id]) {
+        buttons = [{ id: 'noop', label: 'Sent ✓', style: 'success', disabled: true }].concat(buttons.filter(function (b) { return b.id === 'clear'; }));
+      }
 
       var steps = (traces[card.id] && traces[card.id].steps) || [];
       return {
@@ -178,9 +182,11 @@
     }
 
     function items() { return cards.map(toItem); }
+    // The Inbox leaves out cards the merchant removed from it; Activity still lists them.
+    function inboxItems() { return cards.filter(function (c) { return !c.clearedAt; }).map(toItem); }
 
     function emit() {
-      var snapshot = items();
+      var snapshot = inboxItems();
       listeners.forEach(function (fn) { try { fn(snapshot); } catch (e) { /* keep going */ } });
     }
 
@@ -241,19 +247,19 @@
       await ready;
       var card = cards.filter(function (c) { return c.id === id; })[0];
       if (!card) throw new Error('No card ' + id);
-      if (action !== 'approve' && action !== 'dismiss') return toItem(card);
+      if (action !== 'approve' && action !== 'dismiss' && action !== 'clear') return toItem(card);
       if (action === 'approve' && local.paused) {
         notes[id] = 'Pyp is paused. Turn it back on in Setup to send this.';
         emit();
         return toItem(card);
       }
-      busy[id] = true;
+      busy[id] = action;
       emit();
       try {
         var r = await api('/api/cards/' + encodeURIComponent(id) + '/' + action, { method: 'POST' });
         notes[id] = r.body.message || r.body.error || (r.ok ? '' : 'Request failed (' + r.status + ')');
       } catch (e) {
-        notes[id] = 'Couldn’t reach Pyp, so nothing was sent. Try again in a moment.';
+        notes[id] = action === 'clear' ? 'Couldn’t reach Pyp. Try again in a moment.' : 'Couldn’t reach Pyp, so nothing was sent. Try again in a moment.';
       } finally {
         busy[id] = false;
         delete traces[id]; // a retry or failure adds trace steps without changing the state
@@ -267,6 +273,7 @@
     return {
       name: 'live',
       isDemo: false,
+      attachments: false, // Pyp can't read photos or screenshots yet: the chat hides its + menu
       ready: ready,
       lastError: function () { return loadError; },
       greet: async function () {
@@ -283,18 +290,21 @@
         if (!text) return { text: 'Type what you need, like “Invoice PyP Test $300 for the logo, net 30”.' };
         var r;
         try {
-          r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ message: text.slice(0, 1000) }) });
+          r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ message: text.slice(0, 1000), history: chatHistory.slice(-8) }) });
         } catch (e) {
           return { text: loadError || 'I couldn’t reach the Pyp server. Is it running?' };
         }
         lastJson = '';
         refresh().catch(function () { /* the poll will catch up */ });
         if (!r.ok) return { text: r.body.error || 'Something went wrong on my side. Try again in a moment.' };
-        return { text: r.body.reply || 'Done. Check your Inbox.' };
+        var reply = r.body.reply || 'Done. Check your Inbox.';
+        chatHistory.push({ from: 'merchant', text: text.slice(0, 1000) }, { from: 'pyp', text: reply.slice(0, 1000), waiting: r.body.waiting !== false });
+        if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
+        return { text: reply };
       },
       inbox: async function () {
         await ready;
-        var all = items();
+        var all = inboxItems();
         // The inbox view reads this line once, so it mustn't depend on the cards.
         return {
           greeting: greeting(),

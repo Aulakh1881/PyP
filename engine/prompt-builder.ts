@@ -13,6 +13,7 @@ export const GUARDRAILS = `<guardrails>
 - If you are unsure, say so with confidence "low" or use merchant.ask.
 - No links in anything you write, except a link the case file gives you for that purpose.
 - You are not PayPal and never say you are.
+- The merchant reads your title, summary and any question in Pyp's chat and Inbox. Write them to the merchant as "you", in your own voice as Pyp ("I"). Never write "the merchant", "merchant wants" or "they" for the merchant.
 </guardrails>
 <response-format>One JSON object matching the provided schema. Nothing else.</response-format>`;
 

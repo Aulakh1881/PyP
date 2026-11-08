@@ -15,7 +15,7 @@ import { demoClients } from "@/skills/collections/evals/fixtures";
 import { PayPalError } from "@/paypal/http";
 import type { PayPalWriteClient } from "@/paypal/write-client";
 import { approveAndExecute } from "./execute";
-import { dismiss } from "@/jobs/store";
+import { clearCard, dismiss } from "@/jobs/store";
 
 const NOW = new Date("2026-10-31T16:00:00Z");
 const SENTENCE = "Invoice Jordan Kim $300 for the logo, net 30";
@@ -203,6 +203,18 @@ describe.skipIf(!TEST_DB_URL)("demo path: chat, card, approve, PayPal", () => {
     expect(await dismiss(pool, DEMO_MERCHANT, cardIds[0])).toBe(true);
     expect((await approve(cardIds[0])).status).toBe("not_waiting");
     expect(pp.calls).toEqual([]);
+  });
+
+  it("Remove from Inbox only works on finished cards, and keeps the card for Activity", async () => {
+    const { cardIds } = await chat();
+    expect(await clearCard(pool, DEMO_MERCHANT, cardIds[0])).toBe(false); // still waiting on you
+    expect(await dismiss(pool, DEMO_MERCHANT, cardIds[0])).toBe(true);
+    expect(await clearCard(pool, "00000000-0000-0000-0000-000000000002", cardIds[0])).toBe(false);
+    expect(await clearCard(pool, DEMO_MERCHANT, cardIds[0])).toBe(true);
+    expect(await clearCard(pool, DEMO_MERCHANT, cardIds[0])).toBe(false); // already removed
+    const card = (await listCards(pool, DEMO_MERCHANT)).find((c) => c.id === cardIds[0])!;
+    expect(card.state).toBe("rejected");
+    expect(card.clearedAt).not.toBeNull();
   });
 
   it("another merchant can't see, approve or dismiss the card", async () => {

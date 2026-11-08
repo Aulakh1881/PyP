@@ -1,4 +1,5 @@
 // GET /api/cards: the Inbox feed, newest first, with each card's buttons.
+// Cards removed from the Inbox come back too (clearedAt set): Activity still lists them.
 
 import { cardActions } from "@/engine/card";
 import { requireMerchant } from "@/lib/session";
