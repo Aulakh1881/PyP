@@ -15,7 +15,6 @@
   var widget = null;
   var inboxHandle = null;
   var cleanup = [];
-
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -247,22 +246,203 @@
     function loadDisputes() {
       results.innerHTML = '<div class="loading">Loading disputes…</div>';
       transport.disputes({ page: page, pageSize: pageSize }).then(function (data) {
-        var rows = (data.disputes || []).map(function (item) {
+        var disputes = (data.disputes || []).slice().sort(function (a, b) {
+          var aDue = new Date(a.responseDueDate).getTime();
+          var bDue = new Date(b.responseDueDate).getTime();
+          var aClosed = /^(resolved|closed|won|lost)$/i.test(String(a.status || ''));
+          var bClosed = /^(resolved|closed|won|lost)$/i.test(String(b.status || ''));
+          if (aClosed !== bClosed) return aClosed ? 1 : -1;
+          if (!isFinite(aDue)) return 1;
+          if (!isFinite(bDue)) return -1;
+          return aDue - bDue;
+        });
+        function deadlineText(iso) {
+          var due = new Date(iso).getTime();
+          if (!isFinite(due)) return '—';
+          var days = Math.ceil((due - Date.now()) / (24 * 60 * 60 * 1000));
+          if (days < 0) return Math.abs(days) + ' day' + (Math.abs(days) === 1 ? '' : 's') + ' overdue';
+          if (days === 0) return 'Due today';
+          return days + ' day' + (days === 1 ? '' : 's') + ' remaining';
+        }
+        function evidenceStage(item) {
+          var status = String(item.status || '').toUpperCase();
+          if (/^(RESOLVED|CLOSED|WON|LOST)/.test(status)) return 'Dispute closed';
+          if (status === 'WAITING_FOR_SELLER_RESPONSE') return 'Awaiting merchant review';
+          if (status === 'WAITING_FOR_BUYER_RESPONSE') return 'Waiting for buyer';
+          if (status === 'UNDER_REVIEW') return 'Under PayPal review';
+          return 'Review stage not provided';
+        }
+        function urgencyFor(item) {
+          var due = new Date(item.responseDueDate).getTime();
+          var closed = /^(resolved|closed|won|lost)$/i.test(String(item.status || ''));
+          if (closed) return 'gray';
+          if (!isFinite(due) || due < Date.now()) return 'red';
+          if (due <= Date.now() + 7 * 24 * 60 * 60 * 1000) return 'amber';
+          return 'green';
+        }
+        var rows = disputes.map(function (item) {
           var amount = item.amount == null ? '—' : (item.currency || '') + ' ' + item.amount;
           return '<tr><td class="transaction-id" title="' + esc(item.id) + '">' + esc(item.id) + '</td>' +
             '<td><span class="status status-' + esc(item.status) + '" title="' + esc(item.status) + '">' + esc(item.statusLabel || item.status) + '</span></td>' +
             '<td title="' + esc(item.reason) + '">' + esc(item.reasonLabel || item.reason) + '</td>' +
             '<td>' + esc(item.createdAt ? item.createdAt.slice(0, 10) : '—') + '</td>' +
             '<td>' + esc(item.responseDueDate ? item.responseDueDate.slice(0, 10) : '—') + '</td>' +
-            '<td class="num">' + esc(amount) + '</td></tr>';
+            '<td>' + esc(deadlineText(item.responseDueDate)) + '</td>' +
+            '<td class="num">' + esc(amount) + '</td>' +
+            '<td><button class="btn btn-ghost dispute-review-btn" type="button" data-review-dispute="' + esc(item.id) + '">Review</button></td></tr>';
         }).join('');
         var totalPages = data.totalPages || 1;
+        var now = Date.now();
+        var dueSoon = disputes.filter(function (item) {
+          var due = new Date(item.responseDueDate).getTime();
+          return isFinite(due) && due >= now && due <= now + 7 * 24 * 60 * 60 * 1000;
+        }).length;
+        var overdue = disputes.filter(function (item) {
+          var due = new Date(item.responseDueDate).getTime();
+          return isFinite(due) && due < now && !/^(resolved|closed|won|lost)$/i.test(String(item.status || ''));
+        }).length;
         results.innerHTML =
+          (rows ? '<section class="dispute-schedule"><div class="dispute-schedule-heading"><div><h3>Dispute deadline schedule</h3><p class="note">A read-only timeline of the time remaining to respond.</p></div><span class="schedule-legend"><span class="schedule-dot schedule-dot-green"></span>7+ days <span class="schedule-dot schedule-dot-amber"></span>Due soon <span class="schedule-dot schedule-dot-red"></span>Overdue <span class="schedule-dot schedule-dot-milestone"></span>Milestones</span></div><div class="dispute-scheduler" data-dispute-scheduler><div class="loading">Loading schedule…</div></div></section>' : '') +
+          (rows ? '<div class="dispute-urgency" aria-label="Dispute deadline summary"><div><strong>' + esc(String(data.totalItems || 0)) + '</strong><span>Total disputes</span></div><div class="' + (dueSoon ? 'is-warning' : '') + '"><strong>' + esc(String(dueSoon)) + '</strong><span>Due within 7 days</span></div><div class="' + (overdue ? 'is-danger' : '') + '"><strong>' + esc(String(overdue)) + '</strong><span>Overdue</span></div></div>' : '') +
           '<div class="transaction-summary">' + esc(String(data.totalItems)) + ' dispute' + (data.totalItems === 1 ? '' : 's') + ' found</div>' +
-          (rows ? '<div class="tablewrap"><table><thead><tr><th>Dispute ID</th><th>Status</th><th>Reason</th><th>Created</th><th>Response due</th><th class="num">Amount</th></tr></thead><tbody>' + rows + '</tbody></table></div>' :
-            '<div class="empty">No disputes were returned.</div>') +
+          (rows ? '<div class="tablewrap"><table><thead><tr><th>Dispute ID</th><th>Status</th><th>Reason</th><th>Created</th><th>Response due</th><th>Time remaining</th><th class="num">Amount</th><th>Review</th></tr></thead><tbody>' + rows + '</tbody></table></div>' :
+          '') +
+          '<div data-dispute-review></div>' +
+          (rows ? '' : '<div class="empty">No disputes were returned.</div>') +
           '<div class="pagination"><button class="btn btn-ghost" type="button" data-page-prev ' + (page <= 1 ? 'disabled' : '') + '>Previous</button><span>Page ' + esc(String(page)) + ' of ' + esc(String(totalPages)) + '</span><button class="btn btn-ghost" type="button" data-page-next ' + (page >= totalPages ? 'disabled' : '') + '>Next</button></div>' +
           '<p class="note">This view only reads PayPal data. Pyp does not respond to, resolve, or change disputes here.</p>';
+        var schedule = results.querySelector('[data-dispute-scheduler]');
+        var review = results.querySelector('[data-dispute-review]');
+        function showReview(item) {
+          var amount = item.amount == null ? '—' : (item.currency || '') + ' ' + item.amount;
+          review.innerHTML = '<section class="dispute-review panel"><div class="dispute-review-heading"><div><h3>Review dispute</h3><p class="note">Read-only PayPal details for merchant review.</p></div><button class="btn btn-ghost" type="button" data-close-review>Close</button></div><dl class="kv">' +
+            '<dt>Dispute ID</dt><dd>' + esc(item.id) + '</dd>' +
+            '<dt>Status</dt><dd>' + esc(item.statusLabel || item.status || '—') + '</dd>' +
+            '<dt>Reason</dt><dd>' + esc(item.reasonLabel || item.reason || '—') + '</dd>' +
+            '<dt>Amount</dt><dd>' + esc(amount) + '</dd>' +
+            '<dt>Created</dt><dd>' + esc(item.createdAt ? item.createdAt.slice(0, 10) : '—') + '</dd>' +
+            '<dt>Response due</dt><dd>' + esc(item.responseDueDate ? item.responseDueDate.slice(0, 10) : '—') + '</dd>' +
+            '<dt>Time remaining</dt><dd>' + esc(deadlineText(item.responseDueDate)) + '</dd>' +
+            '<dt>Transaction</dt><dd>' + esc(item.transactionId || 'Not provided by PayPal') + '</dd></dl></section>';
+          review.querySelector('.dispute-review').insertAdjacentHTML('beforeend',
+            '<div class="evidence-milestones"><h4>Evidence milestones</h4><ol>' +
+            '<li class="is-complete"><span>1</span><div><strong>Dispute opened</strong><small>' + esc(item.createdAt ? item.createdAt.slice(0, 10) : 'Date unavailable') + '</small></div></li>' +
+            '<li class="is-current"><span>2</span><div><strong>' + esc(evidenceStage(item)) + '</strong><small>Based on the current PayPal status</small></div></li>' +
+            '<li><span>3</span><div><strong>Response deadline</strong><small>' + esc(item.responseDueDate ? item.responseDueDate.slice(0, 10) : 'Date unavailable') + '</small></div></li>' +
+            '</ol><p class="note">These milestones are read-only. Pyp has not submitted evidence.</p></div>');
+          review.querySelector('[data-close-review]').addEventListener('click', function () { review.innerHTML = ''; });
+          review.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        results.querySelectorAll('[data-review-dispute]').forEach(function (button) {
+          button.addEventListener('click', function () {
+            var item = disputes.find(function (dispute) { return dispute.id === button.getAttribute('data-review-dispute'); });
+            if (item) showReview(item);
+          });
+        });
+        if (schedule) {
+          import('@bryntum/scheduler-community').then(function (module) {
+           var scheduledDisputes = disputes.filter(function (item) { return item.createdAt && item.responseDueDate; });
+           var resources = scheduledDisputes.map(function (item) {
+             return { id: item.id, name: item.id + ' · ' + deadlineText(item.responseDueDate), statusLabel: item.statusLabel || item.status, reasonLabel: item.reasonLabel || item.reason };
+           });
+           var events = [];
+           scheduledDisputes.forEach(function (item) {
+             var startDate = new Date(item.createdAt);
+             var dueDate = new Date(item.responseDueDate);
+             var stageDate = new Date(item.updatedAt || item.createdAt);
+             events.push({
+               id: item.id,
+               resourceId: item.id,
+               name: (item.reasonLabel || item.reason || 'Dispute') + ' · ' + deadlineText(item.responseDueDate),
+               startDate: startDate,
+               endDate: dueDate,
+               eventColor: urgencyFor(item),
+               cls: 'dispute-deadline-event',
+               milestoneKind: 'dispute',
+               dispute: item
+             });
+             events.push({
+               id: item.id + '-opened',
+               resourceId: item.id,
+               name: 'Dispute opened',
+               startDate: startDate,
+               endDate: new Date(startDate.getTime() + 60 * 60 * 1000),
+               eventColor: 'blue',
+               cls: 'dispute-milestone',
+               milestoneKind: 'opened',
+               dispute: item
+             });
+             events.push({
+               id: item.id + '-stage',
+               resourceId: item.id,
+               name: evidenceStage(item),
+               startDate: stageDate,
+               endDate: new Date(stageDate.getTime() + 60 * 60 * 1000),
+               eventColor: 'purple',
+               cls: 'dispute-milestone',
+               milestoneKind: 'stage',
+               dispute: item
+             });
+             events.push({
+               id: item.id + '-deadline',
+               resourceId: item.id,
+               name: 'Response deadline',
+               startDate: dueDate,
+               endDate: new Date(dueDate.getTime() + 60 * 60 * 1000),
+               eventColor: 'red',
+               cls: 'dispute-milestone dispute-milestone-deadline',
+               milestoneKind: 'deadline',
+               dispute: item
+             });
+           });
+           var disputeEvents = events.filter(function (event) { return event.milestoneKind === 'dispute'; });
+           if (!disputeEvents.length) {
+             schedule.innerHTML = '<div class="empty">No disputes have both creation and response dates for the schedule.</div>';
+             return;
+           }
+           var start = new Date(Math.min.apply(null, disputeEvents.map(function (event) { return new Date(event.startDate).getTime(); })));
+           var end = new Date(Math.max.apply(null, disputeEvents.map(function (event) { return new Date(event.endDate).getTime(); })));
+           end.setDate(end.getDate() + 1);
+           schedule.innerHTML = '';
+           var scheduler = new module.Scheduler({
+             appendTo: schedule,
+             height: Math.max(190, Math.min(520, 92 + scheduledDisputes.length * 44)),
+             maxHeight: 520,
+             startDate: start,
+             endDate: end,
+             viewPreset: 'weekAndDay',
+             rowHeight: 44,
+             barMargin: 5,
+             readOnly: true,
+             features: {
+               eventEdit: false,
+               eventDrag: false,
+               eventResize: false,
+               eventTooltip: {
+                 template: function (data) {
+                   var item = data.eventRecord.data.dispute;
+                   var amount = item.amount == null ? '—' : (item.currency || '') + ' ' + item.amount;
+                   if (data.eventRecord.data.milestoneKind !== 'dispute') {
+                     return '<strong>' + esc(data.eventRecord.name) + '</strong><br>' +
+                       esc(item.id) + '<br>' +
+                       esc(item.statusLabel || item.status || 'Unknown');
+                   }
+                   return '<strong>' + esc(item.reasonLabel || item.reason || 'Dispute') + '</strong><br>' +
+                     esc(item.statusLabel || item.status || 'Unknown') + ' · ' + esc(amount) + '<br>' +
+                     'Respond by ' + esc(item.responseDueDate ? item.responseDueDate.slice(0, 10) : '—') + '<br>' +
+                     esc(deadlineText(item.responseDueDate));
+                 }
+               }
+             },
+             columns: [{ text: 'Dispute', field: 'name', width: 200 }],
+             resources: resources,
+             events: events
+           });
+           cleanup.push(function () { scheduler.destroy(); });
+          }).catch(function (error) {
+           schedule.innerHTML = '<p class="setup-error">The dispute schedule could not load: ' + esc(error.message) + '</p>';
+          });
+        }
         results.querySelector('[data-page-prev]').addEventListener('click', function () { page -= 1; loadDisputes(); });
         results.querySelector('[data-page-next]').addEventListener('click', function () { page += 1; loadDisputes(); });
       }).catch(function (error) {
