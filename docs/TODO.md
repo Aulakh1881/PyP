@@ -21,7 +21,7 @@ Roles: **A** frontend · **B** engine and AI · **C** PayPal and infrastructure.
 
 - [ ] Run `npm run eval:live` once with a real `ANTHROPIC_API_KEY` (Collections and the new Disputes cases)
 - [ ] Chat stage 2: read-only lookup tools for questions (design §7.8)
-- [ ] Insights lite (WP10)
+- [x] Insights lite (WP10): a Friday brief from 08:00 merchant-local, or "Weekly brief now". Code computes every number; the check refuses any other number. Live on Haiku 5.5: 4 of 4 pass
 - [ ] Dispute evidence notes: check that every factual sentence cites an id (design B.2); today the note must carry at least one valid citation
 
 ## Wiring the engine to PayPal and the database

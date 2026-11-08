@@ -2,11 +2,13 @@
 
 import { collections } from "@/skills/collections/skill";
 import { disputes } from "@/skills/disputes/skill";
+import { insights } from "@/skills/insights/skill";
 import type { AnySkill, SkillId } from "./types";
 
 export const SKILLS: Record<string, AnySkill> = {
   collections,
   disputes,
+  insights,
 };
 
 export function getSkill(id: SkillId): AnySkill {

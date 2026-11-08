@@ -148,6 +148,25 @@ export interface PayPalReads {
   clientInvoices?(email: string, limit: number): Promise<Invoice[]>;
   /** One dispute with its messages, transaction and tracking (GET /v1/customer/disputes/{id} + reads). Disputes needs it. */
   getDispute?(id: string): Promise<Dispute | null>;
+  /** Insights: money that moved between two instants (Transaction Search, at most 31 days). */
+  transactions?(start: Date, end: Date): Promise<Transaction[]>;
+  /** Insights: every invoice still waiting for money (sent, unpaid, partly paid). */
+  unpaidInvoices?(): Promise<Invoice[]>;
+}
+
+/** One row of PayPal's Transaction Search, as Insights uses it. Decimal strings, signed. */
+export interface Transaction {
+  id: string;
+  at: string; // ISO timestamp
+  /** payment = money in from a client; refund = money back out; other = transfers, corrections, holds. */
+  kind: "payment" | "refund" | "other";
+  /** Only "S" (success) counts toward totals. */
+  status: string;
+  currency: string;
+  amount: string; // negative for money out
+  fee: string | null; // PayPal's fee, negative
+  /** Who paid or was paid: a name or email from PayPal (buyer-controlled text). */
+  counterparty: string | null;
 }
 
 /** Pyp's own records the engine reads (owner C implements over Postgres). */

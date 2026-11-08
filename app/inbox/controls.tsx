@@ -15,7 +15,7 @@ interface Controls {
 }
 
 const DIAL_LABEL: Record<Dial, string> = { off: "Off", ask: "Ask me", auto: "Auto" };
-const SKILL_LABEL: Record<string, string> = { collections: "Getting paid", disputes: "Disputes" };
+const SKILL_LABEL: Record<string, string> = { collections: "Getting paid", disputes: "Disputes", insights: "Insights" };
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, { ...init, headers: { "Content-Type": "application/json" } });
@@ -110,6 +110,9 @@ export function ControlsPanel({ onCardsChanged }: { onCardsChanged: () => Promis
         </button>
         <button className="btn btn-ghost" onClick={() => sweep("dispute-deadlines", "Dispute deadlines")} disabled={busy !== null || c.killSwitch}>
           {busy === "dispute-deadlines" ? "Checking…" : "Check dispute deadlines now"}
+        </button>
+        <button className="btn btn-ghost" onClick={() => sweep("weekly-brief", "Weekly brief")} disabled={busy !== null || c.killSwitch}>
+          {busy === "weekly-brief" ? "Writing…" : "Weekly brief now"}
         </button>
         <button className="link" onClick={() => setOpen(!open)} aria-expanded={open}>
           {open ? "Hide rules" : "Rules"}

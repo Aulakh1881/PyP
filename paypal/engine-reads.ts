@@ -7,7 +7,7 @@
 
 import type { ChatSubject } from "@/engine/chat";
 import { formatMoney } from "@/engine/format";
-import type { Client, Dispute, DisputeStatus, Invoice, InvoiceStatus, PayPalReads } from "@/engine/types";
+import type { Client, Dispute, DisputeStatus, Invoice, InvoiceStatus, PayPalReads, Transaction } from "@/engine/types";
 import { PayPalError, type PayPalHttp } from "./http";
 
 /** The parts of a PayPal Invoicing v2 invoice we read. */
@@ -187,6 +187,29 @@ export class PayPalReadClient implements PayPalReads {
       .sort((a, b) => a.dueDate!.localeCompare(b.dueDate!));
   }
 
+  /** Insights read: Transaction Search between two instants (PayPal allows up to 31 days per call). */
+  async transactions(start: Date, end: Date): Promise<Transaction[]> {
+    const iso = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
+    const out: Transaction[] = [];
+    for (let page = 1; page <= MAX_TXN_PAGES; page++) {
+      const q = new URLSearchParams({ start_date: iso(start), end_date: iso(end), fields: "transaction_info,payer_info", page_size: "500", page: String(page) });
+      const res = await this.http.request<{ transaction_details?: PayPalTransactionDetail[]; total_pages?: number }>("GET", `/v1/reporting/transactions?${q}`);
+      out.push(...(res.body.transaction_details ?? []).flatMap(toTransaction));
+      if (!res.body.total_pages || page >= res.body.total_pages) break;
+    }
+    return out;
+  }
+
+  /** Insights read: every invoice still owed, from search-invoices filtered by status. */
+  async unpaidInvoices(limit = 100): Promise<Invoice[]> {
+    const res = await this.http.request<{ items?: PayPalInvoiceResource[] }>(
+      "POST",
+      `/v2/invoicing/search-invoices?page=1&page_size=${Math.min(Math.max(limit, 1), 100)}&total_required=false`,
+      { body: { status: OPEN_INVOICE } },
+    );
+    return (res.body.items ?? []).map(toInvoice).filter((i) => OPEN_INVOICE.includes(i.status));
+  }
+
   /** Sweep read: disputes waiting on the merchant whose response is due before `before`. */
   async disputesDueBefore(before: Date): Promise<Dispute[]> {
     const res = await this.http.request<{ items?: PayPalDisputeResource[] }>("GET", `/v1/customer/disputes?page_size=50`);
@@ -257,4 +280,44 @@ function dayBefore(date: string): string {
   const d = new Date(`${date}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() - 1);
   return d.toISOString().slice(0, 10);
+}
+
+const MAX_TXN_PAGES = 4;
+
+export interface PayPalTransactionDetail {
+  transaction_info?: {
+    transaction_id?: string;
+    transaction_event_code?: string;
+    transaction_initiation_date?: string;
+    transaction_status?: string;
+    transaction_amount?: { currency_code?: string; value?: string };
+    fee_amount?: { currency_code?: string; value?: string };
+  };
+  payer_info?: { email_address?: string; payer_name?: { alternate_full_name?: string; given_name?: string; surname?: string } };
+}
+
+/**
+ * Transaction Search event codes: T00xx are payments received, T11xx refunds.
+ * Everything else (bank transfers, holds, T19xx corrections) is "other" and
+ * never counts as money a client paid.
+ */
+export function toTransaction(d: PayPalTransactionDetail): Transaction[] {
+  const t = d.transaction_info;
+  const value = t?.transaction_amount?.value;
+  if (!t?.transaction_id || !value || !t.transaction_amount?.currency_code) return [];
+  const code = t.transaction_event_code ?? "";
+  const name = d.payer_info?.payer_name;
+  const fullName = name?.alternate_full_name ?? ([name?.given_name, name?.surname].filter(Boolean).join(" ") || undefined);
+  return [
+    {
+      id: t.transaction_id,
+      at: t.transaction_initiation_date ?? "",
+      kind: code.startsWith("T00") ? "payment" : code.startsWith("T11") ? "refund" : "other",
+      status: t.transaction_status ?? "",
+      currency: t.transaction_amount.currency_code,
+      amount: value,
+      fee: t.fee_amount?.value ?? null,
+      counterparty: fullName ?? d.payer_info?.email_address ?? null,
+    },
+  ];
 }
