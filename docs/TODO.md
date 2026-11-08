@@ -33,7 +33,7 @@ Built on the `infra-wiring` branch (field names follow PayPal's references; not 
 - [x] Webhooks: `POST /api/webhooks/paypal` verifies with PayPal, stores each event once, answers 200, then stands down or runs the skill after the response (`jobs/event-run.ts`)
 - [x] Chat goes through the receptionist (`jobs/chat-run.ts`), so disputes and existing invoices are reachable from chat
 - [ ] Register the webhook in the sandbox app (PAID, CANCELLED, DISPUTE.CREATED, DISPUTE.UPDATED) and set `PAYPAL_WEBHOOK_ID` and `PAYPAL_WEBHOOK_MERCHANT_ID`
-- [ ] Executor: the dispute writes (evidence, offer, message, accept)
+- [x] Executor: the dispute writes (evidence, offer, message, accept) and `invoice.cancel`. Not yet run against the live sandbox: evidence is multipart with a JSON `input` part and no files
 - [ ] Sweeps: overdue invoices and dispute deadlines on a schedule
 - [ ] Cards: show `caseFile.urgency` (dispute due within 72 h) *Owner: A*
 

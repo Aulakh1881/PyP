@@ -50,6 +50,52 @@ describe("PayPal REST", () => {
     expect(body.detail).toEqual({ currency_code: "USD", invoice_date: "2026-10-31", payment_term: { term_type: "NET_30" } });
   });
 
+  it("dispute writes and cancel: PayPal's paths and bodies, each with its request id", async () => {
+    const f = fakeFetch([TOKEN, ...Array.from({ length: 6 }, () => ({ status: 200, body: {} }))]);
+    const write = new PayPalWriteClient(new PayPalHttp({ clientId: "id", secret: "s" }, f.fn));
+    await write.provideEvidence("PP-D-1", { evidenceType: "PROOF_OF_FULFILLMENT", tracking: { carrier: "USPS", number: "9400" }, note: "Delivered." }, "p1");
+    await write.provideEvidence("PP-D-1", { evidenceType: "OTHER", tracking: null, note: "See thread." }, "p2");
+    await write.makeOffer("PP-D-1", { offerType: "REFUND", amount: "300.00", currency: "USD", note: "Sorry." }, "p3");
+    await write.sendDisputeMessage("PP-D-1", "Hi Alex", "p4");
+    await write.acceptClaim("PP-D-1", { note: "Refunding.", refundAmount: "600.00", currency: "USD" }, "p5");
+    await write.cancelInvoice("INV2-1", { note: "Sent in error.", sendToRecipient: true }, "p6");
+
+    const base = "https://api-m.sandbox.paypal.com";
+    expect(f.calls.slice(1).map((c) => c.url)).toEqual([
+      `${base}/v1/customer/disputes/PP-D-1/provide-evidence`,
+      `${base}/v1/customer/disputes/PP-D-1/provide-evidence`,
+      `${base}/v1/customer/disputes/PP-D-1/make-offer`,
+      `${base}/v1/customer/disputes/PP-D-1/send-message`,
+      `${base}/v1/customer/disputes/PP-D-1/accept-claim`,
+      `${base}/v2/invoicing/invoices/INV2-1/cancel`,
+    ]);
+    const hdr = (i: number) => f.calls[i].init.headers as Record<string, string>;
+    expect([1, 2, 3, 4, 5, 6].map((i) => hdr(i)["PayPal-Request-Id"])).toEqual(["p1", "p2", "p3", "p4", "p5", "p6"]);
+
+    // Evidence is multipart: one JSON part named "input", with no filename.
+    const ct = hdr(1)["Content-Type"];
+    expect(ct).toMatch(/^multipart\/form-data; boundary=pyp-/);
+    const boundary = ct.split("boundary=")[1];
+    const raw = f.calls[1].init.body as string;
+    expect(raw.startsWith(`--${boundary}\r\nContent-Disposition: form-data; name="input"\r\nContent-Type: application/json\r\n\r\n`)).toBe(true);
+    expect(raw.endsWith(`\r\n--${boundary}--\r\n`)).toBe(true);
+    expect(raw).not.toContain("filename");
+    const input = (i: number) => JSON.parse((f.calls[i].init.body as string).split("\r\n\r\n")[1].split("\r\n--")[0]);
+    expect(input(1)).toEqual({
+      evidences: [
+        { evidence_type: "PROOF_OF_FULFILLMENT", evidence_info: { tracking_info: [{ carrier_name: "USPS", tracking_number: "9400" }] }, notes: "Delivered." },
+      ],
+    });
+    expect(input(2)).toEqual({ evidences: [{ evidence_type: "OTHER", notes: "See thread." }] });
+
+    const json = (i: number) => JSON.parse(f.calls[i].init.body as string);
+    expect(hdr(3)["Content-Type"]).toBe("application/json");
+    expect(json(3)).toEqual({ note: "Sorry.", offer_amount: { currency_code: "USD", value: "300.00" }, offer_type: "REFUND" });
+    expect(json(4)).toEqual({ message: "Hi Alex" });
+    expect(json(5)).toEqual({ note: "Refunding.", refund_amount: { currency_code: "USD", value: "600.00" } });
+    expect(json(6)).toEqual({ note: "Sent in error.", send_to_invoicer: false, send_to_recipient: true });
+  });
+
   it("errors carry PayPal's own words and say whether a retry is safe", async () => {
     const f = fakeFetch([
       TOKEN,

@@ -101,9 +101,35 @@ async function run(deps: ExecutorDeps, p: ClaimedProposal): Promise<string> {
         keep: {},
       }));
       return `Reminder ${r.reminderNumber} sent for invoice ${r.invoiceNumber} (${r.amountDueDisplay})`;
+    case "invoice.cancel":
+      await single(deps, p.id, () => deps.write.cancelInvoice(r.invoiceId, { note: r.note, sendToRecipient: r.sendToRecipient }, p.id));
+      return `Invoice ${r.invoiceNumber} (${r.totalDisplay}) cancelled; PayPal emailed ${r.recipientEmail}`;
+    case "dispute.provideEvidence":
+      await single(deps, p.id, () => deps.write.provideEvidence(r.disputeId, { evidenceType: r.evidenceType, tracking: r.tracking, note: r.note }, p.id));
+      return r.tracking
+        ? `Evidence submitted for dispute ${r.disputeId}: ${r.tracking.carrier} tracking ${r.tracking.number}`
+        : `Evidence submitted for dispute ${r.disputeId}`;
+    case "dispute.makeOffer":
+      await single(deps, p.id, () =>
+        deps.write.makeOffer(r.disputeId, { offerType: r.offerType, amount: r.amount, currency: r.currency, note: r.note }, p.id),
+      );
+      return `Offered ${r.amountDisplay} (${r.offerType === "REFUND_WITH_RETURN" ? "refund on return" : "refund"}) on dispute ${r.disputeId}`;
+    case "dispute.sendMessage":
+      await single(deps, p.id, () => deps.write.sendDisputeMessage(r.disputeId, r.message, p.id));
+      return `Message sent to ${r.buyerName ?? "the buyer"} on dispute ${r.disputeId}`;
+    case "dispute.acceptClaim":
+      await single(deps, p.id, () =>
+        deps.write.acceptClaim(r.disputeId, { note: r.note, refundAmount: r.refundAmount, currency: r.currency }, p.id),
+      );
+      return `Claim accepted on dispute ${r.disputeId}; PayPal refunds the buyer ${r.refundDisplay}`;
     default:
       throw new PayPalError(`Pyp can't run ${p.commandId} yet`, 400, null, null);
   }
+}
+
+/** A command with one write: request id = proposal id. */
+function single(deps: ExecutorDeps, proposalId: string, call: () => Promise<PayPalResponse<unknown>>): Promise<object> {
+  return step(deps, proposalId, "single", proposalId, async () => ({ res: await call(), keep: {} }));
 }
 
 /** One PayPal call, recorded in executions whether it worked or not. */
