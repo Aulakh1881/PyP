@@ -23,9 +23,38 @@ interface Card {
     body?: string;
     lines?: { description: string; amount: string }[];
     reason?: string;
+    scheduledFor?: string;
     demoData: boolean;
   };
   actions: CardAction[];
+}
+
+/** "Sends in 0:42 unless you tap Undo", ticking each second; days for a follow-up. */
+function Countdown({ at, onDue }: { at: string; onDue: () => void }) {
+  const [now, setNow] = useState(() => Date.now());
+  const left = Math.max(0, Math.ceil((Date.parse(at) - now) / 1000));
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => {
+    // Give the worker a moment to run it, then refresh the card.
+    if (left !== 0) return;
+    const t = setTimeout(onDue, 20_000);
+    return () => clearTimeout(t);
+  }, [left, onDue]);
+  if (left === 0) return <p className="reason">Running now…</p>;
+  if (left >= 3600) {
+    const when = left >= 86_400 ? `${Math.round(left / 86_400)} day${left >= 1.5 * 86_400 ? "s" : ""}` : `${Math.round(left / 3600)} h`;
+    return <p className="reason">Pyp looks again in {when}. Undo to cancel.</p>;
+  }
+  const m = Math.floor(left / 60);
+  const s = String(left % 60).padStart(2, "0");
+  return (
+    <p className="reason" role="timer">
+      Runs in {m}:{s} unless you tap Undo
+    </p>
+  );
 }
 
 interface TraceStep {
@@ -139,7 +168,7 @@ function CardView({ card, onChanged }: { card: Card; onChanged: () => Promise<vo
   }
 
   async function act(action: CardAction) {
-    if (action.id !== "approve" && action.id !== "dismiss") return; // answer and undo come later
+    if (action.id === "answer") return; // answering a question card comes later
     setBusy(true);
     try {
       const out = await api<{ message?: string }>(`/api/cards/${card.id}/${action.id}`, { method: "POST" });
@@ -175,6 +204,7 @@ function CardView({ card, onChanged }: { card: Card; onChanged: () => Promise<vo
           )}
           {f.body && <p className="body">{f.body}</p>}
           {f.reason && <p className="reason">{f.reason}</p>}
+          {card.state === "scheduled" && f.scheduledFor && <Countdown at={f.scheduledFor} onDue={onChanged} />}
           {note && <p className="reply" role="status">{note}</p>}
           <footer className="card-actions">
             {card.actions.map((a) => (
@@ -182,7 +212,7 @@ function CardView({ card, onChanged }: { card: Card; onChanged: () => Promise<vo
                 key={a.id + a.label}
                 className={a.style === "primary" ? "btn" : a.style === "danger" ? "btn btn-danger" : "btn btn-ghost"}
                 onClick={() => act(a)}
-                disabled={busy || a.id === "answer" || a.id === "undo"}
+                disabled={busy || a.id === "answer"}
               >
                 {busy && a.id === "approve" ? "Sending…" : a.label}
               </button>

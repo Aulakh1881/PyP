@@ -27,8 +27,12 @@ export async function loadMerchant(db: Db, merchantId: string): Promise<{ mercha
   };
 }
 
-/** Reminders that went out or are waiting in their undo window count (engine README §1). */
-export function engineDb(db: Db, merchantId: string): EngineDb {
+/**
+ * Reminders that went out or are waiting in their undo window count (engine README §1).
+ * The executor passes the proposal it is running as `executing`, so its own re-check
+ * doesn't count the reminder it is about to send.
+ */
+export function engineDb(db: Db, merchantId: string, executing?: string): EngineDb {
   return {
     async remindersSent(invoiceId) {
       const res = await db.query(
@@ -40,8 +44,9 @@ export function engineDb(db: Db, merchantId: string): EngineDb {
            ) e on true
           where p.merchant_id = $1 and p.command_id = 'invoice.sendReminder'
             and p.params_json->>'invoiceId' = $2
-            and p.status in ('scheduled', 'executing', 'executed')`,
-        [merchantId, invoiceId],
+            and p.status in ('scheduled', 'executing', 'executed')
+            and p.id is distinct from $3::uuid`,
+        [merchantId, invoiceId, executing ?? null],
       );
       const row = res.rows[0];
       return { count: row.count, lastSentAt: row.last ? new Date(row.last).toISOString() : null };
@@ -175,14 +180,31 @@ export interface SaveRunInput {
   result: RunResult;
   /** The PayPal event behind this run, if any. Unique: an event makes at most one run. */
   triggerEventId?: string;
+  /** The clock scheduled proposals count from (default: now). */
+  now?: Date;
+}
+
+export const FOLLOW_UP = "invoice.scheduleFollowUp";
+
+/**
+ * When a scheduled proposal falls due (design §8.3): a follow-up after its
+ * inDays, anything else on Auto once the merchant's undo window has passed.
+ */
+export function dueAt(commandId: string, params: Record<string, unknown>, now: Date, undoSeconds: number): Date {
+  if (commandId === FOLLOW_UP) return new Date(now.getTime() + Number(params.inDays) * 86_400_000);
+  return new Date(now.getTime() + undoSeconds * 1000);
 }
 
 /** One transaction: the run, its proposals (ids assigned here), trace steps and cards. */
 export async function saveRun(pool: Pool, input: SaveRunInput): Promise<{ runId: string; cardIds: string[] }> {
   const { merchantId, skill, subject, trigger, result, triggerEventId } = input;
+  const now = input.now ?? new Date();
   const client = await pool.connect();
   try {
     await client.query("begin");
+    const undoSeconds: number = result.proposals.some((p) => p.status === "scheduled")
+      ? (await client.query("select undo_window_s from merchants where id = $1", [merchantId])).rows[0].undo_window_s
+      : 0;
     const cf = result.caseFile;
     const run = await client.query(
       `insert into runs (merchant_id, skill, subject_ref, trigger, model, case_file_xml, case_file_json,
@@ -215,10 +237,11 @@ export async function saveRun(pool: Pool, input: SaveRunInput): Promise<{ runId:
 
     const cardIds: string[] = [];
     for (const p of result.proposals) {
+      const scheduledFor = p.status === "scheduled" ? dueAt(p.action.command, p.action.params, now, undoSeconds) : null;
       const prop = await client.query(
         `insert into proposals (run_id, merchant_id, command_id, params_json, why, decision, policy_rule,
-                                status, resolved_json, check_reason)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id`,
+                                status, resolved_json, check_reason, scheduled_for)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) returning id`,
         [
           runId,
           merchantId,
@@ -230,13 +253,15 @@ export async function saveRun(pool: Pool, input: SaveRunInput): Promise<{ runId:
           p.status,
           p.resolved ? JSON.stringify(p.resolved) : null,
           p.check.ok ? null : (p.check.reason ?? null),
+          scheduledFor,
         ],
       );
       if (!needsCard(p) || !result.response) continue;
+      const front = { ...cardFor(skill, p, result.response), ...(scheduledFor ? { scheduledFor: scheduledFor.toISOString() } : {}) };
       const card = await client.query(
         `insert into cards (merchant_id, run_id, proposal_id, skill, state, front_json)
          values ($1, $2, $3, $4, $5, $6) returning id`,
-        [merchantId, runId, prop.rows[0].id, skill, p.status, JSON.stringify(cardFor(skill, p, result.response))],
+        [merchantId, runId, prop.rows[0].id, skill, p.status, JSON.stringify(front)],
       );
       cardIds.push(card.rows[0].id);
     }
@@ -351,6 +376,72 @@ export async function claimForExecution(db: Db, merchantId: string, cardId: stri
     resolved: row.resolved_json,
     caseFile: row.case_file_json,
   };
+}
+
+export interface DueProposal extends ClaimedProposal {
+  merchantId: string;
+  subjectRef: string;
+}
+
+/**
+ * The worker's claim (design §8.3): scheduled proposals whose time has come move
+ * to executing in one statement. SKIP LOCKED lets two workers share the queue
+ * without taking the same row. A merchant with the kill switch on is left alone;
+ * their proposals wait until it is off.
+ */
+export async function claimDue(db: Db, now: Date, limit = 20): Promise<DueProposal[]> {
+  const res = await db.query(
+    `with due as (
+       select p.id from proposals p join merchants m on m.id = p.merchant_id
+        where p.status = 'scheduled' and p.scheduled_for <= $1 and not m.kill_switch
+        order by p.scheduled_for
+        limit $2
+        for update of p skip locked
+     ),
+     claimed as (
+       update proposals p set status = 'executing', decided_by = 'pyp', decided_at = now()
+         from due where p.id = due.id
+       returning p.id, p.run_id, p.merchant_id, p.command_id, p.params_json, p.resolved_json
+     )
+     select claimed.*, c.id as card_id, r.skill, r.subject_ref, r.case_file_json
+       from claimed join runs r on r.id = claimed.run_id
+       left join cards c on c.proposal_id = claimed.id`,
+    [now, limit],
+  );
+  const out: DueProposal[] = [];
+  for (const row of res.rows) {
+    if (row.card_id) await setCardState(db, row.card_id, "executing");
+    const label = row.command_id === FOLLOW_UP ? "Follow-up is due" : "Undo window passed; running on Auto";
+    await addStep(db, row.run_id, row.id, "merchant", label, true);
+    out.push({
+      id: row.id,
+      runId: row.run_id,
+      cardId: row.card_id,
+      merchantId: row.merchant_id,
+      subjectRef: row.subject_ref,
+      skill: row.skill,
+      commandId: row.command_id,
+      params: row.params_json,
+      resolved: row.resolved_json,
+      caseFile: row.case_file_json,
+    });
+  }
+  return out;
+}
+
+/** Undo: a scheduled proposal is cancelled before it runs. Nothing has left Pyp. */
+export async function undo(db: Db, merchantId: string, cardId: string): Promise<boolean> {
+  const res = await db.query(
+    `update proposals p set status = 'undone', decided_by = 'merchant', decided_at = now()
+       from cards c
+      where c.id = $2 and c.merchant_id = $1 and c.proposal_id = p.id and p.status = 'scheduled'
+     returning p.id, p.run_id`,
+    [merchantId, cardId],
+  );
+  if (!res.rows[0]) return false;
+  await setCardState(db, cardId, "undone");
+  await addStep(db, res.rows[0].run_id, res.rows[0].id, "merchant", "You tapped Undo; nothing was sent", true);
+  return true;
 }
 
 /** Dismiss: the proposal is rejected and nothing is sent. */

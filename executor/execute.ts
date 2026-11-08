@@ -34,6 +34,14 @@ export type ExecuteOutcome =
 export async function approveAndExecute(deps: ExecutorDeps, merchantId: string, cardId: string): Promise<ExecuteOutcome> {
   const proposal = await claimForExecution(deps.db, merchantId, cardId);
   if (!proposal) return { status: "not_waiting", message: "This card isn't waiting for approval" };
+  return executeProposal(deps, merchantId, proposal);
+}
+
+/**
+ * Runs a proposal already claimed (status executing): by Approve, or by the
+ * worker once an Auto proposal's undo window has passed (jobs/due-run.ts).
+ */
+export async function executeProposal(deps: ExecutorDeps, merchantId: string, proposal: ClaimedProposal): Promise<ExecuteOutcome> {
   try {
     return await executeClaimed(deps, merchantId, proposal);
   } catch (err) {
@@ -47,7 +55,7 @@ export async function approveAndExecute(deps: ExecutorDeps, merchantId: string, 
 
 async function executeClaimed(deps: ExecutorDeps, merchantId: string, proposal: ClaimedProposal): Promise<ExecuteOutcome> {
   const { merchant, rules } = await loadMerchant(deps.db, merchantId);
-  const ctx = { merchant, rules, read: deps.read, db: engineDb(deps.db, merchantId), now: deps.now ?? (() => new Date()) };
+  const ctx = { merchant, rules, read: deps.read, db: engineDb(deps.db, merchantId, proposal.id), now: deps.now ?? (() => new Date()) };
   const done = (status: "executed" | "failed" | "obsolete" | "awaiting_approval", label: string, ok: boolean, reason?: string, detail?: unknown) =>
     finish(deps.db, { merchantId, proposal, status, label, ok, reason, detail });
 
