@@ -34,7 +34,7 @@ Built on the `infra-wiring` branch (field names follow PayPal's references; not 
 - [x] Chat goes through the receptionist (`jobs/chat-run.ts`), so disputes and existing invoices are reachable from chat
 - [ ] Register the webhook in the sandbox app (PAID, CANCELLED, DISPUTE.CREATED, DISPUTE.UPDATED) and set `PAYPAL_WEBHOOK_ID` and `PAYPAL_WEBHOOK_MERCHANT_ID`
 - [x] Executor: the dispute writes (evidence, offer, message, accept) and `invoice.cancel`. Not yet run against the live sandbox: evidence is multipart with a JSON `input` part and no files
-- [ ] Sweeps: overdue invoices and dispute deadlines on a schedule
+- [x] Sweeps: overdue invoices and dispute deadlines, daily from 08:00 merchant-local in the worker loop (`jobs/sweep-run.ts`), or now via `POST /api/sweeps/{name}`. Still open: the nightly reconcile and cleanup
 - [ ] Cards: show `caseFile.urgency` (dispute due within 72 h) *Owner: A*
 
 ## Before submission (Nov 12, 12 PM PT)
@@ -77,7 +77,7 @@ Desk check done Oct 26 from the published `@paypal/mcp` 1.8.1 package and PayPal
 - [ ] Run `npm run eval:live` once with a real `ANTHROPIC_API_KEY` to confirm the API accepts our generated schemas end to end, including Disputes' nullable `trackingRef` *Owner: B*
 - [x] Ollama follows our `anyOf` / `enum` schemas: `qwen3:4b` passes all 7 live Collections cases on an 8 GB M1, 25–45 s each (Oct 28; setup in `gateway/README.md`)
 - [ ] Does PayPal expose its own auto-reminder history, or do we count only Pyp's reminders? (design B.1) *Owner: C*
-- [ ] Set the Render cron UTC hour for 08:00 merchant-local after US daylight saving ends Nov 1 (design §9.3) *Owner: C*
+- [x] ~~Set the Render cron UTC hour for 08:00 merchant-local~~ Not needed: the worker checks the merchant's own time zone, so daylight saving is handled (design §9.3) *Owner: C*
 - [ ] A buyer-side agent can use the customer-side dispute endpoints with its own sandbox credentials (item 2; decides Pyp-to-Pyp on Nov 3)
 - [ ] Sandbox-only dispute helpers work for a standard app (item 3)
 - [ ] Dispute evidence and offer type values, and the provide-evidence upload format (item 4)
