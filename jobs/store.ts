@@ -258,9 +258,13 @@ export interface CardRow {
   proposalId: string | null;
   createdAt: string;
   updatedAt: string;
+  /** When the merchant removed this finished card from the Inbox; it stays in Activity. */
+  clearedAt: string | null;
 }
 
-const CARD_COLUMNS = "id, skill, state, front_json, proposal_id, created_at, updated_at";
+// cleared_at is read through to_jsonb so this still works on a database that
+// hasn't run migration 008 yet (every card then reads as not cleared).
+const CARD_COLUMNS = "id, skill, state, front_json, proposal_id, created_at, updated_at, to_jsonb(cards) ->> 'cleared_at' as cleared_at";
 
 function toCard(row: Record<string, any>): CardRow { // eslint-disable-line @typescript-eslint/no-explicit-any
   return {
@@ -271,6 +275,7 @@ function toCard(row: Record<string, any>): CardRow { // eslint-disable-line @typ
     proposalId: row.proposal_id,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
+    clearedAt: row.cleared_at ? new Date(row.cleared_at).toISOString() : null,
   };
 }
 
@@ -366,6 +371,23 @@ export async function dismiss(db: Db, merchantId: string, cardId: string): Promi
   await setCardState(db, cardId, "rejected");
   await addStep(db, res.rows[0].run_id, res.rows[0].id, "merchant", "You dismissed this", true);
   return true;
+}
+
+/** States a card can be removed from the Inbox in: nothing is waiting or still running. */
+export const CLEARABLE_STATES: CardState[] = ["executed", "failed", "blocked", "obsolete", "rejected", "undone"];
+
+/**
+ * "Remove from Inbox": hides a finished card from the Inbox. Nothing is deleted;
+ * the card stays in Activity and the audit trail. False if the card isn't finished.
+ */
+export async function clearCard(db: Db, merchantId: string, cardId: string): Promise<boolean> {
+  const res = await db.query(
+    `update cards set cleared_at = now()
+      where merchant_id = $1 and id = $2 and state = any($3::text[]) and cleared_at is null
+     returning id`,
+    [merchantId, cardId, CLEARABLE_STATES],
+  );
+  return res.rowCount === 1;
 }
 
 export async function recordExecution(

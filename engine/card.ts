@@ -32,7 +32,7 @@ export interface CardFront {
 }
 
 export interface CardAction {
-  id: "approve" | "dismiss" | "undo" | "answer";
+  id: "approve" | "dismiss" | "undo" | "answer" | "clear";
   label: string;
   style: "primary" | "secondary" | "danger";
 }
@@ -88,5 +88,7 @@ export function cardActions(state: CardState, front: CardFront): CardAction[] {
     return [...main, { id: "dismiss", label: "Dismiss", style: "secondary" }];
   }
   if (state === "scheduled") return [{ id: "undo", label: "Undo", style: "danger" }];
-  return [];
+  if (state === "executing") return [];
+  // Finished: nothing left to decide, so it can leave the Inbox (it stays in Activity).
+  return [{ id: "clear", label: "Remove from Inbox", style: "secondary" }];
 }

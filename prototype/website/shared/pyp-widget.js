@@ -246,6 +246,8 @@
     var input = $('[data-input]');
     var menu = $('.menu');
     var plus = $('[data-plus]');
+    // Live data: Pyp can't read photos or screenshots yet, so there's no + menu (demo keeps it).
+    if (transport.attachments === false) plus.hidden = true;
     var chip = $('.chip');
 
     launcher.style.right = right + 'px';

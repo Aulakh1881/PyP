@@ -28,9 +28,12 @@ psql "$DATABASE_URL" -f db/migrations/004_engine_records.sql
 psql "$DATABASE_URL" -f db/migrations/005_holds_and_events.sql
 psql "$DATABASE_URL" -f db/migrations/006_paypal_reporting_cache.sql
 psql "$DATABASE_URL" -f db/migrations/007_paypal_reporting_cache_write_policies.sql
+psql "$DATABASE_URL" -f db/migrations/008_card_cleared.sql
 ```
 
 Migration `004_engine_records.sql` adds what the engine hands over (`resolved_json`, the case file for the executor's re-check, run failures, per-step executions), the spend ledger, and **turns on Row Level Security for every table**. The server connects over `DATABASE_URL` as the table owner, which bypasses RLS; the browser's publishable key sees none of Pyp's records. `executor/execute.test.ts` applies all migrations to a throwaway database and fails if any table is left without RLS.
+
+Migration `008_card_cleared.sql` adds `cards.cleared_at`: when the merchant used **Remove from Inbox** on a finished card. It only hides the card from the Inbox; the card and its audit trail stay, and Activity still lists it. The app reads the column in a way that works before the migration is applied (nothing reads as removed), so pulling the code first is safe.
 
 Migration `005_holds_and_events.sql` adds `holds` (a merchant's "hold off" on an invoice or dispute, which stops reminders in code), lets one webhook event make at most one run, and records when and how each event was processed.
 
