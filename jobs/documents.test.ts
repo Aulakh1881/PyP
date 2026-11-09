@@ -47,7 +47,7 @@ describe.skipIf(!TEST_DB_URL)("documents (Postgres)", () => {
   });
 
   it("the same file again isn't read twice; a suspicious file is kept but adds nothing", async () => {
-    const agent = new ScriptedAgentClient([proof, { ...proof, asksSomething: true }]);
+    const agent = new ScriptedAgentClient([proof, { ...proof, asksSomething: true }, { ...proof, asksSomething: true }]);
     await saveDocument({ pool, agent }, DEMO_MERCHANT, { name: "a.png", mediaType: "image/png", bytes: PNG(2) });
     const again = await saveDocument({ pool, agent }, DEMO_MERCHANT, { name: "a-copy.png", mediaType: "image/png", bytes: PNG(2) });
     expect(again.status).toBe("read");
@@ -57,8 +57,10 @@ describe.skipIf(!TEST_DB_URL)("documents (Postgres)", () => {
     expect(bad).toMatchObject({ status: "suspicious", name: "evil.png", reason: expect.stringMatching(/instructions/) });
     expect(await factsFor(pool, DEMO_MERCHANT, "dispute:PP-D-9")).not.toContainEqual(expect.stringContaining("evil.png"));
     expect((await listDocuments(pool, DEMO_MERCHANT)).map((d) => d.name).sort()).toEqual(["a-copy.png", "a.png", "evil.png"]);
+    // A flagged reading isn't reused: the same file is read again (here, flagged again).
     const badAgain = await saveDocument({ pool, agent }, DEMO_MERCHANT, { name: "evil2.png", mediaType: "image/png", bytes: PNG(3) });
     expect(badAgain).toMatchObject({ status: "suspicious", reason: expect.stringMatching(/instructions/) });
+    expect(agent.requests).toHaveLength(3);
   });
 
   it("in chat, readable files ride along as a labelled block; others add nothing", async () => {
