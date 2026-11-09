@@ -58,7 +58,7 @@ describe("golden prompts", () => {
   });
 
   it("receptionist turn", async () => {
-    const agent = new ScriptedAgentClient([{ route: "none", subjectRef: null, reply: "Hi" }]);
+    const agent = new ScriptedAgentClient([{ route: "none", subjectRef: null, reply: "Hi", continues: false, newClient: null, remember: null }]);
     await handleChat({
       message: "chase acme",
       chatId: "c_1",

@@ -2,6 +2,7 @@
 // summary, the proposal's resolved values and the policy's reason, so it shows
 // exactly what the executor will send. The buttons depend on the card's state.
 
+import { shortDate } from "./format";
 import type { Proposal } from "./run-skill";
 import type { ModelResponse, SkillId } from "./types";
 
@@ -28,11 +29,15 @@ export interface CardFront {
   options?: string[];
   /** The primary button's words: says the action and the amount. */
   approveLabel?: string;
+  /** Text the merchant may rewrite before approving: the param, its label, the current words, the limit. */
+  edit?: { field: string; label: string; value: string; max?: number }[];
+  /** A scheduled card: when it runs unless the merchant taps Undo (set by jobs/store.ts). */
+  scheduledFor?: string;
   demoData: boolean;
 }
 
 export interface CardAction {
-  id: "approve" | "dismiss" | "undo" | "answer";
+  id: "approve" | "dismiss" | "undo" | "answer" | "clear";
   label: string;
   style: "primary" | "secondary" | "danger";
 }
@@ -42,13 +47,30 @@ export function needsCard(p: Proposal): boolean {
   return p.status === "awaiting_approval" || p.status === "scheduled";
 }
 
-export function cardFor(skill: SkillId, p: Proposal, response: ModelResponse): CardFront {
+const FIELD_LABEL: Record<string, string> = { subject: "Subject", note: "Note", reason: "Reason", message: "Message" };
+
+/** The card's editable text, from the command's `editable` list and the proposal's params. */
+export function editFields(editable: string[] | undefined, params: unknown): CardFront["edit"] {
+  if (!editable?.length) return undefined;
+  const values = params as Record<string, unknown>;
+  const fields = editable.filter((f) => typeof values[f] === "string").map((f) => ({ field: f, label: FIELD_LABEL[f] ?? f, value: values[f] as string }));
+  return fields.length ? fields : undefined;
+}
+
+export function cardFor(skill: SkillId, p: Proposal, response: ModelResponse, editable?: string[]): CardFront {
+  const front = baseFront(skill, p, response);
+  const edit = editFields(editable, p.action.params);
+  return edit ? { ...front, edit } : front;
+}
+
+function baseFront(skill: SkillId, p: Proposal, response: ModelResponse): CardFront {
   const r = (p.resolved ?? {}) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
   const mode = p.status === "scheduled" ? "AUTO" : "NEEDS YOU";
   const base = {
     eyebrow: `${skill.toUpperCase()} · ${mode}`,
     title: response.title,
-    reason: p.policy ? `Asked you because: ${p.policy.reason.toLowerCase()}` : undefined,
+    // "Asked you because" only when it asks; an Auto action says what will happen instead.
+    reason: p.policy ? (p.policy.decision === "auto" ? p.policy.reason : `Asked you because: ${p.policy.reason.toLowerCase()}`) : undefined,
     demoData: true,
   };
 
@@ -71,6 +93,60 @@ export function cardFor(skill: SkillId, p: Proposal, response: ModelResponse): C
         body: r.note,
         approveLabel: `Send reminder to ${r.recipientName ?? r.recipientEmail} (${r.amountDueDisplay})`,
       };
+    case "invoice.cancel":
+      return {
+        ...base,
+        subtitle: `Invoice ${r.invoiceNumber} · ${r.totalDisplay} · ${r.recipientName ?? r.recipientEmail}`,
+        body: r.note,
+        approveLabel: `Cancel invoice ${r.invoiceNumber} (${r.totalDisplay})`,
+      };
+    case "dispute.provideEvidence":
+      return {
+        ...base,
+        subtitle: [`Dispute ${r.disputeId}`, r.responseDue ? `respond by ${String(r.responseDue).slice(0, 10)}` : null].filter(Boolean).join(" · "),
+        body: r.note,
+        lines: r.tracking ? [{ description: `${r.tracking.carrier} tracking ${r.tracking.number}`, amount: r.tracking.status }] : undefined,
+        approveLabel: "Submit this evidence to PayPal",
+      };
+    case "dispute.makeOffer":
+      return {
+        ...base,
+        subtitle: `Dispute ${r.disputeId} · disputed ${r.disputedDisplay}`,
+        body: r.note,
+        amount: { value: r.amount, currency: r.currency },
+        approveLabel: `Offer a ${r.amountDisplay} refund`,
+      };
+    case "dispute.sendMessage":
+      return { ...base, subtitle: `Dispute ${r.disputeId}`, body: r.message, approveLabel: `Send to ${r.buyerName ?? "the buyer"}` };
+    case "dispute.acceptClaim":
+      return {
+        ...base,
+        subtitle: `Dispute ${r.disputeId}`,
+        body: r.note,
+        amount: { value: r.refundAmount, currency: r.currency },
+        approveLabel: `Accept the claim and refund ${r.refundDisplay}`,
+      };
+    case "insight.publish":
+      return {
+        ...base,
+        eyebrow: `INSIGHTS · ${String(r.kind).toUpperCase() === "BRIEF" ? "WEEKLY BRIEF" : String(r.kind).toUpperCase()}`,
+        title: r.title,
+        subtitle: `${shortDate(r.from)} to ${shortDate(r.to)}`,
+        body: r.body,
+        lines: r.metrics.map((m: { label: string; display: string }) => ({ description: m.label, amount: m.display })),
+        reason: "Numbers computed by code from PayPal; Pyp only wrote the words.",
+      };
+    case "invoice.scheduleFollowUp": {
+      // A timer, not a write: say when Pyp looks again, not the reminder's title or "Approve".
+      const days = Number((p.action.params as { inDays?: number }).inDays);
+      return {
+        ...base,
+        title: `Pyp checks this invoice again in ${days} day${days === 1 ? "" : "s"}`,
+        subtitle: response.title,
+        body: undefined,
+        reason: "Nothing is sent to the client. Pyp looks at the invoice again then. Undo to cancel.",
+      };
+    }
     case "merchant.ask": {
       const ask = p.action.params as { question: string; options: string[] };
       return { ...base, title: ask.question, body: response.summary, options: ask.options };
@@ -88,5 +164,7 @@ export function cardActions(state: CardState, front: CardFront): CardAction[] {
     return [...main, { id: "dismiss", label: "Dismiss", style: "secondary" }];
   }
   if (state === "scheduled") return [{ id: "undo", label: "Undo", style: "danger" }];
-  return [];
+  if (state === "executing") return [];
+  // Finished: nothing left to decide, so it can leave the Inbox (it stays in Activity).
+  return [{ id: "clear", label: "Remove from Inbox", style: "secondary" }];
 }

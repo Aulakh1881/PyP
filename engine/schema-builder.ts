@@ -34,7 +34,7 @@ export function buildResponseSchema<F>(menu: AnyCommand<F>[], cf: CaseFile<F>): 
 
   const zod = z.object({
     title: z.string().max(80).describe("Card headline for the merchant, under 80 characters."),
-    summary: z.string().max(400).describe("What you propose and why, in plain English, under 400 characters."),
+    summary: z.string().max(400).describe("Written to the merchant as \"you\": what you propose and why, in plain English, under 400 characters."),
     actions: z.array(action).max(MAX_ACTIONS).describe(`At most ${MAX_ACTIONS}. Empty if nothing should happen.`),
     confidence: z.enum(["low", "medium", "high"]),
     questionForMerchant: z.string().max(300).nullable().describe("Usually null. Use merchant.ask for questions with buttons."),

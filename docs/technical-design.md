@@ -1448,7 +1448,7 @@ Parameter schemas are written in Zod and generated per case file. `enum(...)` li
 | `invoice.cancel` | `invoiceId: enum`, `reason: string ≤ 300` | `POST /v2/invoicing/invoices/{id}/cancel` |
 | `dispute.provideEvidence` | `disputeId: enum`, `evidenceType: enum(PROOF_OF_FULFILLMENT, OTHER, …)`, `trackingRef?: enum(caseFile.trackingIds)`, `note: string ≤ 2000`, `citations: enum(caseFile.ids)[]` | `POST /v1/customer/disputes/{id}/provide-evidence` (multipart) |
 | `dispute.sendMessage` | `disputeId: enum`, `message: string ≤ 2000` | `POST /v1/customer/disputes/{id}/send-message` |
-| `dispute.makeOffer` | `disputeId: enum`, `offerType: enum(REFUND, REFUND_WITH_RETURN, …)`, `amount: decimal ≤ disputed`, `note: string` | `POST /v1/customer/disputes/{id}/make-offer` |
+| `dispute.makeOffer` | `disputeId: enum`, `offerType: enum(REFUND)` (REFUND_WITH_RETURN needs a return address; later), `amount: decimal ≤ disputed`, `note: string` | `POST /v1/customer/disputes/{id}/make-offer` |
 | `dispute.acceptClaim` | `disputeId: enum`, `note: string` | `POST /v1/customer/disputes/{id}/accept-claim` |
 | `refund.create` (parked) | `captureId: enum`, `amount: decimal ≤ refundable`, `noteToPayer: string ≤ 255` | `POST /v2/payments/captures/{id}/refund` |
 | `tracking.add` (parked) | `orderId: enum`, `captureId: enum`, `carrier: enum(carriers)`, `trackingNumber: string` | `POST /v2/checkout/orders/{id}/track` |

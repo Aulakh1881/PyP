@@ -5,6 +5,7 @@
 // a card to its timestamped trace. Looks follow the UI prototype (PR #1).
 
 import { useCallback, useEffect, useState } from "react";
+import { ControlsPanel } from "./controls";
 
 interface CardAction {
   id: "approve" | "dismiss" | "undo" | "answer";
@@ -23,9 +24,40 @@ interface Card {
     body?: string;
     lines?: { description: string; amount: string }[];
     reason?: string;
+    scheduledFor?: string;
+    options?: string[];
+    edit?: { field: string; label: string; value: string }[];
     demoData: boolean;
   };
   actions: CardAction[];
+}
+
+/** "Sends in 0:42 unless you tap Undo", ticking each second; days for a follow-up. */
+function Countdown({ at, onDue }: { at: string; onDue: () => void }) {
+  const [now, setNow] = useState(() => Date.now());
+  const left = Math.max(0, Math.ceil((Date.parse(at) - now) / 1000));
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => {
+    // Give the worker a moment to run it, then keep refreshing until the card moves on.
+    if (left !== 0) return;
+    const t = setInterval(onDue, 15_000);
+    return () => clearInterval(t);
+  }, [left, onDue]);
+  if (left === 0) return <p className="reason">Running now…</p>;
+  if (left >= 3600) {
+    const when = left >= 86_400 ? `${Math.round(left / 86_400)} day${left >= 1.5 * 86_400 ? "s" : ""}` : `${Math.round(left / 3600)} h`;
+    return <p className="reason">Pyp looks again in {when}. Undo to cancel.</p>;
+  }
+  const m = Math.floor(left / 60);
+  const s = String(left % 60).padStart(2, "0");
+  return (
+    <p className="reason" role="timer">
+      Runs in {m}:{s} unless you tap Undo
+    </p>
+  );
 }
 
 interface TraceStep {
@@ -112,6 +144,8 @@ export function Inbox() {
         {error && <p className="auth-error" role="alert">{error}</p>}
       </form>
 
+      <ControlsPanel onCardsChanged={load} />
+
       <section aria-label="Cards" className="cards">
         {cards.length === 0 && <p className="hint">No cards yet. Ask Pyp to invoice a client to make one.</p>}
         {cards.map((c) => (
@@ -127,7 +161,15 @@ function CardView({ card, onChanged }: { card: Card; onChanged: () => Promise<vo
   const [trace, setTrace] = useState<TraceStep[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<Record<string, string>>({});
   const f = card.front;
+  const canEdit = card.state === "awaiting_approval" && !!f.edit?.length;
+
+  function startEdit() {
+    setDraft(Object.fromEntries((f.edit ?? []).map((e) => [e.field, e.value])));
+    setEditing(true);
+  }
 
   async function flip() {
     try {
@@ -139,11 +181,19 @@ function CardView({ card, onChanged }: { card: Card; onChanged: () => Promise<vo
   }
 
   async function act(action: CardAction) {
-    if (action.id !== "approve" && action.id !== "dismiss") return; // answer and undo come later
     setBusy(true);
     try {
-      const out = await api<{ message?: string }>(`/api/cards/${card.id}/${action.id}`, { method: "POST" });
+      let body: string | undefined;
+      if (action.id === "answer") body = JSON.stringify({ optionIndex: (f.options ?? []).indexOf(action.label) });
+      if (action.id === "approve" && editing) {
+        // Only what changed goes to the server; it checks the new words like the model's.
+        const edits = Object.fromEntries(Object.entries(draft).filter(([k, v]) => f.edit?.find((e) => e.field === k)?.value !== v));
+        if (Object.keys(edits).length) body = JSON.stringify({ edits });
+      }
+      const out = await api<{ status?: string; message?: string }>(`/api/cards/${card.id}/${action.id}`, { method: "POST", body });
       setNote(out.message ?? null);
+      // Refused or paused: nothing was sent, so keep the merchant's words to fix and approve.
+      if (out.status !== "edit_rejected" && out.status !== "paused") setEditing(false);
       await onChanged();
     } catch (err) {
       setNote((err as Error).message);
@@ -173,8 +223,25 @@ function CardView({ card, onChanged }: { card: Card; onChanged: () => Promise<vo
               ))}
             </ul>
           )}
-          {f.body && <p className="body">{f.body}</p>}
+          {editing ? (
+            <div className="edit">
+              {(f.edit ?? []).map((e) => (
+                <label key={e.field}>
+                  <span>{e.label}</span>
+                  <textarea
+                    value={draft[e.field] ?? ""}
+                    rows={e.field === "subject" ? 1 : 4}
+                    onChange={(ev) => setDraft({ ...draft, [e.field]: ev.target.value })}
+                  />
+                </label>
+              ))}
+              <p className="hint">Pyp checks your words like its own before sending: the amounts must match PayPal, and no links.</p>
+            </div>
+          ) : (
+            f.body && <p className="body">{f.body}</p>
+          )}
           {f.reason && <p className="reason">{f.reason}</p>}
+          {card.state === "scheduled" && f.scheduledFor && <Countdown at={f.scheduledFor} onDue={onChanged} />}
           {note && <p className="reply" role="status">{note}</p>}
           <footer className="card-actions">
             {card.actions.map((a) => (
@@ -182,11 +249,16 @@ function CardView({ card, onChanged }: { card: Card; onChanged: () => Promise<vo
                 key={a.id + a.label}
                 className={a.style === "primary" ? "btn" : a.style === "danger" ? "btn btn-danger" : "btn btn-ghost"}
                 onClick={() => act(a)}
-                disabled={busy || a.id === "answer" || a.id === "undo"}
+                disabled={busy}
               >
-                {busy && a.id === "approve" ? "Sending…" : a.label}
+                {busy && a.id === "approve" ? "Sending…" : a.id === "approve" && editing ? "Approve with my edits" : a.label}
               </button>
             ))}
+            {canEdit && (
+              <button className="link" onClick={() => (editing ? setEditing(false) : startEdit())} disabled={busy}>
+                {editing ? "Cancel edit" : "Edit"}
+              </button>
+            )}
             <button className="link" onClick={flip}>
               Why?
             </button>

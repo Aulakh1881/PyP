@@ -34,17 +34,35 @@
     <nav>
       <ul class="navlist">
         <li><a href="#/overview" data-nav="overview"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4zM14 20h6v-9h-6zM14 8h6V4h-6zM4 20h6v-3H4z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/></svg>Overview</a></li>
-        <li><a href="#/transactions" data-nav="transactions"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M8 3v18M16 3v18" stroke="currentColor" stroke-width="1.5"/></svg>Transactions</a></li>
-        <li><a href="#/invoices" data-nav="invoices"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M14 3v5h5M10 13h5M10 17h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Invoices</a></li>
-        <li><a href="#/disputes" data-nav="disputes"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 4v5c0 5-3.5 8-9 9-5.5-1-9-4-9-9V7z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M12 8v5M12 16h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Disputes</a></li>
         <li><a href="#/inbox" data-nav="inbox"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13l2.5-8h11L20 13v6H4z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M4 13h5l1 2h4l1-2h5" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/></svg>Inbox <span class="count" data-navcount></span></a></li>
-        <li><a href="#/activity" data-nav="activity"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Activity</a></li>
-        <li><a href="#/brief" data-nav="brief"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V9M12 19V5M19 19v-7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>Weekly brief</a></li>
-        <li><a href="#/setup" data-nav="setup"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="7" r="2.2" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="10" cy="17" r="2.2" stroke="currentColor" stroke-width="2" fill="none"/></svg>Setup</a></li>
+        <li class="nav-group" data-group="paypal">
+          <button type="button" class="nav-folder" aria-expanded="false" aria-controls="nav-paypal"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2.5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M3 10h18" stroke="currentColor" stroke-width="2"/><path d="M7 15h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>PayPal</span><svg class="nav-chev" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <ul class="nav-sub" id="nav-paypal" hidden>
+            <li><a href="#/transactions" data-nav="transactions"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M8 3v18M16 3v18" stroke="currentColor" stroke-width="1.5"/></svg>Transactions</a></li>
+            <li><a href="#/invoices" data-nav="invoices"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M14 3v5h5M10 13h5M10 17h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Invoices</a></li>
+            <li><a href="#/disputes" data-nav="disputes"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 4v5c0 5-3.5 8-9 9-5.5-1-9-4-9-9V7z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M12 8v5M12 16h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Disputes</a></li>
+          </ul>
+        </li>
+        <li class="nav-group" data-group="pyp">
+          <button type="button" class="nav-folder" aria-expanded="false" aria-controls="nav-pyp"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><circle cx="12" cy="13" r="1.6" fill="currentColor"/></svg><span>Your Pyp</span><svg class="nav-chev" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <ul class="nav-sub" id="nav-pyp" hidden>
+            <li><a href="#/business" data-nav="business"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a6 6 0 0 0-6 6c0 2.2 1.2 3.6 2.4 4.6.6.5.9 1.2.9 2V18h5.4v-1.4c0-.8.3-1.5.9-2 1.2-1 2.4-2.4 2.4-4.6a6 6 0 0 0-6-6z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M10 21h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>About my business</a></li>
+            <li><a href="#/clients" data-nav="clients"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2 .8 3 2.8 3 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>Clients</a></li>
+            <li><a href="#/workflows" data-nav="workflows"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3.5" width="7" height="5" rx="1.5" stroke="currentColor" stroke-width="2" fill="none"/><rect x="14" y="15.5" width="7" height="5" rx="1.5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M6.5 8.5v4.5a2 2 0 0 0 2 2H14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>Workflows</a></li>
+          </ul>
+        </li>
+        <li class="nav-group" data-group="reports">
+          <button type="button" class="nav-folder" aria-expanded="false" aria-controls="nav-reports"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V4M4 20h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M8 16v-4M12 16V8M16 16v-6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span>Reports</span><svg class="nav-chev" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <ul class="nav-sub" id="nav-reports" hidden>
+            <li><a href="#/activity" data-nav="activity"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Activity</a></li>
+            <li><a href="#/brief" data-nav="brief"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V9M12 19V5M19 19v-7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>Weekly brief</a></li>
+          </ul>
+        </li>
+        <li class="nav-bottom"><a href="#/setup" data-nav="setup"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="7" r="2.2" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="10" cy="17" r="2.2" stroke="currentColor" stroke-width="2" fill="none"/></svg>Setup</a></li>
       </ul>
     </nav>
     <div class="sidefoot">
-      <p class="pausepill" data-pausepill hidden>Pyp is paused</p><!-- live mode: approvals from this browser -->
+      <p class="pausepill" data-pausepill hidden>Pyp is paused</p><!-- live mode: the server's kill switch -->
       <div class="me"><span class="avatar" aria-hidden="true" data-me-initial>M</span><div><b data-me-name>Maya</b><span data-me-biz>Maya’s Ceramics · sandbox</span></div></div>
       <button class="link" type="button" data-signout>Sign out</button>
       <p class="disc"><span data-data-label>DEMO DATA</span> · Independent concept, not affiliated with PayPal</p>
@@ -71,6 +89,7 @@
 <script src="../shared/pyp-widget.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@36.2.0/dist/ag-grid-community.min.js"></script>
 <script src="activity-grid.js"></script>
+<script src="workflows.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

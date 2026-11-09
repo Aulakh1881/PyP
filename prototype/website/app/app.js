@@ -74,11 +74,31 @@
     orders: { title: 'Order details', render: renderOrder },
     invoices: { title: 'Invoices', render: renderInvoices },
     disputes: { title: 'Disputes', render: renderDisputes },
+    clients: { title: 'Clients', render: renderClients },
+    business: { title: 'About my business', render: renderMemory },
+    workflows: { title: 'Workflows', render: function () { window.PypWorkflows.render(view, transport, { toast: toast, cleanup: cleanup }); } },
     inbox: { title: 'Inbox', render: renderInbox },
     activity: { title: 'Activity', render: renderActivity },
     brief: { title: 'Weekly brief', render: renderBrief },
     setup: { title: 'Setup', render: renderSetup }
   };
+
+  /* Sidebar folders: PayPal, Your Pyp, Reports. Open ones are remembered in this browser. */
+  var FOLDERS_KEY = 'pyp.nav.open';
+  function openFolders() { try { return JSON.parse(localStorage.getItem(FOLDERS_KEY) || '["paypal"]'); } catch (e) { return ['paypal']; } }
+  function setFolder(g, open) {
+    var b = g.querySelector('.nav-folder');
+    b.setAttribute('aria-expanded', String(open));
+    g.querySelector('.nav-sub').hidden = !open;
+    g.classList.toggle('open', open);
+    var ids = openFolders().filter(function (x) { return x !== g.getAttribute('data-group'); });
+    if (open) ids.push(g.getAttribute('data-group'));
+    try { localStorage.setItem(FOLDERS_KEY, JSON.stringify(ids)); } catch (e) { /* blocked */ }
+  }
+  document.querySelectorAll('.nav-group').forEach(function (g) {
+    if (openFolders().indexOf(g.getAttribute('data-group')) >= 0) setFolder(g, true);
+    g.querySelector('.nav-folder').addEventListener('click', function () { setFolder(g, !g.classList.contains('open')); });
+  });
 
   function route() {
     var name = (location.hash.replace(/^#\/?/, '') || 'inbox').split('?')[0];
@@ -89,6 +109,12 @@
     document.querySelectorAll('[data-nav]').forEach(function (a) {
       if (a.getAttribute('data-nav') === name) a.setAttribute('aria-current', 'page');
       else a.removeAttribute('aria-current');
+    });
+    // The folder holding this page opens, and is marked as holding it.
+    document.querySelectorAll('.nav-group').forEach(function (g) {
+      var here = !!g.querySelector('[data-nav="' + name + '"]');
+      g.classList.toggle('has-current', here);
+      if (here) setFolder(g, true);
     });
     title.textContent = PAGES[name].title;
     document.title = PAGES[name].title + ' · Pyp';
@@ -202,6 +228,291 @@
       loadTransactions();
     });
     loadTransactions();
+  }
+
+  /* ---------------- Pyp's memory ---------------- */
+  // What Pyp knows about the business: facts the merchant added, and facts Pyp
+  // noticed in chat waiting to be confirmed. They reach case files as notes for
+  // Pyp's judgment, never sent to clients and never above code's checks.
+  function renderMemory() {
+    if (!transport.facts) {
+      view.innerHTML = '<section class="panel"><h2>About my business</h2><p>Sign in to the live dashboard to see what Pyp knows.</p></section>';
+      return;
+    }
+    var facts = null;
+    var clients = [];
+    var editingId = null;
+
+    function load() {
+      Promise.all([transport.facts(), transport.clients ? transport.clients().catch(function () { return { saved: [], fromPayPal: [] }; }) : { saved: [], fromPayPal: [] }]).then(function (r) {
+        facts = r[0].facts || [];
+        var seen = {};
+        clients = (r[1].saved || []).concat(r[1].fromPayPal || []).filter(function (c) {
+          var k = c.email.toLowerCase();
+          if (seen[k]) return false;
+          seen[k] = true;
+          return true;
+        });
+        draw();
+      }, function (e) {
+        view.innerHTML = '<section class="panel"><h2>About my business</h2><p class="setup-error">' + esc(e.message) + '</p></section>';
+      });
+    }
+
+    function clientName(email) {
+      var c = clients.filter(function (x) { return x.email.toLowerCase() === String(email).toLowerCase(); })[0];
+      return c ? (c.businessName || c.name || c.email) : email;
+    }
+    function clientSelect(selected) {
+      return '<select name="clientEmail"><option value="">Your whole business</option>' +
+        clients.map(function (c) { return '<option value="' + esc(c.email) + '"' + (selected && selected.toLowerCase() === c.email.toLowerCase() ? ' selected' : '') + '>' + esc(c.businessName || c.name || c.email) + '</option>'; }).join('') +
+        '</select>';
+    }
+    function form(f) {
+      f = f || {};
+      return '<form class="fact-form" data-fact-form' + (f.id ? ' data-id="' + esc(f.id) + '"' : '') + '>' +
+        '<label class="fact-text"><span class="sr-label">The fact</span><input name="text" maxlength="300" required value="' + esc(f.text || '') + '" placeholder="e.g. Acme always pays on the 15th"></label>' +
+        '<label class="fact-about"><span class="sr-label">About</span>' + clientSelect(f.clientEmail) + '</label>' +
+        '<button class="btn btn-sm" type="submit">' + (f.id ? 'Save' : 'Remember this') + '</button>' +
+        (f.id ? '<button class="btn btn-ghost btn-sm" type="button" data-cancel>Cancel</button>' : '') +
+        '</form>';
+    }
+    // The business profile: quick picks, all optional. Each answer is one fact the server
+    // tags "profile:<key>:<value>"; Pyp reads its words in every case file.
+    var PROFILE = [
+      { key: 'what', label: 'What you do', text: true, placeholder: 'e.g. Product photography' },
+      { key: 'terms', label: 'Usual terms', options: [['receipt', 'On receipt'], ['net_15', 'Net 15'], ['net_30', 'Net 30'], ['net_60', 'Net 60']] },
+      { key: 'tone', label: 'Reminder tone', options: [['gentle', 'Gentle'], ['balanced', 'Balanced'], ['firm', 'Firm']] },
+      { key: 'late_fees', label: 'Late fees', options: [['never', 'Never'], ['ask', 'Ask me first']] }
+    ];
+    var memTab = 'learned';
+    function isProfile(f) { return (f.subjectRef || '').indexOf('profile:') === 0; }
+    function profileValues() {
+      var out = {};
+      facts.filter(isProfile).forEach(function (f) {
+        var parts = f.subjectRef.split(':');
+        out[parts[1]] = parts[1] === 'what' ? f.text.replace(/^My business: /, '').replace(/\.$/, '') : parts[2];
+      });
+      return out;
+    }
+
+    function chip(f) {
+      if (editingId === f.id) return '<div class="mem-editing">' + form(f) + '</div>';
+      var unsure = f.status === 'proposed';
+      return '<span class="mem-chip' + (unsure ? ' unsure' : '') + '" data-fact="' + esc(f.id) + '">' +
+        '<button type="button" class="mem-chip-text" data-edit title="Edit">' + esc(f.text) + '</button>' +
+        (unsure ? '<button type="button" class="mem-keep" data-confirm>Keep</button>' : '') +
+        '<button type="button" class="mem-x" data-forget aria-label="Forget: ' + esc(f.text) + '">×</button></span>';
+    }
+
+    function line(f) {
+      if (editingId === f.id) return '<li class="mem-line">' + form(f) + '</li>';
+      var when = new Date(f.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      return '<li class="mem-line" data-fact="' + esc(f.id) + '"><span class="mem-dot" aria-hidden="true"></span>' +
+        '<div class="mem-line-main"><p>' + esc(f.text) + '</p><span class="mem-line-meta">' + (f.source === 'chat' ? 'Learned in chat' : 'You added this') + ' · ' + esc(when) + '</span></div>' +
+        '<div class="row-actions">' + (f.status === 'proposed' ? '<button class="btn btn-sm" type="button" data-confirm>Keep</button>' : '') +
+        '<button class="btn btn-ghost btn-sm" type="button" data-edit>Edit</button><button class="btn btn-danger btn-sm" type="button" data-forget>Forget</button></div></li>';
+    }
+
+    function draw() {
+      var name = (document.querySelector('[data-me-name]') || {}).textContent || 'your business';
+      var profile = profileValues();
+      var learned = facts.filter(function (f) { return !f.clientEmail && !isProfile(f); });
+      var byClient = {};
+      facts.filter(function (f) { return f.clientEmail; }).forEach(function (f) {
+        var k = f.clientEmail.toLowerCase();
+        (byClient[k] = byClient[k] || { email: f.clientEmail, facts: [] }).facts.push(f);
+      });
+      var clientCards = Object.keys(byClient).map(function (k) { return byClient[k]; });
+
+      // The gist: the profile in a line, else the newest things Pyp learned.
+      var gist = PROFILE.map(function (p) {
+        var v = profile[p.key];
+        if (!v) return null;
+        if (p.text) return v;
+        var label = p.options.filter(function (o) { return o[0] === v; })[0][1];
+        return p.key === 'tone' ? label + ' reminders' : p.key === 'late_fees' ? (v === 'never' ? 'No late fees' : 'Late fees: ask first') : label;
+      }).filter(Boolean);
+      if (!gist.length) gist = learned.slice(0, 2).map(function (f) { return f.text.replace(/[.!]+$/, ''); });
+
+      var profileRows = PROFILE.map(function (p) {
+        var v = profile[p.key] || '';
+        var control = p.text
+          ? '<input class="mem-what" data-profile-text="' + p.key + '" maxlength="120" value="' + esc(v) + '" placeholder="' + esc(p.placeholder) + '">'
+          : '<div class="inbox-seg mem-seg" role="group" aria-label="' + esc(p.label) + '">' + p.options.map(function (o) {
+            return '<button type="button" data-profile="' + p.key + '" data-value="' + o[0] + '" aria-pressed="' + (v === o[0]) + '">' + esc(o[1]) + '</button>';
+          }).join('') + '</div>';
+        return '<div class="mem-row"><span class="mem-row-label">' + esc(p.label) + '</span>' + control + '</div>';
+      }).join('');
+
+      var tabBody = memTab === 'clients'
+        ? (clientCards.length ? '<div class="mem-clients">' + clientCards.map(function (c) {
+          return '<div class="mem-client"><div class="mem-client-head"><span class="mem-avatar" aria-hidden="true">' + esc(clientName(c.email).charAt(0).toUpperCase()) + '</span><b>' + esc(clientName(c.email)) + '</b></div>' +
+            '<div class="mem-chips">' + c.facts.map(chip).join('') + '</div></div>';
+        }).join('') + '</div>' : '<div class="empty">Nothing about clients yet. Mention it in chat: “John prefers a call before reminders.”</div>')
+        : (learned.length ? '<ul class="mem-lines">' + learned.map(line).join('') + '</ul>' : '<div class="empty">Nothing yet. Pyp picks things up as you chat, or say “remember that…”.</div>');
+
+      view.innerHTML =
+        '<section class="panel mem-hero"><div class="mem-hero-icon" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24"><path d="M12 4a6 6 0 0 0-6 6c0 2.2 1.2 3.6 2.4 4.6.6.5.9 1.2.9 2V18h5.4v-1.4c0-.8.3-1.5.9-2 1.2-1 2.4-2.4 2.4-4.6a6 6 0 0 0-6-6z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M10 21h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>' +
+        '<div><h2>' + esc(name) + '</h2>' +
+        (gist.length ? '<p class="mem-gist">' + gist.map(esc).join(' · ') + '</p>' : '<p class="mem-gist muted">Pyp is still getting to know you.</p>') +
+        '<p class="mem-how">Pyp reads this before it decides anything. It’s all optional, never sent to clients, and never above the safety checks.</p></div></section>' +
+
+        '<section class="panel"><div class="mem-head"><h2>Your business profile</h2><span class="chip chip-muted">All optional</span></div>' +
+        '<div class="mem-profile">' + profileRows + '</div></section>' +
+
+        '<section class="panel"><div class="mem-tabs" role="tablist">' +
+        '<button type="button" role="tab" data-memtab="learned" aria-selected="' + (memTab === 'learned') + '">Learned in chat <span class="n">' + learned.length + '</span></button>' +
+        '<button type="button" role="tab" data-memtab="clients" aria-selected="' + (memTab === 'clients') + '">Clients <span class="n">' + clientCards.length + '</span></button></div>' +
+        '<div class="mem-tabbody">' + tabBody + '</div>' +
+        '<div class="mem-tell"><span class="mem-row-label">Tell Pyp something</span>' + (editingId ? '' : form(null)) + '</div></section>';
+      var focus = view.querySelector('.mem-editing input, .mem-line input');
+      if (focus) focus.focus();
+    }
+
+    // Quick picks save at once; tapping the chosen one again clears it.
+    function onProfile(e) {
+      var b = e.target.closest('[data-profile], [data-memtab]');
+      if (!b || !facts) return;
+      if (b.hasAttribute('data-memtab')) { memTab = b.getAttribute('data-memtab'); editingId = null; draw(); return; }
+      var key = b.getAttribute('data-profile');
+      var value = b.getAttribute('aria-pressed') === 'true' ? null : b.getAttribute('data-value');
+      b.closest('.mem-seg').querySelectorAll('button').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b && value !== null)); });
+      transport.setProfile(key, value).then(function () { toast(value ? 'Saved. Pyp will use it.' : 'Cleared.'); return load(); }, function (err) { toast(err.message); load(); });
+    }
+    function onProfileText(e) {
+      if (!e.target.matches('[data-profile-text]')) return;
+      transport.setProfile(e.target.getAttribute('data-profile-text'), e.target.value.trim() || null).then(function () { toast('Saved.'); return load(); }, function (err) { toast(err.message); });
+    }
+    view.addEventListener('click', onProfile);
+    view.addEventListener('change', onProfileText);
+    cleanup.push(function () { view.removeEventListener('click', onProfile); view.removeEventListener('change', onProfileText); });
+    function onSubmit(e) {
+      if (!e.target.matches('[data-fact-form]')) return;
+      e.preventDefault();
+      var fd = new FormData(e.target);
+      var id = e.target.getAttribute('data-id');
+      var body = { text: String(fd.get('text') || ''), clientEmail: String(fd.get('clientEmail') || '') || null };
+      var btn = e.target.querySelector('[type=submit]');
+      btn.disabled = true;
+      transport.saveFact(body, id).then(function () {
+        toast(id ? 'Saved.' : 'Pyp will keep that in mind.');
+        editingId = null; load();
+      }, function (err) { btn.disabled = false; toast(err.message); });
+    }
+    function onClick(e) {
+      var b = e.target.closest('button');
+      if (!b || !facts) return;
+      var li = b.closest('[data-fact]') || (b.closest('.mem-editing') && b.closest('.mem-editing').querySelector('[data-fact-form]'));
+      var fid = li && (li.getAttribute('data-fact') || li.getAttribute('data-id'));
+      var f = fid && facts.filter(function (x) { return x.id === fid; })[0];
+      if (b.hasAttribute('data-cancel')) { editingId = null; draw(); }
+      else if (f && b.hasAttribute('data-edit')) { editingId = f.id; draw(); }
+      else if (f && b.hasAttribute('data-confirm')) {
+        b.disabled = true;
+        transport.saveFact({ text: f.text, clientEmail: f.clientEmail, confirm: true }, f.id).then(function () { toast('Kept. Pyp will use it.'); load(); }, function (err) { b.disabled = false; toast(err.message); });
+      } else if (f && b.hasAttribute('data-forget')) {
+        b.disabled = true;
+        transport.deleteFact(f.id).then(function () { toast('Forgotten.'); load(); }, function (err) { b.disabled = false; toast(err.message); });
+      }
+    }
+    view.addEventListener('submit', onSubmit);
+    view.addEventListener('click', onClick);
+    cleanup.push(function () { view.removeEventListener('submit', onSubmit); view.removeEventListener('click', onClick); });
+    view.innerHTML = '<section class="panel"><h2>What Pyp knows about you</h2><div class="loading">Loading…</div></section>';
+    load();
+  }
+
+  /* ---------------- Clients ---------------- */
+  // Pyp's own client list: who Pyp may invoice by name or nickname. PayPal has no
+  // contacts list, so saving here never changes PayPal.
+  function renderClients() {
+    if (!transport.clients) {
+      view.innerHTML = '<section class="panel"><h2>Clients</h2><p>Clients are saved on the Pyp server. Sign in to the live dashboard to manage them.</p></section>';
+      return;
+    }
+    var editing = null; // id of the saved client being edited, or 'new'
+    var prefill = null;
+    var data = null;
+
+    function load() {
+      transport.clients().then(function (d) { data = d; draw(); }, function (e) {
+        view.innerHTML = '<section class="panel"><h2>Clients</h2><p class="setup-error">' + esc(e.message) + '</p></section>';
+      });
+    }
+
+    function form(c) {
+      c = c || {};
+      return '<form class="client-form" data-client-form>' +
+        '<label>Name<input name="name" maxlength="120" value="' + esc(c.name || '') + '" placeholder="John Smith"></label>' +
+        '<label>Business<input name="businessName" maxlength="120" value="' + esc(c.businessName || '') + '" placeholder="Optional"></label>' +
+        '<label>Email<input name="email" type="email" required maxlength="254" value="' + esc(c.email || '') + '" placeholder="john@example.com"></label>' +
+        '<label>Nicknames<input name="nicknames" maxlength="300" value="' + esc((c.nicknames || []).join(', ')) + '" placeholder="John, JS"></label>' +
+        '<div class="client-form-actions"><button class="btn" type="submit">Save client</button><button class="btn btn-ghost" type="button" data-cancel>Cancel</button></div>' +
+        '</form>';
+    }
+
+    function who(c) { return c.businessName && c.name ? c.name + ' · ' + c.businessName : c.businessName || c.name || c.email; }
+
+    function draw() {
+      var saved = data.saved || [];
+      var rows = saved.map(function (c) {
+        if (editing === c.id) return '<tr><td colspan="4">' + form(c) + '</td></tr>';
+        return '<tr><td><b>' + esc(who(c)) + '</b>' + (c.source === 'chat' ? ' <span class="chip chip-info">added in chat</span>' : '') + '</td><td>' + esc(c.email) + '</td><td>' + esc((c.nicknames || []).join(', ') || '—') +
+          '</td><td class="num"><div class="row-actions"><button class="btn btn-ghost btn-sm" type="button" data-edit="' + esc(c.id) + '">Edit</button><button class="btn btn-danger btn-sm" type="button" data-del="' + esc(c.id) + '">Remove</button></div></td></tr>';
+      }).join('');
+      var others = (data.fromPayPal || []).map(function (c, i) {
+        return '<tr><td>' + esc(who(c)) + '</td><td>' + esc(c.email) + '</td><td class="num"><div class="row-actions"><button class="btn btn-ghost btn-sm" type="button" data-adopt="' + i + '">Save to Pyp</button></div></td></tr>';
+      }).join('');
+      view.innerHTML =
+        '<section class="panel"><div class="activity-head"><div><h2>Your clients</h2><p>Who Pyp can invoice from the chat. Add nicknames so “invoice Pyp $200” finds the right client. Saving a client here never changes PayPal.</p></div>' +
+        '<div class="activity-actions"><button class="btn" type="button" data-new>Add client</button></div></div>' +
+        (editing === 'new' ? form(prefill) : '') +
+        (rows ? '<div class="tablewrap"><table><thead><tr><th>Client</th><th>Email</th><th>Nicknames</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+          : (editing === 'new' ? '' : '<div class="empty">No saved clients yet. Add one here, or tell Pyp in the chat: “add John Smith, john@example.com”.</div>')) +
+        '</section>' +
+        '<section class="panel"><h2>From your PayPal invoices</h2><p>People you’ve invoiced before. Pyp can already invoice them by name; save one to add nicknames.</p>' +
+        (others ? '<div class="tablewrap"><table><thead><tr><th>Client</th><th>Email</th><th></th></tr></thead><tbody>' + others + '</tbody></table></div>'
+          : '<div class="empty">' + (data.paypalOk === false ? 'PayPal didn’t answer just now.' : 'Everyone you’ve invoiced is saved.') + '</div>') +
+        '</section>';
+      var first = view.querySelector('[data-client-form] input');
+      if (first) first.focus();
+    }
+
+    function onClick(e) {
+      var b = e.target.closest('button');
+      if (!b || !data) return;
+      if (b.hasAttribute('data-new')) { editing = 'new'; prefill = null; draw(); }
+      else if (b.hasAttribute('data-cancel')) { editing = null; prefill = null; draw(); }
+      else if (b.hasAttribute('data-edit')) { editing = b.getAttribute('data-edit'); draw(); }
+      else if (b.hasAttribute('data-adopt')) { editing = 'new'; prefill = data.fromPayPal[Number(b.getAttribute('data-adopt'))]; draw(); }
+      else if (b.hasAttribute('data-del')) {
+        b.disabled = true;
+        transport.deleteClient(b.getAttribute('data-del')).then(function () { toast('Removed from your clients. PayPal and past invoices are unchanged.'); load(); }, function (err) { b.disabled = false; toast(err.message); });
+      }
+    }
+    function onSubmit(e) {
+      if (!e.target.matches('[data-client-form]')) return;
+      e.preventDefault();
+      var f = new FormData(e.target);
+      var c = {
+        name: String(f.get('name') || ''),
+        businessName: String(f.get('businessName') || ''),
+        email: String(f.get('email') || ''),
+        nicknames: String(f.get('nicknames') || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean)
+      };
+      var btn = e.target.querySelector('[type=submit]');
+      btn.disabled = true;
+      transport.saveClient(c, editing === 'new' ? null : editing).then(function () {
+        toast('Saved. Ask Pyp to invoice them any time.');
+        editing = null; prefill = null; load();
+      }, function (err) { btn.disabled = false; toast(err.message); });
+    }
+    view.addEventListener('click', onClick);
+    view.addEventListener('submit', onSubmit);
+    cleanup.push(function () { view.removeEventListener('click', onClick); view.removeEventListener('submit', onSubmit); });
+    view.innerHTML = '<section class="panel"><h2>Your clients</h2><div class="loading">Loading clients…</div></section>';
+    load();
   }
 
   function renderInvoices() {
@@ -471,34 +782,84 @@
     });
   }
 
+  // What kind of card: the skill it came from. Anything else (a general question) is Other.
+  var INBOX_KINDS = [
+    { id: 'all', label: 'All types' },
+    { id: 'invoice', label: 'Invoices' },
+    { id: 'dispute', label: 'Disputes' },
+    { id: 'insight', label: 'Weekly briefs' },
+    { id: 'other', label: 'Other' }
+  ];
+  var inboxKind = 'all';
+  var inboxQuery = '';
+
   function renderInbox() {
     view.innerHTML =
-      '<div class="tabs" role="group" aria-label="Filter cards">' +
+      // One toolbar: status as tabs, type as a menu, and search.
+      '<div class="inbox-bar">' +
+      '<div class="inbox-seg" role="group" aria-label="Filter by status">' +
       INBOX_TABS.map(function (t) {
-        return '<button type="button" data-itab="' + t.id + '" aria-pressed="' + (t.id === inboxTab) + '">' + t.label + ' <span class="n" data-icount="' + t.id + '"></span></button>';
-      }).join('') + '</div><div id="inbox-host"></div>';
+        return '<button type="button" data-itab="' + t.id + '" aria-pressed="' + (t.id === inboxTab) + '">' + t.label + '<span class="n" data-icount="' + t.id + '"></span></button>';
+      }).join('') + '</div>' +
+      '<label class="inbox-type"><span class="sr-label">Type</span><select data-ikind>' +
+      INBOX_KINDS.map(function (k) {
+        return '<option value="' + k.id + '"' + (k.id === inboxKind ? ' selected' : '') + '>' + k.label + '</option>';
+      }).join('') + '</select></label>' +
+      '<label class="inbox-search"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="sr-label">Search the Inbox</span><input type="search" data-isearch placeholder="Search by title, client or invoice" value="' + esc(inboxQuery) + '"></label>' +
+      '</div><div id="inbox-host"></div>';
 
-    var tab = INBOX_TABS.filter(function (t) { return t.id === inboxTab; })[0];
-    inboxHandle = window.PypInbox.mount(document.getElementById('inbox-host'), transport, { layout: 'grid', filter: tab.fn, emptyText: tab.empty });
+    function matches(i) {
+      if (inboxKind !== 'all' && (INBOX_KINDS.some(function (k) { return k.id === i.kind; }) ? i.kind : 'other') !== inboxKind) return false;
+      var q = inboxQuery.trim().toLowerCase();
+      if (!q) return true;
+      return [i.title, i.meta, i.amount, i.label, i.box && i.box.title].join(' ').toLowerCase().indexOf(q) >= 0;
+    }
+    function status() { return INBOX_TABS.filter(function (t) { return t.id === inboxTab; })[0]; }
+    function combined() {
+      var t = status();
+      return function (i) { return matches(i) && (!t.fn || t.fn(i)); };
+    }
+    function emptyText() {
+      return inboxQuery.trim() || inboxKind !== 'all' ? 'No cards match. Try another search or type.' : status().empty;
+    }
 
+    inboxHandle = window.PypInbox.mount(document.getElementById('inbox-host'), transport, { layout: 'grid', filter: combined(), emptyText: emptyText() });
+
+    var lastItems = [];
     function counts(items) {
+      lastItems = items;
+      var shown = items.filter(matches);
       INBOX_TABS.forEach(function (t) {
         var el = view.querySelector('[data-icount="' + t.id + '"]');
-        if (el) el.textContent = String(t.fn ? items.filter(t.fn).length : items.length);
+        if (el) el.textContent = String(t.fn ? shown.filter(t.fn).length : shown.length);
       });
+    }
+    function apply() {
+      inboxHandle.setFilter(combined(), emptyText());
+      counts(lastItems);
     }
     transport.inbox().then(function (d) { counts(d.items); });
     cleanup.push(transport.subscribe(counts));
 
-    view.querySelector('.tabs').addEventListener('click', function (e) {
+    // On the toolbar itself, so nothing is left behind on the page when you leave the Inbox.
+    var bar = view.querySelector('.inbox-bar');
+    bar.addEventListener('click', function (e) {
       var b = e.target.closest('[data-itab]');
       if (!b) return;
       inboxTab = b.getAttribute('data-itab');
-      view.querySelectorAll('[data-itab]').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); });
-      var t = INBOX_TABS.filter(function (x) { return x.id === inboxTab; })[0];
-      inboxHandle.setFilter(t.fn, t.empty);
+      bar.querySelectorAll('[data-itab]').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+      apply();
+    });
+    bar.querySelector('[data-ikind]').addEventListener('change', function (e) {
+      inboxKind = e.target.value;
+      apply();
+    });
+    view.querySelector('[data-isearch]').addEventListener('input', function (e) {
+      inboxQuery = e.target.value;
+      apply();
     });
   }
+
 
   /* ---------------- Activity ---------------- */
   function statusClass(s) {
@@ -587,11 +948,92 @@
     { id: 'collections', name: 'Collections', desc: 'Create invoices, send reminders, follow up on late payments.', modes: ['off', 'ask', 'auto'] },
     { id: 'disputes', name: 'Disputes', desc: 'Gather facts and draft evidence when a buyer opens a dispute.', modes: ['off', 'ask', 'auto'], noAuto: 'Evidence is never Auto. You always review it.' },
     { id: 'refunds', name: 'Refunds', desc: 'Small refunds you ask for in chat.', modes: ['off', 'ask', 'auto'], limit: true },
-    { id: 'insights', name: 'Weekly brief', desc: 'A short summary every Monday. Read-only.', modes: ['off', 'on'] }
+    { id: 'insights', name: 'Weekly brief', desc: 'A short summary every Friday. Read-only.', modes: ['off', 'on'] }
   ];
   var MODE_LABEL = { off: 'Off', ask: 'Ask me', auto: 'Auto', on: 'On' };
 
+  /* Live: the server's own controls (GET /api/rules). What a dial may be is checked on the server. */
+  var SKILL_NAMES = { collections: 'Collections', disputes: 'Disputes', insights: 'Weekly brief' };
+  var UNDO_CHOICES = [[30, '30 seconds'], [60, '1 minute'], [300, '5 minutes'], [600, '10 minutes']];
+
+  function renderSetupLive() {
+    view.innerHTML = '<section class="panel"><h2>Your controls</h2><p>Loading from Pyp…</p></section>';
+    transport.controls().then(draw, function (e) {
+      view.innerHTML = '<section class="panel"><h2>Your controls</h2><p class="setup-error">' + esc(e.message) + '</p></section>';
+    });
+
+    function draw(c) {
+      var skills = [];
+      c.commands.forEach(function (x) { if (skills.indexOf(x.skill) < 0) skills.push(x.skill); });
+      var undoChoices = UNDO_CHOICES.some(function (o) { return o[0] === c.undoSeconds; }) ? UNDO_CHOICES : UNDO_CHOICES.concat([[c.undoSeconds, c.undoSeconds + ' seconds']]);
+      view.innerHTML =
+        '<section class="panel"><h2 id="pause-t">Pause Pyp (kill switch)</h2><div class="pauserow"><p>' +
+        (c.killSwitch ? '<b>Pyp is paused.</b> ' : '') +
+        'Stops every write to PayPal at once: Approve, Auto actions waiting out their undo window, and the daily checks. Pyp keeps reading and drafting, and nothing is lost: turn it off and Approve works again.</p>' +
+        '<button type="button" class="bigswitch" role="switch" aria-checked="' + c.killSwitch + '" aria-labelledby="pause-t" data-pause><span></span></button></div></section>' +
+
+        '<section class="panel"><h2>What your Pyp can do</h2><p>For each action: Off, Ask me first, or Auto (it runs after the undo window unless you tap Undo). Actions that move money or answer a request you typed always ask.</p>' +
+        '<div class="skills">' + skills.map(function (sk) {
+          return '<h3 class="skillhead">' + esc(SKILL_NAMES[sk] || sk) + '</h3>' + c.commands.filter(function (x) { return x.skill === sk; }).map(function (x) {
+            return '<div class="skill"><div><h3 id="cmd-' + esc(x.id.replace('.', '-')) + '">' + esc(x.label) + '</h3>' + (x.canAuto ? '' : '<p>Always asks you first.</p>') + '</div>' +
+              '<div class="seg" role="group" aria-labelledby="cmd-' + esc(x.id.replace('.', '-')) + '">' + ['off', 'ask', 'auto'].map(function (m) {
+                var disabled = m === 'auto' && !x.canAuto;
+                return '<button type="button" data-cmd="' + esc(x.id) + '" data-mode="' + m + '" aria-pressed="' + (x.dial === m) + '"' + (disabled ? ' disabled title="This always needs your approval"' : '') + '>' + MODE_LABEL[m] + '</button>';
+              }).join('') + '</div></div>';
+          }).join('');
+        }).join('') + '</div></section>' +
+
+        '<section class="panel"><h2>Undo window</h2><p>How long an Auto action waits before it goes to PayPal, so you can tap Undo.</p><div class="limits">' +
+        '<label>Undo window for Auto actions<select data-undo>' + undoChoices.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === c.undoSeconds ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
+        '</div></section>' +
+
+        '<section class="panel"><h2>Check now</h2><p>Pyp checks these every morning from 8:00 your time. Run one now: anything that needs you shows up in your Inbox.</p>' +
+        '<p class="sweeps"><button type="button" class="btn btn-ghost" data-sweep="overdue-invoices">Check overdue invoices</button> ' +
+        '<button type="button" class="btn btn-ghost" data-sweep="dispute-deadlines">Check dispute deadlines</button> ' +
+        '<button type="button" class="btn btn-ghost" data-sweep="weekly-brief">Weekly brief now</button></p></section>' +
+
+        '<section class="panel"><h2>Live data</h2><p>Cards, the activity log and PayPal data on this page are live from your sandbox. These controls are saved on the Pyp server and apply everywhere: this page, the Chrome extension and the worker.</p></section>';
+    }
+
+    function onClick(e) {
+      var b = e.target.closest('button');
+      if (!b || b.disabled) return;
+      if (b.hasAttribute('data-pause')) {
+        var on = b.getAttribute('aria-checked') !== 'true';
+        b.disabled = true;
+        transport.setPaused(on).then(function () {
+          toast(on ? 'Pyp is paused. Nothing will be sent to PayPal until you turn this off.' : 'Pyp is running again.');
+          transport.controls().then(draw);
+        }, function (err) { b.disabled = false; toast(err.message); });
+      } else if (b.hasAttribute('data-cmd')) {
+        var mode = b.getAttribute('data-mode');
+        transport.setDial(b.getAttribute('data-cmd'), mode).then(function (c) {
+          draw(c);
+          toast('Saved: ' + MODE_LABEL[mode] + '.');
+        }, function (err) { toast(err.message); });
+      } else if (b.hasAttribute('data-sweep')) {
+        var label = b.textContent;
+        b.disabled = true;
+        transport.runSweep(b.getAttribute('data-sweep')).then(function (out) {
+          b.disabled = false;
+          var made = (out.cardIds || []).length;
+          toast(label + ': found ' + out.found + ', ' + made + ' new card' + (made === 1 ? '' : 's') + (out.skipped ? ', ' + out.skipped + ' already in hand' : '') + (out.deferred ? ', ' + out.deferred + ' left for next time' : '') + '.');
+        }, function (err) { b.disabled = false; toast(err.message); });
+      }
+    }
+    function onChange(e) {
+      if (!e.target.matches('[data-undo]')) return;
+      transport.setUndoSeconds(Number(e.target.value)).then(function (c) {
+        toast('Saved. Auto actions now wait ' + c.undoSeconds + ' s before sending.');
+      }, function (err) { toast(err.message); });
+    }
+    view.addEventListener('click', onClick);
+    view.addEventListener('change', onChange);
+    cleanup.push(function () { view.removeEventListener('click', onClick); view.removeEventListener('change', onChange); });
+  }
+
   function renderSetup() {
+    if (!transport.isDemo) return renderSetupLive();
     var s = transport.getSettings();
     var paused = transport.isPaused();
     view.innerHTML =

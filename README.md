@@ -63,12 +63,30 @@ npm run dev                  # http://localhost:3000 (health check: /api/health)
 
 | Command | What it does |
 |---|---|
-| `npm run dev` | Next.js dev server |
+| `npm run dev` | Next.js dev server (app and API, :3000) |
+| `npm run live` | The dashboard on live data at :3001; run it next to `npm run dev` |
 | `npm run check` | Lint, typecheck and tests: run before you push |
 | `npm test` | Vitest, including the write-boundary test (`evals/boundary.test.ts`) |
 | `npm run lint` / `npm run typecheck` | Each check on its own |
 | `npm run eval:live` | The Collections cases against a real model (Claude, or Ollama with `PYP_MODEL_PROVIDER=ollama`); see `gateway/README.md` |
 | `npm run build` | Production build, as Render runs it |
+
+### Running the app day to day
+
+Use **two terminals** from the repo folder and leave both running:
+
+```bash
+npm run dev    # terminal 1: the app and API on :3000
+npm run live   # terminal 2: the dashboard on live data, on :3001
+```
+
+Then use **http://localhost:3001** for everything: sign in at `/login`, the dashboard is at `/app/`. The Chrome extension talks to :3001 too (`prototype/README.md`).
+
+After pulling new code:
+
+- Stop both terminals (Ctrl + C) and start them again.
+- If `db/migrations` has a new file, it has to be run once on the shared database (see `db/README.md`). Tell the team when you've run it.
+- If a page keeps reloading itself, stop both terminals, delete the `.next` folder (`rm -rf .next`, or `Remove-Item -Recurse -Force .next` in PowerShell) and start them again.
 
 ### The demo path: "Invoice Jordan Kim $300, net 30"
 

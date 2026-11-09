@@ -15,13 +15,13 @@ import { demoClients } from "@/skills/collections/evals/fixtures";
 import { PayPalError } from "@/paypal/http";
 import type { PayPalWriteClient } from "@/paypal/write-client";
 import { approveAndExecute } from "./execute";
-import { dismiss } from "@/jobs/store";
+import { clearCard, dismiss } from "@/jobs/store";
 
 const NOW = new Date("2026-10-31T16:00:00Z");
 const SENTENCE = "Invoice Jordan Kim $300 for the logo, net 30";
 
 /** The receptionist's answer (engine/chat.ts): chat goes to a new invoice. */
-const ROUTE_NEW_INVOICE = { route: "new_invoice", subjectRef: null, reply: "Drafting that invoice now." };
+const ROUTE_NEW_INVOICE = { route: "new_invoice", subjectRef: null, reply: "Drafting that invoice now.", continues: false, newClient: null, remember: null };
 
 function invoiceAnswer() {
   return {
@@ -194,7 +194,7 @@ describe.skipIf(!TEST_DB_URL)("demo path: chat, card, approve, PayPal", () => {
     const { cardIds } = await chat();
     pp.dropClients();
     const out = await approve(cardIds[0]);
-    expect(out).toEqual({ status: "obsolete", message: "Not sent: Client no longer found in PayPal" });
+    expect(out).toEqual({ status: "obsolete", message: "Not sent: Client no longer found" });
     expect(pp.calls).toEqual([]);
   });
 
@@ -203,6 +203,18 @@ describe.skipIf(!TEST_DB_URL)("demo path: chat, card, approve, PayPal", () => {
     expect(await dismiss(pool, DEMO_MERCHANT, cardIds[0])).toBe(true);
     expect((await approve(cardIds[0])).status).toBe("not_waiting");
     expect(pp.calls).toEqual([]);
+  });
+
+  it("Remove from Inbox only works on finished cards, and keeps the card for Activity", async () => {
+    const { cardIds } = await chat();
+    expect(await clearCard(pool, DEMO_MERCHANT, cardIds[0])).toBe(false); // still waiting on you
+    expect(await dismiss(pool, DEMO_MERCHANT, cardIds[0])).toBe(true);
+    expect(await clearCard(pool, "00000000-0000-0000-0000-000000000002", cardIds[0])).toBe(false);
+    expect(await clearCard(pool, DEMO_MERCHANT, cardIds[0])).toBe(true);
+    expect(await clearCard(pool, DEMO_MERCHANT, cardIds[0])).toBe(false); // already removed
+    const card = (await listCards(pool, DEMO_MERCHANT)).find((c) => c.id === cardIds[0])!;
+    expect(card.state).toBe("rejected");
+    expect(card.clearedAt).not.toBeNull();
   });
 
   it("another merchant can't see, approve or dismiss the card", async () => {
@@ -215,9 +227,20 @@ describe.skipIf(!TEST_DB_URL)("demo path: chat, card, approve, PayPal", () => {
     expect((await listCards(pool, other)).map((c) => c.id)).not.toContain(cardIds[0]);
   });
 
-  it("a sentence that only names a first name makes no invoice card", async () => {
+  it("a first name that fits one client names them; the card still waits for approval", async () => {
     const agent = new ScriptedAgentClient([ROUTE_NEW_INVOICE, invoiceAnswer()]);
     const out = await runChatMessage({ pool, read: pp.read, agent, now: () => NOW }, DEMO_MERCHANT, "Invoice Jordan $300");
+    expect(out.cardIds).toHaveLength(1);
+    expect(pp.calls).toEqual([]);
+  });
+
+  it("a first name two clients share makes no invoice card", async () => {
+    const twoJordans: PayPalReads = {
+      ...pp.read,
+      recentClients: async () => [...(await pp.read.recentClients()), { id: "x", name: "Jordan Lee", businessName: null, email: "jlee@example.com" }],
+    };
+    const agent = new ScriptedAgentClient([ROUTE_NEW_INVOICE, invoiceAnswer()]);
+    const out = await runChatMessage({ pool, read: twoJordans, agent, now: () => NOW }, DEMO_MERCHANT, "Invoice Jordan $300");
     expect(out.cardIds).toHaveLength(0);
   });
 

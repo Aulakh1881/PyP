@@ -19,9 +19,9 @@ Roles: **A** frontend · **B** engine and AI · **C** PayPal and infrastructure.
 
 ## Engine work still open (role B)
 
-- [ ] Run `npm run eval:live` once with a real `ANTHROPIC_API_KEY` (Collections and the new Disputes cases)
+- [x] Run `npm run eval:live` once with a real `ANTHROPIC_API_KEY` (Collections and the new Disputes cases): all 11 pass on Claude, Nov 7, about $0.19 total
 - [ ] Chat stage 2: read-only lookup tools for questions (design §7.8)
-- [ ] Insights lite (WP10)
+- [x] Insights lite (WP10): a Friday brief from 08:00 merchant-local, or "Weekly brief now". Code computes every number; the check refuses any other number. Live on Haiku 5.5: 4 of 4 pass
 - [ ] Dispute evidence notes: check that every factual sentence cites an id (design B.2); today the note must carry at least one valid citation
 
 ## Wiring the engine to PayPal and the database
@@ -33,9 +33,10 @@ Built on the `infra-wiring` branch (field names follow PayPal's references; not 
 - [x] Webhooks: `POST /api/webhooks/paypal` verifies with PayPal, stores each event once, answers 200, then stands down or runs the skill after the response (`jobs/event-run.ts`)
 - [x] Chat goes through the receptionist (`jobs/chat-run.ts`), so disputes and existing invoices are reachable from chat
 - [ ] Register the webhook in the sandbox app (PAID, CANCELLED, DISPUTE.CREATED, DISPUTE.UPDATED) and set `PAYPAL_WEBHOOK_ID` and `PAYPAL_WEBHOOK_MERCHANT_ID`
-- [ ] Executor: the dispute writes (evidence, offer, message, accept)
-- [ ] Sweeps: overdue invoices and dispute deadlines on a schedule
+- [x] Executor: the dispute writes (evidence, offer, message, accept) and `invoice.cancel`. Not yet run against the live sandbox: evidence is multipart with a JSON `input` part and no files
+- [x] Sweeps: overdue invoices and dispute deadlines, daily from 08:00 merchant-local in the worker loop (`jobs/sweep-run.ts`), or now via `POST /api/sweeps/{name}`. Still open: the nightly reconcile and cleanup
 - [ ] Cards: show `caseFile.urgency` (dispute due within 72 h) *Owner: A*
+- [x] Controls in the Inbox: kill switch, undo window, a dial per action (`/api/rules`, `/api/kill-switch`), "check now" for the sweeps, and editing a card's text before Approve
 
 ## Before submission (Nov 12, 12 PM PT)
 
@@ -65,6 +66,7 @@ Desk check done Oct 26 from the published `@paypal/mcp` 1.8.1 package and PayPal
 - [ ] **"Screenshot this page" in the extension:** not planned for Nov 12; revisit after the core works. *Owner: A*
 - [ ] **Where the job worker loop runs:** inside the web service process (working default, paid instance) or a separate Render Background Worker. Tied to the Render plan. *Owner: C*
 - [ ] **Free-text answers for `merchant.ask`** (for example typing a new client's email); today a question card has buttons only. *Owner: B + A*
+  Buttons work now (`POST /api/cards/{id}/answer` runs the skill again with the answer). Free text is still open.
 - [ ] **More hackathon sponsors?** The plan uses Render, AG Grid and APIMatic and skips the rest. The Devpost prize list (seen through search; the page blocks our fetch) also has **Bryntum** (3 × $1,000; scheduling, calendar and Gantt UI components) and **Channel3** (1 × $1,500; product search for AI agents). Ideas to weigh: a Bryntum calendar of what Pyp has scheduled (follow-ups, due dates, dispute deadlines); APIMatic's generated PayPal Server SDK in the write client if it covers our endpoints (check). Channel3 has no natural fit yet. *Owner: team lead*
 - [ ] **Undo window length:** is 60 s right for the demo? *Owner: A*
 - [ ] **Pyp-to-Pyp:** confirm the buyer side can send messages and accept or deny offers, and which dispute stages allow `make-offer` (before the Nov 3 go/no-go). *Owner: B + C*
@@ -74,10 +76,10 @@ Desk check done Oct 26 from the published `@paypal/mcp` 1.8.1 package and PayPal
 - [ ] `/remind`, create-invoice and `/send` accept `PayPal-Request-Id`, including a `:step` suffix (item 1)
 - [ ] Webhook self-check: what webhook id do simulator events carry, and how does the sandbox check accept it? (design §9.2) *Owner: C*
 - [x] Structured-output API shape: `output_config.format` with a JSON schema through the official SDK; limits enforced in code (design §6.2)
-- [ ] Run `npm run eval:live` once with a real `ANTHROPIC_API_KEY` to confirm the API accepts our generated schemas end to end, including Disputes' nullable `trackingRef` *Owner: B*
+- [x] Run `npm run eval:live` once with a real `ANTHROPIC_API_KEY` to confirm the API accepts our generated schemas end to end, including Disputes' nullable `trackingRef`: confirmed Nov 7 (11 of 11 pass, Haiku 5.5 / Sonnet 5.5 / Opus 5.5) *Owner: B*
 - [x] Ollama follows our `anyOf` / `enum` schemas: `qwen3:4b` passes all 7 live Collections cases on an 8 GB M1, 25–45 s each (Oct 28; setup in `gateway/README.md`)
 - [ ] Does PayPal expose its own auto-reminder history, or do we count only Pyp's reminders? (design B.1) *Owner: C*
-- [ ] Set the Render cron UTC hour for 08:00 merchant-local after US daylight saving ends Nov 1 (design §9.3) *Owner: C*
+- [x] ~~Set the Render cron UTC hour for 08:00 merchant-local~~ Not needed: the worker checks the merchant's own time zone, so daylight saving is handled (design §9.3) *Owner: C*
 - [ ] A buyer-side agent can use the customer-side dispute endpoints with its own sandbox credentials (item 2; decides Pyp-to-Pyp on Nov 3)
 - [ ] Sandbox-only dispute helpers work for a standard app (item 3)
 - [ ] Dispute evidence and offer type values, and the provide-evidence upload format (item 4)

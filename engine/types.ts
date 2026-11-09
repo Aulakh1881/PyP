@@ -66,6 +66,12 @@ export interface CommandDef<P = unknown, F = unknown> {
    * sends them, so nothing is re-derived later (design §7.1 step 5).
    */
   resolve?: (p: P, cf: CaseFile<F>) => Record<string, unknown>;
+  /**
+   * Text params the merchant may rewrite on the card before approving (design §11.3
+   * "optional edits"). Edits go through params(cf) and check() again, exactly like
+   * the model's text. Amounts, ids and recipients are never editable.
+   */
+  editable?: (keyof P & string)[];
   // execute() and undo() belong to the executor (owner C) and are added there.
 }
 
@@ -142,19 +148,47 @@ export interface PayPalReads {
   clientInvoices?(email: string, limit: number): Promise<Invoice[]>;
   /** One dispute with its messages, transaction and tracking (GET /v1/customer/disputes/{id} + reads). Disputes needs it. */
   getDispute?(id: string): Promise<Dispute | null>;
+  /** Insights: money that moved between two instants (Transaction Search, at most 31 days). */
+  transactions?(start: Date, end: Date): Promise<Transaction[]>;
+  /** Insights: every invoice still waiting for money (sent, unpaid, partly paid). */
+  unpaidInvoices?(): Promise<Invoice[]>;
+}
+
+/** One row of PayPal's Transaction Search, as Insights uses it. Decimal strings, signed. */
+export interface Transaction {
+  id: string;
+  at: string; // ISO timestamp
+  /** payment = money in from a client; refund = money back out; other = transfers, corrections, holds. */
+  kind: "payment" | "refund" | "other";
+  /** Only "S" (success) counts toward totals. */
+  status: string;
+  currency: string;
+  amount: string; // negative for money out
+  fee: string | null; // PayPal's fee, negative
+  /** Who paid or was paid: a name or email from PayPal (buyer-controlled text). */
+  counterparty: string | null;
 }
 
 /** Pyp's own records the engine reads (owner C implements over Postgres). */
 export interface EngineDb {
   remindersSent(invoiceId: string): Promise<{ count: number; lastSentAt: string | null }>;
   remindCallsToday(merchantId: string): Promise<number>;
-  merchantNotes(subject: SubjectRef): Promise<string[]>;
+  /**
+   * What the merchant told Pyp (their memory page, or "remember that…" in chat): facts
+   * about the whole business, this subject, and these clients (by email). For Pyp's
+   * judgment only; never quoted to clients.
+   */
+  merchantNotes(subject: SubjectRef, clientEmails?: string[]): Promise<string[]>;
   /**
    * A structured "hold off" the merchant set on a subject ("client replied,
    * paying Friday"). While one is active, code stops reminders; the model
    * doesn't have to notice a note. Optional until C adds the table.
    */
   activeHold?(subject: SubjectRef): Promise<Hold | null>;
+  /** Follow-ups on an invoice: still waiting, and already run. Optional (the job layer implements it). */
+  followUps?(invoiceId: string): Promise<{ pending: number; done: number }>;
+  /** Clients the merchant saved in Pyp (Clients page, or an email given in chat). Optional. */
+  savedClients?(): Promise<Client[]>;
 }
 
 export interface Hold {
@@ -287,6 +321,8 @@ export interface Client {
   name: string | null;
   businessName: string | null;
   email: string;
+  /** Other names the merchant uses for them ("Pyp", "John"), saved in Pyp's client list. */
+  nicknames?: string[];
 }
 
 // ---------- The model's answer ----------

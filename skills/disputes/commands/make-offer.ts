@@ -13,7 +13,9 @@ import { fail, ok } from "@/engine/validator";
 import { AWAITING_SELLER, type DisputeFacts } from "../case-file";
 import { freshDispute, textProblem } from "../checks";
 
-export const OFFER_TYPES = ["REFUND", "REFUND_WITH_RETURN"] as const;
+// REFUND only for now: PayPal wants a return_shipping_address with
+// REFUND_WITH_RETURN, and Pyp doesn't hold the merchant's return address yet.
+export const OFFER_TYPES = ["REFUND"] as const;
 
 export interface MakeOfferParams {
   disputeId: string;
@@ -37,6 +39,7 @@ export const makeOffer: CommandDef<MakeOfferParams, DisputeFacts> = {
   available: (cf) =>
     AWAITING_SELLER.includes(cf.facts.dispute.status) && !cf.facts.deadlinePassed && cf.facts.problems.length === 0,
   risk: "money",
+  editable: ["note"],
 
   check: async (p, ctx) => {
     const fresh = await freshDispute(ctx, p.disputeId);

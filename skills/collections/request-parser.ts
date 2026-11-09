@@ -142,7 +142,39 @@ export function mentionsClient(text: string, client: Client): boolean {
   const business = tokens(client.businessName ?? "");
   const distinctive = business.filter((w) => !GENERIC.has(w));
   const matchesAll = (ws: string[]) => ws.length > 0 && ws.every((w) => words.has(w));
-  return matchesAll(distinctive.length ? distinctive : business) || matchesAll(tokens(client.name ?? ""));
+  return (
+    matchesAll(distinctive.length ? distinctive : business) ||
+    matchesAll(tokens(client.name ?? "")) ||
+    (client.nicknames ?? []).some((n) => matchesAll(tokens(n)))
+  );
+}
+
+/**
+ * Words that never pick a client on their own: request words ("bill", "net", "due")
+ * and generic ones. "Bill NewCo" must not reach a client called Bill Jones.
+ */
+const NOT_A_NAME = new Set([
+  ...GENERIC,
+  ...["bill", "invoice", "charge", "send", "chase", "remind", "pay", "payable", "net", "due", "receipt", "upon", "on", "within", "days"],
+  ...["for", "to", "a", "an", "of", "my", "new", "client", "customer", "test", "please", "can", "you"],
+]);
+
+/**
+ * The clients a sentence names. A full match (mentionsClient) wins. Without one,
+ * a single word that belongs to exactly one client's name, business or nickname
+ * counts ("Pyp" is PyP Test); if it fits two clients, it names neither and
+ * the model asks which.
+ */
+export function clientsNamed(text: string, clients: Client[]): string[] {
+  const full = clients.filter((c) => mentionsClient(text, c)).map((c) => c.id);
+  if (full.length) return full;
+  const words = new Set(tokens(text.replace(/\S+@\S+/g, " ")).filter((w) => w.length >= 2 && !NOT_A_NAME.has(w)));
+  const partial = clients.filter((c) => {
+    if (!EMAIL.test(c.email)) return false;
+    const own = [c.name, c.businessName, ...(c.nicknames ?? [])].flatMap((n) => tokens(n ?? ""));
+    return own.some((w) => words.has(w));
+  });
+  return partial.length === 1 ? [partial[0].id] : [];
 }
 
 /** Lowercase words, Unicode-aware, so "Ramírez" is one word, not "ram" and "rez". */

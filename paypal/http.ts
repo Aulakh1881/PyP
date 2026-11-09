@@ -26,8 +26,18 @@ export interface PayPalResponse<T> {
   body: T;
 }
 
+/** One part of a multipart/form-data body (e.g. provide-evidence's JSON "input"). */
+export interface FormPart {
+  name: string;
+  contentType: string;
+  content: string;
+}
+
 export interface RequestOptions {
   body?: unknown;
+  /** Sent as multipart/form-data instead of JSON. Built by hand so a JSON part
+   *  carries no filename (PayPal reads a part with a filename as a file). */
+  multipart?: FormPart[];
   /** PayPal-Request-Id: PayPal returns the first result if the same id comes again. */
   requestId?: string;
 }
@@ -56,11 +66,13 @@ export class PayPalHttp {
       Prefer: "return=representation",
     };
     if (opts.requestId) headers["PayPal-Request-Id"] = opts.requestId;
-    const res = await this.send(`${SANDBOX}${path}`, {
-      method,
-      headers,
-      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
-    });
+    let payload: string | undefined = opts.body === undefined ? undefined : JSON.stringify(opts.body);
+    if (opts.multipart) {
+      const form = multipartBody(opts.multipart);
+      headers["Content-Type"] = form.contentType;
+      payload = form.body;
+    }
+    const res = await this.send(`${SANDBOX}${path}`, { method, headers, body: payload });
     const debugId = res.headers.get("paypal-debug-id");
     const text = await res.text();
     const body = text ? safeJson(text) : null;
@@ -107,6 +119,15 @@ let shared: PayPalHttp | null = null;
 export function sharedPayPalHttp(): PayPalHttp {
   shared ??= PayPalHttp.fromEnv();
   return shared;
+}
+
+export function multipartBody(parts: FormPart[]): { contentType: string; body: string } {
+  const boundary = `pyp-${crypto.randomUUID()}`;
+  const body =
+    parts
+      .map((p) => `--${boundary}\r\nContent-Disposition: form-data; name="${p.name}"\r\nContent-Type: ${p.contentType}\r\n\r\n${p.content}\r\n`)
+      .join("") + `--${boundary}--\r\n`;
+  return { contentType: `multipart/form-data; boundary=${boundary}`, body };
 }
 
 function safeJson(text: string): unknown {

@@ -2,7 +2,7 @@
  * Live transport: the same methods as the demo transport (see the top of
  * demo-data.js), backed by the real Next.js API instead of made-up data.
  *
- *   inbox / act / activity   /api/cards, /api/cards/{id}/approve|dismiss, /api/cards/{id}/trace
+ *   inbox / act / activity   /api/cards, /api/cards/{id}/approve|dismiss|clear, /api/cards/{id}/trace
  *   chat                     /api/chat (the receptionist routes the sentence to a skill)
  *   overview … disputes      /api/paypal/* (read-only sandbox data)
  *   brief                    built here from /api/paypal/* and the cards (code does the maths)
@@ -11,8 +11,10 @@
  * on port 3001 does that), so the sign-in cookie rides along and no CORS is needed.
  * The Chrome extension instead passes { apiBase, fetch, onSignedOut, signedOutText }:
  * its fetch runs in the background worker, which may send the cookie to the server.
- * Settings and Pause live in this browser only until the engine reads them. Pause
- * blocks Approve from this browser; it doesn't stop the server (Auto cards, other tabs).
+ *
+ *   controls                 /api/rules, /api/kill-switch, /api/sweeps/{name}: the same
+ *                            kill switch, dials and undo window as the server enforces
+ *   answer / undo / edit     /api/cards/{id}/answer|undo, and approve with { edits }
  */
 (function (root) {
   'use strict';
@@ -72,11 +74,18 @@
     var listeners = [];
     var cards = [];
     var traces = {};   // card id -> { key, steps }
-    var busy = {};     // card id -> true while approve/dismiss is in flight
+    var busy = {};     // card id -> the action (approve/dismiss/clear) while it's in flight
     var notes = {};    // card id -> last message from approve/dismiss
     var local = loadSettings();
     var lastJson = '';
+    var controls = null;  // the server's kill switch, undo window and dials (GET /api/rules)
+    var editing = {};     // card id -> true while the merchant rewrites its text
+    var loadSeq = 0;      // a slower, older /api/cards answer never overwrites a newer one
+    var kicked = {};      // card id -> its undo window ended; we've asked for a fresh look
+    var removing = {};    // card id -> "Remove from Inbox" sent; hidden while it's in flight
     var loadError = null; // why the last /api/cards load failed, shown instead of "all caught up"
+    // This chat so far (this page only), sent with each message so Pyp follows up on what you said.
+    var chatHistory = [];
 
     // The Chrome extension passes its own fetch, which goes through the background
     // worker so the sign-in cookie for the Pyp server rides along from paypal.com.
@@ -113,8 +122,8 @@
     function toItem(card) {
       var f = card.front || {};
       var skill = skillOf(card);
-      var kind = skill === 'disputes' ? 'dispute' : skill === 'refunds' ? 'refund' : 'invoice';
-      var label = kind === 'dispute' ? 'Disputes' : kind === 'refund' ? 'Refunds' : 'Invoices';
+      var kind = skill === 'disputes' ? 'dispute' : skill === 'refunds' ? 'refund' : skill === 'insights' ? 'insight' : skill === 'collections' ? 'invoice' : skill === 'workflows' ? 'workflow' : 'other';
+      var label = kind === 'dispute' ? 'Disputes' : kind === 'refund' ? 'Refunds' : kind === 'insight' ? 'Weekly brief' : kind === 'invoice' ? 'Invoices' : kind === 'workflow' ? 'Workflow' : 'Pyp';
       var sending = card.state === 'executing';
       var state = card.state === 'awaiting_approval' ? 'open' : card.state === 'scheduled' || sending ? 'auto' : card.state === 'executed' ? 'done' : 'closed';
       var amount = f.amount ? money(f.amount.value, f.amount.currency) : '';
@@ -135,6 +144,18 @@
       } else if (state === 'auto') {
         badge = { text: 'Auto', tone: 'green' };
         box = { tone: 'green', eyebrow: 'Running on Auto', title: f.approveLabel || f.title, sub: f.reason || '' };
+      } else if (state === 'done' && kind === 'insight') {
+        // A brief only reads: show what it says and code's numbers, not "sent through PayPal".
+        badge = { text: 'Brief', tone: 'green' };
+        box = { tone: 'green', eyebrow: 'This week', title: f.body || f.title, sub: notes[card.id] || (f.lines || []).map(function (l) { return l.description + ': ' + l.amount; }).join(' · ') };
+      } else if (state === 'done' && f.notice) {
+        // A heads-up from a workflow: nothing was sent anywhere.
+        badge = { text: 'Heads-up', tone: 'blue' };
+        box = { tone: 'blue', eyebrow: 'Heads-up', title: f.body || f.title, sub: f.reason || '' };
+      } else if (state === 'done' && /^You answered/.test(f.reason || '')) {
+        // A question you answered: nothing went to PayPal.
+        badge = { text: 'Answered', tone: 'green' };
+        box = { tone: 'green', eyebrow: 'Answered', title: f.reason || 'You answered', sub: notes[card.id] || clock(card.updatedAt || card.createdAt) };
       } else if (state === 'done') {
         badge = { text: 'Done', tone: 'done' };
         box = { tone: 'green', eyebrow: 'Done', title: 'Sent through PayPal', sub: notes[card.id] || clock(card.createdAt) + ' · logged to activity' };
@@ -144,14 +165,38 @@
         box = { tone: 'gray', eyebrow: word, title: card.state === 'failed' ? 'PayPal didn’t accept this' : card.state === 'obsolete' ? 'Not sent: things changed in PayPal' : 'Nothing was sent', sub: notes[card.id] || '' };
       }
 
+      // The text the merchant may rewrite before Approve: the note or message (the card's body).
+      var editField = state === 'open' && (f.edit || []).filter(function (e) { return e.field === 'note' || e.field === 'message' || e.field === 'reason'; })[0];
+      var answerIndex = 0;
       var buttons = busy[card.id]
-        ? [{ id: 'noop', label: 'Sending…', style: 'primary', disabled: true }]
+        ? [{ id: 'noop', label: busy[card.id] === 'clear' ? 'Removing…' : busy[card.id] === 'undo' ? 'Canceling…' : 'Sending…', style: 'primary', disabled: true }]
         : (card.actions || []).map(function (a) {
-          // Answering a question and Undo aren't wired to the API yet.
-          var wired = a.id === 'approve' || a.id === 'dismiss';
-          return { id: a.id, label: a.label, style: a.style === 'danger' ? 'outline' : a.style, disabled: !wired };
+          // Each answer button carries which option it is: answer:0, answer:1, ...
+          var id = a.id === 'answer' ? 'answer:' + answerIndex++ : a.id;
+          // One look per role: the main action, an answer, a secondary step, or a quiet way out.
+          // The box above already says what Approve does, so its button just says Approve.
+          var role = a.id === 'approve' ? 'primary' : a.id === 'answer' ? 'choice' : a.id === 'undo' ? 'secondary' : 'quiet';
+          return { id: id, label: a.id === 'approve' ? 'Approve' : a.label, style: role, countdown: a.id === 'undo' };
         });
-      if (state === 'done') buttons = [{ id: 'noop', label: 'Sent ✓', style: 'success', disabled: true }];
+      if (editField && !busy[card.id]) {
+        // Edit sits right after Approve, before the quiet Dismiss.
+        var at = buttons.findIndex(function (b) { return b.style === 'quiet'; });
+        buttons.splice(at < 0 ? buttons.length : at, 0, { id: 'edit', label: 'Edit', style: 'secondary' });
+      }
+      // A finished card: the badge and box already say it was sent, so the only button is Remove.
+      var reviewing = !!(editing[card.id] && editField && !busy[card.id]);
+      if (reviewing) {
+        buttons = [
+          { id: 'send', label: 'Approve with my edits', style: 'primary' },
+          { id: 'cancel-edit', label: 'Cancel', style: 'quiet' }
+        ];
+      }
+      // A countdown only for an Auto action about to go out; a follow-up days away just says when.
+      var due = card.state === 'scheduled' && f.scheduledFor ? Date.parse(f.scheduledFor) : NaN;
+      var undoEndsAt = isFinite(due) && due - Date.now() < 15 * 60 * 1000 ? due : null;
+      if (card.state === 'scheduled' && isFinite(due) && !undoEndsAt) {
+        box.sub = (f.reason ? f.reason + ' ' : '') + 'Due ' + shortDate(f.scheduledFor) + '.';
+      }
 
       var steps = (traces[card.id] && traces[card.id].steps) || [];
       return {
@@ -168,6 +213,11 @@
         meta: meta,
         box: box,
         buttons: buttons,
+        undoEndsAt: undoEndsAt,
+        reviewing: reviewing,
+        draft: editField ? editField.value : '',
+        draftField: editField ? editField.field : null,
+        reviewNote: reviewing ? notes[card.id] || '' : '',
         run: {
           id: String(card.id).slice(0, 4),
           date: shortDate(card.createdAt),
@@ -178,9 +228,12 @@
     }
 
     function items() { return cards.map(toItem); }
+    // The Inbox leaves out cards the merchant removed from it; Activity still lists them.
+    // A card being removed leaves at once; it comes back with a note if the server says no.
+    function inboxItems() { return cards.filter(function (c) { return !c.clearedAt && !removing[c.id]; }).map(toItem); }
 
     function emit() {
-      var snapshot = items();
+      var snapshot = inboxItems();
       listeners.forEach(function (fn) { try { fn(snapshot); } catch (e) { /* keep going */ } });
     }
 
@@ -202,8 +255,18 @@
       return true;
     }
 
+    async function loadControls() {
+      var r = await api('/api/rules');
+      if (!r.ok) throw new Error(r.body.error || 'Your controls are unavailable.');
+      controls = r.body;
+      return controls;
+    }
+
     async function refresh() {
+      var seq = ++loadSeq;
+      loadControls().then(emit, function () { /* keep the last known controls */ });
       var r = await api('/api/cards');
+      if (seq !== loadSeq) return cards; // a newer load has started; its answer wins
       if (!r.ok) {
         loadError = r.body.error || 'The Inbox is unavailable (' + r.status + ').';
         throw new Error(loadError);
@@ -237,23 +300,55 @@
       return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
     }
 
-    async function act(id, action) {
+    async function act(id, action, extra) {
       await ready;
       var card = cards.filter(function (c) { return c.id === id; })[0];
       if (!card) throw new Error('No card ' + id);
-      if (action !== 'approve' && action !== 'dismiss') return toItem(card);
-      if (action === 'approve' && local.paused) {
-        notes[id] = 'Pyp is paused. Turn it back on in Setup to send this.';
+      if (action === 'edit' || action === 'cancel-edit') {
+        editing[id] = action === 'edit';
+        delete notes[id];
         emit();
         return toItem(card);
       }
-      busy[id] = true;
+      if (action === 'timer-done') {
+        // The worker sends it on its next tick (every 15 s): look again shortly after.
+        if (!kicked[id]) {
+          kicked[id] = true;
+          setTimeout(function () { lastJson = ''; refresh().catch(function () {}); }, 5000);
+          setTimeout(function () { lastJson = ''; refresh().catch(function () {}); }, 20000);
+        }
+        return toItem(card);
+      }
+      var path = action;
+      var body;
+      if (/^answer:\d+$/.test(action)) {
+        path = 'answer';
+        body = JSON.stringify({ optionIndex: Number(action.split(':')[1]) });
+      } else if (action === 'send') {
+        // Approve with the merchant's words; the server checks them like the model's.
+        var item = toItem(card);
+        var draft = extra && extra.draft != null ? extra.draft : item.draft;
+        path = 'approve';
+        if (item.draftField && draft !== item.draft) {
+          var edits = {};
+          edits[item.draftField] = draft;
+          body = JSON.stringify({ edits: edits });
+        }
+      } else if (['approve', 'dismiss', 'clear', 'undo'].indexOf(action) < 0) {
+        return toItem(card);
+      }
+      busy[id] = path === 'answer' ? 'approve' : path;
+      if (action === 'clear') removing[id] = true;
       emit();
       try {
-        var r = await api('/api/cards/' + encodeURIComponent(id) + '/' + action, { method: 'POST' });
+        var r = await api('/api/cards/' + encodeURIComponent(id) + '/' + path, { method: 'POST', body: body });
         notes[id] = r.body.message || r.body.error || (r.ok ? '' : 'Request failed (' + r.status + ')');
+        if (action === 'clear' && !r.ok) removing[id] = false;
+        // Refused or paused: nothing was sent, so keep the merchant's words open to fix.
+        if (r.body.status !== 'edit_rejected' && r.body.status !== 'paused') editing[id] = false;
       } catch (e) {
-        notes[id] = 'Couldn’t reach Pyp, so nothing was sent. Try again in a moment.';
+        notes[id] = action === 'clear' ? 'Couldn’t reach Pyp, so it’s still here. Try again in a moment.' : 'Couldn’t reach Pyp, so nothing was sent. Try again in a moment.';
+        removing[id] = false;
       } finally {
         busy[id] = false;
         delete traces[id]; // a retry or failure adds trace steps without changing the state
@@ -267,6 +362,7 @@
     return {
       name: 'live',
       isDemo: false,
+      attachments: false, // Pyp can't read photos or screenshots yet: the chat hides its + menu
       ready: ready,
       lastError: function () { return loadError; },
       greet: async function () {
@@ -283,18 +379,23 @@
         if (!text) return { text: 'Type what you need, like “Invoice PyP Test $300 for the logo, net 30”.' };
         var r;
         try {
-          r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ message: text.slice(0, 1000) }) });
+          r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ message: text.slice(0, 1000), history: chatHistory.slice(-8) }) });
         } catch (e) {
           return { text: loadError || 'I couldn’t reach the Pyp server. Is it running?' };
         }
         lastJson = '';
         refresh().catch(function () { /* the poll will catch up */ });
+        setTimeout(function () { lastJson = ''; refresh().catch(function () {}); }, 1500);
         if (!r.ok) return { text: r.body.error || 'Something went wrong on my side. Try again in a moment.' };
-        return { text: r.body.reply || 'Done. Check your Inbox.' };
+        var reply = r.body.reply || 'Done. Check your Inbox.';
+        // The cards a line made go back with the history, so answering a question here closes its card.
+        chatHistory.push({ from: 'merchant', text: text.slice(0, 1000) }, { from: 'pyp', text: reply.slice(0, 1000), waiting: r.body.waiting !== false, cardIds: (r.body.cardIds || []).slice(0, 5) });
+        if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
+        return { text: reply };
       },
       inbox: async function () {
         await ready;
-        var all = items();
+        var all = inboxItems();
         // The inbox view reads this line once, so it mustn't depend on the cards.
         return {
           greeting: greeting(),
@@ -406,6 +507,56 @@
         return read('/api/paypal/transactions?' + p.toString(), 'PayPal transaction data');
       },
       order: function (id) { return read('/api/paypal/orders/' + encodeURIComponent(id), 'PayPal order data'); },
+      // What Pyp knows about the business (/api/facts): case-file notes, never sent to clients.
+      facts: function () { return read('/api/facts', 'About my business'); },
+      saveFact: async function (f, id) {
+        var r = await api('/api/facts' + (id ? '/' + encodeURIComponent(id) : ''), { method: id ? 'PATCH' : 'POST', body: JSON.stringify(f) });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn\u2019t save that (' + r.status + ').');
+        return r.body.fact;
+      },
+      // One answer in the business profile (null clears it).
+      setProfile: async function (key, value) {
+        var r = await api('/api/facts/profile', { method: 'PUT', body: JSON.stringify({ key: key, value: value }) });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn\u2019t save that (' + r.status + ').');
+        return r.body.fact;
+      },
+      deleteFact: async function (id) {
+        var r = await api('/api/facts/' + encodeURIComponent(id), { method: 'DELETE' });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn\u2019t forget that (' + r.status + ').');
+      },
+      // The merchant's workflows (/api/workflows). A workflow only shapes how Pyp proposes.
+      workflows: async function () {
+        var r = await api('/api/workflows');
+        if (!r.ok && !r.body.catalog) throw new Error(r.body.error || 'Your workflows are unavailable (' + r.status + ').');
+        return { workflows: r.body.workflows || [], catalog: r.body.catalog, error: r.ok ? null : r.body.error };
+      },
+      saveWorkflow: async function (w, id) {
+        var r = await api('/api/workflows' + (id ? '/' + encodeURIComponent(id) : ''), { method: id ? 'PUT' : 'POST', body: JSON.stringify(w) });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn’t save that workflow (' + r.status + ').');
+        return r.body;
+      },
+      deleteWorkflow: async function (id) {
+        var r = await api('/api/workflows/' + encodeURIComponent(id), { method: 'DELETE' });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn’t delete that workflow (' + r.status + ').');
+      },
+      runWorkflow: async function (id) {
+        var r = await api('/api/workflows/' + encodeURIComponent(id) + '/run', { method: 'POST' });
+        lastJson = '';
+        await refresh().catch(function () { emit(); });
+        if (!r.ok) throw new Error(r.body.message || r.body.error || 'The workflow didn’t run (' + r.status + ').');
+        return r.body;
+      },
+      // Pyp's own client list (/api/clients). Saving a client never touches PayPal.
+      clients: function () { return read('/api/clients', 'Your clients'); },
+      saveClient: async function (c, id) {
+        var r = await api('/api/clients' + (id ? '/' + encodeURIComponent(id) : ''), { method: id ? 'PATCH' : 'POST', body: JSON.stringify(c) });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn’t save that client (' + r.status + ').');
+        return r.body.client;
+      },
+      deleteClient: async function (id) {
+        var r = await api('/api/clients/' + encodeURIComponent(id), { method: 'DELETE' });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn’t remove that client (' + r.status + ').');
+      },
       invoices: function (o) {
         o = o || {};
         return read('/api/paypal/invoices?' + new URLSearchParams({ page: String(o.page || 1), page_size: String(o.pageSize || 25) }).toString(), 'PayPal invoice data');
@@ -421,11 +572,39 @@
         saveSettings(local);
         emit();
       },
-      isPaused: function () { return !!local.paused; },
-      setPaused: function (on) {
-        local.paused = !!on;
-        saveSettings(local);
+      // The kill switch is the server's: it stops Approve, Auto actions and sweeps everywhere.
+      isPaused: function () { return !!(controls && controls.killSwitch); },
+      setPaused: async function (on) {
+        var r = await api('/api/kill-switch', { method: 'POST', body: JSON.stringify({ on: !!on }) });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn’t change the kill switch (' + r.status + ').');
+        controls = r.body;
+        lastJson = '';
+        await refresh().catch(function () { emit(); });
+        return controls.killSwitch;
+      },
+      controls: async function () { return controls || loadControls(); },
+      setDial: async function (commandId, dial) {
+        var dials = {};
+        dials[commandId] = dial;
+        var r = await api('/api/rules', { method: 'PUT', body: JSON.stringify({ dials: dials }) });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn’t save that (' + r.status + ').');
+        controls = r.body;
         emit();
+        return controls;
+      },
+      setUndoSeconds: async function (seconds) {
+        var r = await api('/api/rules', { method: 'PUT', body: JSON.stringify({ undoSeconds: seconds }) });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn’t save that (' + r.status + ').');
+        controls = r.body;
+        emit();
+        return controls;
+      },
+      runSweep: async function (name) {
+        var r = await api('/api/sweeps/' + encodeURIComponent(name), { method: 'POST' });
+        lastJson = '';
+        await refresh().catch(function () { emit(); });
+        if (!r.ok) throw new Error(r.body.message || r.body.error || 'The check didn’t run (' + r.status + ').');
+        return r.body;
       },
       reset: function () { /* live data can't be reset from the browser */ },
       subscribe: function (fn) {

@@ -64,4 +64,64 @@ export class PayPalWriteClient {
       body: { subject: msg.subject, note: msg.note, send_to_invoicer: false, send_to_recipient: true },
     });
   }
+
+  /** PayPal emails the client the note. Refused (422) if the invoice has a payment. */
+  async cancelInvoice(invoiceId: string, msg: { note: string; sendToRecipient: boolean }, requestId: string) {
+    return this.http.request("POST", `/v2/invoicing/invoices/${encodeURIComponent(invoiceId)}/cancel`, {
+      requestId,
+      body: { note: msg.note, send_to_invoicer: false, send_to_recipient: msg.sendToRecipient },
+    });
+  }
+
+  // Disputes v1. The dispute endpoints don't document PayPal-Request-Id; we send it
+  // anyway, and a repeat that PayPal doesn't recognise fails with its own 422.
+
+  /** Multipart with a JSON "input" part (no files): tracking for proof of fulfillment, and notes. */
+  async provideEvidence(disputeId: string, ev: DisputeEvidence, requestId: string) {
+    const evidence = {
+      evidence_type: ev.evidenceType,
+      ...(ev.tracking ? { evidence_info: { tracking_info: [{ carrier_name: ev.tracking.carrier, tracking_number: ev.tracking.number }] } } : {}),
+      notes: ev.note,
+    };
+    return this.http.request("POST", `${disputePath(disputeId)}/provide-evidence`, {
+      requestId,
+      multipart: [{ name: "input", contentType: "application/json", content: JSON.stringify({ evidences: [evidence] }) }],
+    });
+  }
+
+  async makeOffer(disputeId: string, offer: DisputeOffer, requestId: string) {
+    return this.http.request("POST", `${disputePath(disputeId)}/make-offer`, {
+      requestId,
+      body: { note: offer.note, offer_amount: { currency_code: offer.currency, value: offer.amount }, offer_type: offer.offerType },
+    });
+  }
+
+  async sendDisputeMessage(disputeId: string, message: string, requestId: string) {
+    return this.http.request("POST", `${disputePath(disputeId)}/send-message`, { requestId, body: { message } });
+  }
+
+  /** The buyer is refunded `refundAmount` (code's value: the disputed amount) and the dispute closes. */
+  async acceptClaim(disputeId: string, claim: { note: string; refundAmount: string; currency: string }, requestId: string) {
+    return this.http.request("POST", `${disputePath(disputeId)}/accept-claim`, {
+      requestId,
+      body: { note: claim.note, refund_amount: { currency_code: claim.currency, value: claim.refundAmount } },
+    });
+  }
 }
+
+/** dispute.provideEvidence's resolved values (skills/disputes/commands/provide-evidence.ts). */
+export interface DisputeEvidence {
+  evidenceType: string;
+  tracking: { carrier: string; number: string } | null;
+  note: string;
+}
+
+/** dispute.makeOffer's resolved values (skills/disputes/commands/make-offer.ts). */
+export interface DisputeOffer {
+  offerType: string;
+  amount: string;
+  currency: string;
+  note: string;
+}
+
+const disputePath = (id: string) => `/v1/customer/disputes/${encodeURIComponent(id)}`;

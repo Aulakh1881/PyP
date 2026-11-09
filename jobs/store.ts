@@ -4,8 +4,11 @@
 
 import type { Pool } from "pg";
 import { cardFor, needsCard, type CardFront, type CardState } from "@/engine/card";
+import { getSkill } from "@/engine/registry";
 import type { RunResult } from "@/engine/run-skill";
 import type { CaseFile, CommandId, CommandRule, EngineDb, Hold, Merchant, MerchantRules, SkillId, SubjectRef } from "@/engine/types";
+import { savedClientsForEngine } from "./clients";
+import { factsFor } from "./facts";
 
 type Db = Pick<Pool, "query">;
 
@@ -27,8 +30,12 @@ export async function loadMerchant(db: Db, merchantId: string): Promise<{ mercha
   };
 }
 
-/** Reminders that went out or are waiting in their undo window count (engine README §1). */
-export function engineDb(db: Db, merchantId: string): EngineDb {
+/**
+ * Reminders that went out or are waiting in their undo window count (engine README §1).
+ * The executor passes the proposal it is running as `executing`, so its own re-check
+ * doesn't count the reminder it is about to send.
+ */
+export function engineDb(db: Db, merchantId: string, executing?: string): EngineDb {
   return {
     async remindersSent(invoiceId) {
       const res = await db.query(
@@ -40,8 +47,9 @@ export function engineDb(db: Db, merchantId: string): EngineDb {
            ) e on true
           where p.merchant_id = $1 and p.command_id = 'invoice.sendReminder'
             and p.params_json->>'invoiceId' = $2
-            and p.status in ('scheduled', 'executing', 'executed')`,
-        [merchantId, invoiceId],
+            and p.status in ('scheduled', 'executing', 'executed')
+            and p.id is distinct from $3::uuid`,
+        [merchantId, invoiceId, executing ?? null],
       );
       const row = res.rows[0];
       return { count: row.count, lastSentAt: row.last ? new Date(row.last).toISOString() : null };
@@ -55,8 +63,22 @@ export function engineDb(db: Db, merchantId: string): EngineDb {
       );
       return res.rows[0].n;
     },
-    async merchantNotes() {
-      return []; // seeded notes come with client_profiles (db/README.md)
+    merchantNotes(subject, clientEmails) {
+      return factsFor(db, merchantId, subjectRef(subject), clientEmails ?? []);
+    },
+    savedClients() {
+      return savedClientsForEngine(db, merchantId);
+    },
+    async followUps(invoiceId) {
+      const res = await db.query(
+        `select count(*) filter (where status = 'scheduled')::int as pending,
+                count(*) filter (where status in ('executing', 'executed'))::int as done
+           from proposals
+          where merchant_id = $1 and command_id = 'invoice.scheduleFollowUp' and params_json->>'invoiceId' = $2`,
+        [merchantId, invoiceId],
+      );
+      // A follow-up being run is "executing", so it counts as done, not pending.
+      return res.rows[0];
     },
     async activeHold(subject) {
       const res = await db.query(
@@ -175,14 +197,31 @@ export interface SaveRunInput {
   result: RunResult;
   /** The PayPal event behind this run, if any. Unique: an event makes at most one run. */
   triggerEventId?: string;
+  /** The clock scheduled proposals count from (default: now). */
+  now?: Date;
+}
+
+export const FOLLOW_UP = "invoice.scheduleFollowUp";
+
+/**
+ * When a scheduled proposal falls due (design §8.3): a follow-up after its
+ * inDays, anything else on Auto once the merchant's undo window has passed.
+ */
+export function dueAt(commandId: string, params: Record<string, unknown>, now: Date, undoSeconds: number): Date {
+  if (commandId === FOLLOW_UP) return new Date(now.getTime() + Number(params.inDays) * 86_400_000);
+  return new Date(now.getTime() + undoSeconds * 1000);
 }
 
 /** One transaction: the run, its proposals (ids assigned here), trace steps and cards. */
 export async function saveRun(pool: Pool, input: SaveRunInput): Promise<{ runId: string; cardIds: string[] }> {
   const { merchantId, skill, subject, trigger, result, triggerEventId } = input;
+  const now = input.now ?? new Date();
   const client = await pool.connect();
   try {
     await client.query("begin");
+    const undoSeconds: number = result.proposals.some((p) => p.status === "scheduled")
+      ? (await client.query("select undo_window_s from merchants where id = $1", [merchantId])).rows[0].undo_window_s
+      : 0;
     const cf = result.caseFile;
     const run = await client.query(
       `insert into runs (merchant_id, skill, subject_ref, trigger, model, case_file_xml, case_file_json,
@@ -215,10 +254,14 @@ export async function saveRun(pool: Pool, input: SaveRunInput): Promise<{ runId:
 
     const cardIds: string[] = [];
     for (const p of result.proposals) {
+      // A read-only action on Auto (an insight card) sends nothing, so there is nothing to undo: it's done now.
+      const def = getSkill(skill).commands.find((c) => c.id === p.action.command);
+      const status = p.status === "scheduled" && def?.risk === "read" ? "executed" : p.status;
+      const scheduledFor = status === "scheduled" ? dueAt(p.action.command, p.action.params, now, undoSeconds) : null;
       const prop = await client.query(
         `insert into proposals (run_id, merchant_id, command_id, params_json, why, decision, policy_rule,
-                                status, resolved_json, check_reason)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id`,
+                                status, resolved_json, check_reason, scheduled_for)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) returning id`,
         [
           runId,
           merchantId,
@@ -227,16 +270,19 @@ export async function saveRun(pool: Pool, input: SaveRunInput): Promise<{ runId:
           p.action.why,
           p.policy?.decision ?? null,
           p.policy?.rule ?? null,
-          p.status,
+          status,
           p.resolved ? JSON.stringify(p.resolved) : null,
           p.check.ok ? null : (p.check.reason ?? null),
+          scheduledFor,
         ],
       );
       if (!needsCard(p) || !result.response) continue;
+      const editable = def?.editable;
+      const front = { ...cardFor(skill, p, result.response, editable), ...(scheduledFor ? { scheduledFor: scheduledFor.toISOString() } : {}) };
       const card = await client.query(
         `insert into cards (merchant_id, run_id, proposal_id, skill, state, front_json)
          values ($1, $2, $3, $4, $5, $6) returning id`,
-        [merchantId, runId, prop.rows[0].id, skill, p.status, JSON.stringify(cardFor(skill, p, result.response))],
+        [merchantId, runId, prop.rows[0].id, skill, status, JSON.stringify(front)],
       );
       cardIds.push(card.rows[0].id);
     }
@@ -258,9 +304,13 @@ export interface CardRow {
   proposalId: string | null;
   createdAt: string;
   updatedAt: string;
+  /** When the merchant removed this finished card from the Inbox; it stays in Activity. */
+  clearedAt: string | null;
 }
 
-const CARD_COLUMNS = "id, skill, state, front_json, proposal_id, created_at, updated_at";
+// cleared_at is read through to_jsonb so this still works on a database that
+// hasn't run migration 010 yet (every card then reads as not cleared).
+const CARD_COLUMNS = "id, skill, state, front_json, proposal_id, created_at, updated_at, to_jsonb(cards) ->> 'cleared_at' as cleared_at";
 
 function toCard(row: Record<string, any>): CardRow { // eslint-disable-line @typescript-eslint/no-explicit-any
   return {
@@ -271,6 +321,7 @@ function toCard(row: Record<string, any>): CardRow { // eslint-disable-line @typ
     proposalId: row.proposal_id,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
+    clearedAt: row.cleared_at ? new Date(row.cleared_at).toISOString() : null,
   };
 }
 
@@ -317,6 +368,36 @@ export interface ClaimedProposal {
   params: Record<string, unknown>;
   resolved: Record<string, unknown> | null;
   caseFile: CaseFile;
+  /** Set when the worker claimed it (Auto, after the undo window), with the pickup count. */
+  auto?: { attempts: number };
+  /** The merchant's rewrites from Approve (executor/execute.ts applies and checks them). */
+  edits?: Record<string, string>;
+}
+
+/** An approved edit: the new params and resolved values, what changed, and the card's text to match. */
+/** The params a card shows as its body (engine/card.ts). */
+const BODY_FIELDS = ["note", "message"];
+
+export async function saveEdits(db: Db, p: ClaimedProposal, diff: Record<string, { from: unknown; to: string }>): Promise<void> {
+  await db.query("update proposals set params_json = $2, resolved_json = $3, edit_diff = $4 where id = $1", [
+    p.id,
+    JSON.stringify(p.params),
+    p.resolved ? JSON.stringify(p.resolved) : null,
+    JSON.stringify(diff),
+  ]);
+  // The card shows what was actually sent: the edited fields, and the body if it was one of them.
+  const card = await db.query("select front_json from cards where id = $1", [p.cardId]);
+  const front = card.rows[0]?.front_json as CardFront | undefined;
+  if (front) {
+    for (const [field, d] of Object.entries(diff)) {
+      // The body is the note (or a dispute message); an empty note has no body until edited.
+      if (BODY_FIELDS.includes(field) || front.body === d.from) front.body = d.to || undefined;
+      const e = front.edit?.find((x) => x.field === field);
+      if (e) e.value = d.to;
+    }
+    await db.query("update cards set front_json = $2, updated_at = now() where id = $1", [p.cardId, JSON.stringify(front)]);
+  }
+  await addStep(db, p.runId, p.id, "merchant", `You edited: ${Object.keys(diff).join(", ")}`, true, diff);
 }
 
 /**
@@ -353,6 +434,95 @@ export async function claimForExecution(db: Db, merchantId: string, cardId: stri
   };
 }
 
+export interface DueProposal extends ClaimedProposal {
+  merchantId: string;
+  subjectRef: string;
+}
+
+/**
+ * The worker's claim (design §8.3): scheduled proposals whose time has come move
+ * to executing in one statement. SKIP LOCKED lets two workers share the queue
+ * without taking the same row. A merchant with the kill switch on is left alone;
+ * their proposals wait until it is off.
+ */
+export async function claimDue(db: Db, now: Date, limit = 1): Promise<DueProposal[]> {
+  const res = await db.query(
+    `with due as (
+       select p.id from proposals p join merchants m on m.id = p.merchant_id
+        where p.status = 'scheduled' and p.scheduled_for <= $1 and not m.kill_switch
+        order by p.scheduled_for
+        limit $2
+        for update of p skip locked
+     ),
+     claimed as (
+       update proposals p set status = 'executing', decided_by = 'pyp', decided_at = now(), attempts = p.attempts + 1
+         from due where p.id = due.id
+       returning p.id, p.run_id, p.merchant_id, p.command_id, p.params_json, p.resolved_json, p.attempts
+     )
+     select claimed.*, c.id as card_id, r.skill, r.subject_ref, r.case_file_json
+       from claimed join runs r on r.id = claimed.run_id
+       left join cards c on c.proposal_id = claimed.id`,
+    [now, limit],
+  );
+  const out: DueProposal[] = [];
+  for (const row of res.rows) {
+    if (row.card_id) await setCardState(db, row.card_id, "executing");
+    const label = row.command_id === FOLLOW_UP ? "Follow-up is due" : "Undo window passed; running on Auto";
+    await addStep(db, row.run_id, row.id, "merchant", label, true);
+    out.push({
+      id: row.id,
+      runId: row.run_id,
+      cardId: row.card_id,
+      merchantId: row.merchant_id,
+      subjectRef: row.subject_ref,
+      skill: row.skill,
+      commandId: row.command_id,
+      params: row.params_json,
+      resolved: row.resolved_json,
+      caseFile: row.case_file_json,
+      auto: { attempts: row.attempts },
+    });
+  }
+  return out;
+}
+
+/** A write in flight longer than this is taken to have died with its process. */
+export const STALE_EXECUTING_MINUTES = 5;
+
+/**
+ * Proposals left on "executing" by a process that stopped mid-run (a deploy, a
+ * crash) go back where they came from: the worker's queue, or the merchant's
+ * Approve button. Safe to run again: every write carries the same request id.
+ */
+export async function reapStale(db: Db): Promise<string[]> {
+  const res = await db.query(
+    `update proposals set status = case when decided_by = 'pyp' then 'scheduled' else 'awaiting_approval' end
+      where status = 'executing' and decided_at < now() - make_interval(mins => $1)
+      returning id, run_id, status`,
+    [STALE_EXECUTING_MINUTES],
+  );
+  for (const row of res.rows) {
+    await db.query("update cards set state = $2, updated_at = now() where proposal_id = $1", [row.id, row.status]);
+    await addStep(db, row.run_id, row.id, "act", "Pyp stopped mid-run; this went back to wait", false);
+  }
+  return res.rows.map((r) => r.id);
+}
+
+/** Undo: a scheduled proposal is cancelled before it runs. Nothing has left Pyp. */
+export async function undo(db: Db, merchantId: string, cardId: string): Promise<boolean> {
+  const res = await db.query(
+    `update proposals p set status = 'undone', decided_by = 'merchant', decided_at = now()
+       from cards c
+      where c.id = $2 and c.merchant_id = $1 and c.proposal_id = p.id and p.status = 'scheduled'
+     returning p.id, p.run_id`,
+    [merchantId, cardId],
+  );
+  if (!res.rows[0]) return false;
+  await setCardState(db, cardId, "undone");
+  await addStep(db, res.rows[0].run_id, res.rows[0].id, "merchant", "You tapped Undo; nothing was sent", true);
+  return true;
+}
+
 /** Dismiss: the proposal is rejected and nothing is sent. */
 export async function dismiss(db: Db, merchantId: string, cardId: string): Promise<boolean> {
   const res = await db.query(
@@ -366,6 +536,84 @@ export async function dismiss(db: Db, merchantId: string, cardId: string): Promi
   await setCardState(db, cardId, "rejected");
   await addStep(db, res.rows[0].run_id, res.rows[0].id, "merchant", "You dismissed this", true);
   return true;
+}
+
+/**
+ * A heads-up card from a workflow (an invoice was paid): no model, no proposal,
+ * nothing sent anywhere. Saved as a finished run so its trace and Activity work.
+ */
+export async function saveNotice(
+  pool: Pool,
+  n: { merchantId: string; subject: SubjectRef; trigger: string; title: string; subtitle: string; body: string; reason: string },
+): Promise<string> {
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    const run = await client.query(
+      `insert into runs (merchant_id, skill, subject_ref, trigger, status, usage_json, cost_usd, ended_at)
+       values ($1, 'collections', $2, $3, 'ok', '[]', 0, now()) returning id`,
+      [n.merchantId, subjectRef(n.subject), n.trigger],
+    );
+    const runId: string = run.rows[0].id;
+    await client.query("insert into trace_steps (run_id, at, kind, label) values ($1, now(), 'trigger', $2), ($1, now(), 'decide', $3)", [
+      runId,
+      `${n.trigger} → heads-up`,
+      `${n.reason} No model call; nothing sent.`,
+    ]);
+    const front = { eyebrow: "WORKFLOWS · HEADS-UP", title: n.title, subtitle: n.subtitle, body: n.body, reason: n.reason, notice: true };
+    const card = await client.query(
+      "insert into cards (merchant_id, run_id, skill, state, front_json) values ($1, $2, 'collections', 'executed', $3) returning id",
+      [n.merchantId, runId, JSON.stringify(front)],
+    );
+    await client.query("commit");
+    return card.rows[0].id;
+  } catch (err) {
+    await client.query("rollback").catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Questions the merchant answered by typing in chat: each question card in `cardIds`
+ * that is still waiting becomes answered, with their words on it, like tapping an answer.
+ * Only this merchant's waiting questions; anything else is left alone.
+ */
+export async function answerQuestionsInChat(db: Db, merchantId: string, cardIds: string[], answer: string): Promise<number> {
+  if (!cardIds.length) return 0;
+  const reason = `You answered in the chat: ${answer.length > 120 ? `${answer.slice(0, 120)}…` : answer}`;
+  const res = await db.query(
+    `with q as (
+       update proposals p set status = 'answered', decided_by = 'merchant', decided_at = now()
+         from cards c
+        where c.id = any($2::uuid[]) and c.merchant_id = $1 and c.proposal_id = p.id and p.merchant_id = $1
+          and p.command_id = 'merchant.ask' and p.status = 'awaiting_approval'
+       returning c.id
+     )
+     update cards c set state = 'executed', updated_at = now(), front_json = c.front_json || jsonb_build_object('reason', $3::text)
+       from q where c.id = q.id
+     returning c.id`,
+    [merchantId, cardIds, reason],
+  );
+  return res.rowCount ?? 0;
+}
+
+/** States a card can be removed from the Inbox in: nothing is waiting or still running. */
+export const CLEARABLE_STATES: CardState[] = ["executed", "failed", "blocked", "obsolete", "rejected", "undone"];
+
+/**
+ * "Remove from Inbox": hides a finished card from the Inbox. Nothing is deleted;
+ * the card stays in Activity and the audit trail. False if the card isn't finished.
+ */
+export async function clearCard(db: Db, merchantId: string, cardId: string): Promise<boolean> {
+  const res = await db.query(
+    `update cards set cleared_at = now()
+      where merchant_id = $1 and id = $2 and state = any($3::text[]) and cleared_at is null
+     returning id`,
+    [merchantId, cardId, CLEARABLE_STATES],
+  );
+  return res.rowCount === 1;
 }
 
 export async function recordExecution(
@@ -390,17 +638,42 @@ export async function succeededStep(db: Db, proposalId: string, step: string): P
   return res.rows[0]?.response_json ?? null;
 }
 
+/** Has any write for this proposal reached (or tried to reach) PayPal? Then its words are fixed. */
+export async function attempted(db: Db, proposalId: string): Promise<boolean> {
+  const res = await db.query("select 1 from executions where proposal_id = $1 limit 1", [proposalId]);
+  return res.rows.length > 0;
+}
+
+/** Takes the Edit fields off a card: what's going to PayPal can't change any more. */
+export async function lockEdits(db: Db, cardId: string): Promise<void> {
+  await db.query("update cards set front_json = front_json - 'edit', updated_at = now() where id = $1", [cardId]);
+}
+
+export type FinishStatus = "executed" | "failed" | "obsolete" | "awaiting_approval" | "scheduled";
+
 /** Where a claimed proposal ends up, with the trace step and activity-log line that say so. */
 export async function finish(
   db: Db,
-  p: { merchantId: string; proposal: ClaimedProposal; status: "executed" | "failed" | "obsolete" | "awaiting_approval"; label: string; ok: boolean; reason?: string; detail?: unknown },
+  p: {
+    merchantId: string;
+    proposal: ClaimedProposal;
+    status: FinishStatus;
+    label: string;
+    ok: boolean;
+    reason?: string;
+    detail?: unknown;
+    /** With status "scheduled": when the worker tries again. */
+    retryAt?: Date;
+  },
 ): Promise<void> {
-  await db.query("update proposals set status = $2 where id = $1", [p.proposal.id, p.status]);
+  const retryAt = p.status === "scheduled" ? (p.retryAt ?? null) : null;
+  await db.query("update proposals set status = $2, scheduled_for = coalesce($3, scheduled_for) where id = $1", [p.proposal.id, p.status, retryAt]);
+  const front: Record<string, string> = {};
+  if (p.reason) front.reason = p.reason;
+  if (retryAt) front.scheduledFor = retryAt.toISOString();
   await db.query(
-    `update cards set state = $2, updated_at = now(),
-            front_json = case when $3::text is null then front_json else front_json || jsonb_build_object('reason', $3::text) end
-      where id = $1`,
-    [p.proposal.cardId, p.status, p.reason ?? null],
+    `update cards set state = $2, updated_at = now(), front_json = front_json || $3::jsonb where id = $1`,
+    [p.proposal.cardId, p.status, JSON.stringify(front)],
   );
   await addStep(db, p.proposal.runId, p.proposal.id, "paypal", p.label, p.ok, p.detail);
   if (p.status === "executed") {
@@ -415,6 +688,10 @@ export async function finish(
 async function setCardState(db: Db, cardId: string, state: CardState): Promise<void> {
   await db.query("update cards set state = $2, updated_at = now() where id = $1", [cardId, state]);
 }
+
+/** A trace step on a proposal, for job code outside this file (e.g. answering a question). */
+export const addStepFor = (db: Db, runId: string, proposalId: string, kind: string, label: string, ok: boolean, detail?: unknown) =>
+  addStep(db, runId, proposalId, kind, label, ok, detail);
 
 async function addStep(db: Db, runId: string, proposalId: string, kind: string, label: string, ok: boolean, detail?: unknown) {
   await db.query(

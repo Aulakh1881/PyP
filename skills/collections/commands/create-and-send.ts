@@ -9,9 +9,9 @@ import { z } from "zod";
 import { formatMoney, toCents } from "@/engine/format";
 import type { CaseFile, CommandDef } from "@/engine/types";
 import { fail, ok } from "@/engine/validator";
-import type { CollectionsFacts, NewInvoiceFacts } from "../case-file";
+import { knownClients, type CollectionsFacts, type NewInvoiceFacts } from "../case-file";
 import { hasLink, onlyAmounts } from "@/engine/content-checks";
-import { centsToDecimal, mentionsClient } from "../request-parser";
+import { centsToDecimal, clientsNamed } from "../request-parser";
 
 export interface CreateAndSendParams {
   clientId: string;
@@ -46,17 +46,18 @@ export const createAndSend: CommandDef<CreateAndSendParams, CollectionsFacts> = 
     cf.facts.amounts.length > 0 &&
     cf.facts.problems.length === 0,
   risk: "message",
+  editable: ["note"],
 
   check: async (p, ctx) => {
     const facts = newInvoiceFacts(ctx.caseFile);
     const client = facts.clients.find((c) => c.id === p.clientId);
     if (!client) return fail("Unknown client");
-    if (!mentionsClient(facts.request, client)) {
+    if (!clientsNamed(facts.request, facts.clients).includes(client.id)) {
       return fail(`The request doesn't mention ${client.businessName ?? client.name ?? client.email}`);
     }
-    // Fresh read: the client must still be one PayPal knows about.
-    const fresh = await ctx.read.recentClients();
-    if (!fresh.some((c) => c.email.toLowerCase() === client.email.toLowerCase())) return fail("Client no longer found in PayPal");
+    // Fresh read: the client must still be saved in Pyp or known to PayPal.
+    const fresh = await knownClients(ctx);
+    if (!fresh.some((c) => c.email.toLowerCase() === client.email.toLowerCase())) return fail("Client no longer found");
 
     const refs = p.items.map((i) => i.amountRef);
     if (new Set(refs).size !== refs.length) return fail("The same amount is used on two lines");

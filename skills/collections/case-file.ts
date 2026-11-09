@@ -7,7 +7,7 @@ import { daysBetween, formatMoney, localDate } from "@/engine/format";
 import type { CaseFile, Client, Hold, Invoice, MerchantRules, SkillContext, SubjectRef } from "@/engine/types";
 import { block, tag, textTag } from "@/engine/xml";
 import { truncate } from "@/engine/prompt-builder";
-import { addDays, ALL_TERMS, EMAIL, mentionsClient, parseAmounts, parseTerms, type ParsedAmount, type ParsedTerm } from "./request-parser";
+import { addDays, ALL_TERMS, clientsNamed, EMAIL, parseAmounts, parseTerms, type ParsedAmount, type ParsedTerm } from "./request-parser";
 
 export interface OverdueFacts {
   mode: "overdue";
@@ -20,7 +20,11 @@ export interface OverdueFacts {
   history: ClientHistory | null;
   /** An active "hold off" the merchant set. While set, no reminders (code-enforced). */
   hold: Hold | null;
-  /** The run came from the merchant's own words in chat (e.g. "cancel 0042"). */
+  /**
+   * The merchant's own words ask to cancel or write off this invoice ("cancel 0042",
+   * or tapping "Cancel the invoice" on a question). Only then is cancel offered
+   * before every reminder has gone out. Pyp's question text doesn't count.
+   */
   merchantAsked: boolean;
 }
 
@@ -51,6 +55,8 @@ export interface NewInvoiceFacts {
   termsNamed: boolean;
   /** What code couldn't read with certainty ("$1,20", "net 7", "€500" for a USD merchant). Any problem means: ask. */
   problems: string[];
+  /** What the merchant told Pyp about their business and the clients named. */
+  notes: string[];
 }
 
 export type CollectionsFacts = OverdueFacts | NewInvoiceFacts;
@@ -69,10 +75,19 @@ export const DEFAULT_LIMITS = { maxPerInvoice: 3, minDaysBetween: 3 };
 export const DEFAULT_TERMS = "net_30";
 
 /** Clients listed in a new-invoice case file, newest first. */
-export const MAX_CLIENTS = 25;
+export const MAX_CLIENTS = 40;
 
 /** Longest chat sentence we put in a case file. */
 export const MAX_REQUEST_CHARS = 1000;
+
+/** Does the merchant's text (not a "You asked:" line quoting Pyp) ask to cancel? */
+export function asksToCancel(instruction?: string): boolean {
+  const own = (instruction ?? "")
+    .split("\n")
+    .filter((l) => !l.trimStart().startsWith("You asked:"))
+    .join("\n");
+  return /\b(cancel|void|write (it |this |that )?off)/i.test(own);
+}
 
 export function reminderLimits(rules: MerchantRules) {
   return { ...DEFAULT_LIMITS, ...rules.commands["invoice.sendReminder"]?.limits };
@@ -131,7 +146,7 @@ async function overdueCaseFile(ctx: SkillContext, subject: SubjectRef, instructi
   const invoice = await ctx.read.getInvoice(subject.id);
   if (!invoice) throw new Error(`Invoice ${subject.id} not found`);
   const sent = await ctx.db.remindersSent(invoice.id);
-  const notes = await ctx.db.merchantNotes(subject);
+  const notes = await ctx.db.merchantNotes(subject, invoice.recipientEmail ? [invoice.recipientEmail] : []);
   const history = await clientHistory(ctx, invoice);
   const rawHold = ctx.db.activeHold ? await ctx.db.activeHold(subject) : null;
   const hold = holdActive(rawHold, now, tz) ? rawHold : null;
@@ -149,7 +164,7 @@ async function overdueCaseFile(ctx: SkillContext, subject: SubjectRef, instructi
     notes,
     history,
     hold,
-    merchantAsked: Boolean(instruction?.trim()),
+    merchantAsked: asksToCancel(instruction),
   };
   const limits = reminderLimits(ctx.rules);
 
@@ -213,13 +228,13 @@ async function newInvoiceCaseFile(ctx: SkillContext, subject: SubjectRef, instru
   const now = ctx.now();
   const request = truncate(instruction, MAX_REQUEST_CHARS);
   const issueDate = localDate(now, ctx.merchant.timezone);
-  // A client without a usable email can't be invoiced, so it never reaches the menu.
-  const clients = (await ctx.read.recentClients()).filter((c) => EMAIL.test(c.email)).slice(0, MAX_CLIENTS);
+  const clients = await knownClients(ctx);
   const { amounts, problems: amountProblems } = parseAmounts(request, ctx.merchant.currency);
   const { terms: named, problems: termProblems } = parseTerms(request);
   const problems = [...amountProblems, ...termProblems];
   const terms = (named.length ? named : ALL_TERMS).map((t) => ({ ...t, dueDate: addDays(issueDate, t.days) }));
-  const mentionedClientIds = clients.filter((c) => mentionsClient(request, c)).map((c) => c.id);
+  const mentionedClientIds = clientsNamed(request, clients);
+  const notes = await ctx.db.merchantNotes(subject, clients.filter((c) => mentionedClientIds.includes(c.id)).map((c) => c.email));
 
   const facts: NewInvoiceFacts = {
     mode: "new-invoice",
@@ -232,6 +247,7 @@ async function newInvoiceCaseFile(ctx: SkillContext, subject: SubjectRef, instru
     terms,
     termsNamed: named.length > 0,
     problems,
+    notes,
   };
 
   const xml = block("case-file", { skill: "collections", mode: "new-invoice", "generated-at": now.toISOString() }, [
@@ -241,13 +257,14 @@ async function newInvoiceCaseFile(ctx: SkillContext, subject: SubjectRef, instru
     clients.length
       ? block(
           "known-clients",
-          { source: "recent PayPal invoices" },
+          { source: "the merchant's saved clients, then recent PayPal invoices" },
           clients.map((c) =>
             tag("client", {
               id: c.id,
               name: c.name,
               business: c.businessName,
               email: c.email,
+              nicknames: c.nicknames?.length ? c.nicknames.join(", ") : null,
               "named-in-request": mentionedClientIds.includes(c.id) ? "yes" : null,
             }),
           ),
@@ -269,6 +286,7 @@ async function newInvoiceCaseFile(ctx: SkillContext, subject: SubjectRef, instru
     ),
     tag("issue-date", { value: issueDate }),
     problems.length ? block("problems", { source: "code; ask the merchant about these" }, problems.map((x) => textTag("problem", {}, x))) : "",
+    notes.length ? block("merchant-notes", { visibility: "merchant-only" }, notes.map((n) => textTag("note", {}, n))) : "",
   ]);
 
   return {
@@ -281,4 +299,23 @@ async function newInvoiceCaseFile(ctx: SkillContext, subject: SubjectRef, instru
     facts,
     includesInstruction: true,
   };
+}
+
+/**
+ * The clients Pyp may invoice: the merchant's saved clients first, then people
+ * from recent PayPal invoices. One entry per email (a saved client's names win).
+ * A client without a usable email can't be invoiced, so it never reaches the menu.
+ */
+export async function knownClients(ctx: SkillContext): Promise<Client[]> {
+  const [saved, fromPayPal] = await Promise.all([ctx.db.savedClients?.() ?? Promise.resolve([]), ctx.read.recentClients()]);
+  const seen = new Set<string>();
+  const out: Client[] = [];
+  for (const c of [...saved, ...fromPayPal]) {
+    const key = c.email.trim().toLowerCase();
+    if (!EMAIL.test(key) || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ ...c, id: `cl_${out.length + 1}` });
+    if (out.length === MAX_CLIENTS) break;
+  }
+  return out;
 }
