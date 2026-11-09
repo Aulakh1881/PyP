@@ -34,6 +34,9 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const session = await requireMerchant();
   if (session instanceof Response) return session;
+  // Refuse a too-big upload before reading it (the proxy would cut it off anyway).
+  const length = Number(request.headers.get("content-length") ?? "0");
+  if (length > 8.5 * 1024 * 1024) return Response.json({ error: "That file is over 8 MB." }, { status: 413 });
   const form = await request.formData().catch(() => null);
   const file = form?.get("file");
   if (!form || !(file instanceof File)) return Response.json({ error: "Attach a file." }, { status: 400 });

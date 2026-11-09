@@ -110,6 +110,10 @@
 
     // A file to /api/documents: multipart, so no JSON Content-Type header.
     async function uploadDocument(file, subject) {
+      // Say so before uploading: PDFs up to 8 MB, images up to 3.75 MB (Claude's limit once encoded).
+      var isPdf = /pdf$/i.test(file.type || '') || /\.pdf$/i.test(file.name || '');
+      if (file.size > 8 * 1024 * 1024) throw new Error('That file is over 8 MB. Try a smaller one, or a photo of the page.');
+      if (!isPdf && file.size > 3.75 * 1024 * 1024) throw new Error('That image is over 3.75 MB. Try a smaller photo or a screenshot.');
       var form = new FormData();
       form.append('file', file, file.name || 'file');
       if (subject) form.append('subject', subject);
@@ -406,7 +410,7 @@
           if (up.error) return { text: up.error };
           if (up.document.status !== 'read') return { text: up.document.reason || 'I couldn’t use that file.' };
           documentIds.push(up.document.id);
-          if (!text) text = 'Here’s a file. Tell me what it is, and do what it calls for.';
+          if (!text) text = 'Here’s a file. Tell me what it is.';
         }
         if (!text) return { text: 'Type what you need, like “Invoice PyP Test $300 for the logo, net 30”.' };
         var r;
@@ -421,7 +425,9 @@
         if (!r.ok) return { text: r.body.error || 'Something went wrong on my side. Try again in a moment.' };
         var reply = r.body.reply || 'Done. Check your Inbox.';
         // The cards a line made go back with the history, so answering a question here closes its card.
-        chatHistory.push({ from: 'merchant', text: text.slice(0, 1000) }, { from: 'pyp', text: reply.slice(0, 1000), waiting: r.body.waiting !== false, cardIds: (r.body.cardIds || []).slice(0, 5) });
+        // A message sent with files keeps their block (from the server) in history, so a follow-up ("net 30") still has the file.
+        var mine = text.slice(0, 1000) + (r.body.files ? '\n\n' + String(r.body.files).slice(0, 1150) : '');
+        chatHistory.push({ from: 'merchant', text: mine }, { from: 'pyp', text: reply.slice(0, 1000), waiting: r.body.waiting !== false, cardIds: (r.body.cardIds || []).slice(0, 5) });
         if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
         return { text: reply };
       },

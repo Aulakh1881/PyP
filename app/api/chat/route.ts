@@ -15,7 +15,8 @@ import { PayPalReadClient } from "@/paypal/engine-reads";
 
 const Turn = z.object({
   from: z.enum(["merchant", "pyp"]),
-  text: z.string().max(1000),
+  // A merchant line may carry the files block it was sent with (so follow-ups keep the file).
+  text: z.string().max(2200),
   waiting: z.boolean().optional(),
   // Cards this Pyp line made; a question among them is closed when the merchant answers in chat.
   cardIds: z.array(z.string().uuid()).max(5).optional(),
@@ -34,8 +35,8 @@ export async function POST(request: Request) {
   const body = Body.safeParse(await request.json().catch(() => null));
   if (!body.success) return Response.json({ error: "Send { message } with 1 to 1000 characters (and at most 20 lines of history)" }, { status: 400 });
 
-  const files = await getDocuments(getPool(), session.merchantId, body.data.documentIds ?? []).catch(() => []);
-  const message = body.data.message + chatContext(files);
+  const docs = await getDocuments(getPool(), session.merchantId, body.data.documentIds ?? []).catch(() => []);
+  const files = chatContext(docs);
 
   const read = new PayPalReadClient(sharedPayPalHttp());
   const outcome = await runChatMessage(
@@ -47,9 +48,11 @@ export async function POST(request: Request) {
       weeklyBrief: () => runSweepNow(session.merchantId, "weekly-brief"),
     },
     session.merchantId,
-    message,
+    body.data.message,
     request.signal,
     body.data.history ?? [],
+    files,
   );
-  return Response.json(outcome);
+  // files: the block the browser keeps with this message in its history, so a follow-up keeps the file.
+  return Response.json({ ...outcome, files });
 }

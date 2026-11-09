@@ -3,6 +3,7 @@
 // from chat to create one ("new-invoice", B.1a). Code computes every number;
 // the model only reads them.
 
+import { merchantWords } from "@/engine/document-reader";
 import { daysBetween, formatMoney, localDate } from "@/engine/format";
 import type { CaseFile, CaseFileOptions, Client, Hold, Invoice, MerchantRules, SkillContext, SubjectRef } from "@/engine/types";
 import { block, tag, textTag } from "@/engine/xml";
@@ -82,7 +83,8 @@ export const MAX_REQUEST_CHARS = 2000;
 
 /** Does the merchant's text (not a "You asked:" line quoting Pyp) ask to cancel? */
 export function asksToCancel(instruction?: string): boolean {
-  const own = (instruction ?? "")
+  // Never what an attached file says ("Cancellation within 14 days" on a contract).
+  const own = merchantWords(instruction ?? "")
     .split("\n")
     .filter((l) => !l.trimStart().startsWith("You asked:"))
     .join("\n");
@@ -166,6 +168,7 @@ async function overdueCaseFile(ctx: SkillContext, subject: SubjectRef, instructi
     history,
     hold,
     // A custom skill's playbook is standing guidance, never a request to cancel this invoice.
+    // Only the merchant's own words can ask to cancel; an attached file's "cancellation" line can't.
     merchantAsked: !opts.standing && asksToCancel(instruction),
   };
   const limits = reminderLimits(ctx.rules);
@@ -232,7 +235,8 @@ async function newInvoiceCaseFile(ctx: SkillContext, subject: SubjectRef, instru
   const issueDate = localDate(now, ctx.merchant.timezone);
   const clients = await knownClients(ctx);
   const { amounts, problems: amountProblems } = parseAmounts(request, ctx.merchant.currency);
-  const { terms: named, problems: termProblems } = parseTerms(request);
+  // Terms come from the merchant's words; amounts may come from a file they attached (a quote).
+  const { terms: named, problems: termProblems } = parseTerms(merchantWords(request));
   const problems = [...amountProblems, ...termProblems];
   const terms = (named.length ? named : ALL_TERMS).map((t) => ({ ...t, dueDate: addDays(issueDate, t.days) }));
   const mentionedClientIds = clientsNamed(request, clients);

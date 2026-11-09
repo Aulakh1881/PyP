@@ -41,7 +41,7 @@ function toFact(r: Record<string, unknown>): Fact {
     clientEmail: (r.client_email as string | null) ?? null,
     subjectRef: (r.subject_ref as string | null) ?? null,
     status: r.status === "proposed" ? "proposed" : "active",
-    source: r.source === "chat" ? "chat" : "merchant",
+    source: r.source === "chat" ? "chat" : r.source === "document" ? "document" : "merchant",
     createdAt: new Date(r.created_at as string).toISOString(),
   };
 }

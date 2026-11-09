@@ -11,7 +11,7 @@
 
 import { createHash } from "node:crypto";
 import type { Pool } from "pg";
-import { factsLine, KIND_LABEL, readDocument, type DocumentFacts } from "@/engine/document-reader";
+import { factsLine, filesBlock, KIND_LABEL, readDocument, type DocumentFacts } from "@/engine/document-reader";
 import type { AgentClient, SubjectRef } from "@/engine/types";
 import { subjectRef } from "./store";
 
@@ -160,9 +160,6 @@ export async function deleteDocument(db: Db, merchantId: string, id: string): Pr
  * by code from checked facts. Suspicious or unreadable files say so and add nothing.
  */
 export function chatContext(docs: StoredDocument[]): string {
-  if (!docs.length) return "";
-  const lines = docs.map((d) =>
-    d.status === "read" && d.facts ? `- ${factsLine(d.name, d.facts, 400)}` : `- ${d.name}: not used (${d.status === "suspicious" ? "it seems to give instructions" : "Pyp couldn't read it"}).`,
-  );
-  return `\n\nFiles I attached (what Pyp read in them):\n${lines.join("\n")}`;
+  // Only files Pyp could read and trust; the merchant was already told about the rest.
+  return filesBlock(docs.filter((d) => d.status === "read" && d.facts).map((d) => `- ${factsLine(d.name, d.facts!, 400)}`));
 }

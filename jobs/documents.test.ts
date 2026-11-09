@@ -2,7 +2,7 @@
 
 import type { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { DocumentFacts } from "@/engine/document-reader";
+import { FILES_END, FILES_START, type DocumentFacts } from "@/engine/document-reader";
 import { ScriptedAgentClient } from "@/gateway/scripted";
 import { chatContext, deleteDocument, listDocuments, saveDocument } from "./documents";
 import { factsFor } from "./facts";
@@ -61,14 +61,16 @@ describe.skipIf(!TEST_DB_URL)("documents (Postgres)", () => {
     expect(badAgain).toMatchObject({ status: "suspicious", reason: expect.stringMatching(/instructions/) });
   });
 
-  it("in chat, readable files ride along with the message; others say why they weren't used", async () => {
+  it("in chat, readable files ride along as a labelled block; others add nothing", async () => {
     const agent = new ScriptedAgentClient([proof, "not json"]);
     const good = await saveDocument({ pool, agent }, DEMO_MERCHANT, { name: "receipt.png", mediaType: "image/png", bytes: PNG(4) });
     const unreadable = await saveDocument({ pool, agent }, DEMO_MERCHANT, { name: "blurry.png", mediaType: "image/png", bytes: PNG(5) });
     expect(unreadable.status).toBe("failed");
     const ctx = chatContext([good, unreadable]);
-    expect(ctx).toContain("Files I attached (what Pyp read in them):");
+    expect(ctx.startsWith(FILES_START)).toBe(true);
+    expect(ctx.endsWith(FILES_END)).toBe(true);
     expect(ctx).toContain("- From receipt.png (shipping proof):");
-    expect(ctx).toContain("- blurry.png: not used (Pyp couldn't read it).");
+    expect(ctx).not.toContain("blurry.png"); // only files Pyp could read and trust
+    expect(chatContext([unreadable])).toBe("");
   });
 });
