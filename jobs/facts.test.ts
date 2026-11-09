@@ -6,7 +6,7 @@ import { runSkill } from "@/engine/run-skill";
 import { ScriptedAgentClient } from "@/gateway/scripted";
 import { collections } from "@/skills/collections/skill";
 import { acmeInvoice, friendlyReminder, NOW } from "@/skills/collections/evals/fixtures";
-import { addFact, deleteFact, factsFor, listFacts, updateFact } from "./facts";
+import { addFact, deleteFact, factsFor, listFacts, setProfile, updateFact } from "./facts";
 import { engineDb, loadMerchant } from "./store";
 import { DEMO_MERCHANT, TEST_DB_URL, freshDatabase } from "./test-db";
 
@@ -34,6 +34,19 @@ describe.skipIf(!TEST_DB_URL)("Pyp's memory (Postgres)", () => {
     expect(await factsFor(pool, DEMO_MERCHANT, "invoice:OTHER")).toContain("Acme is slow in December.");
     expect(await deleteFact(pool, DEMO_MERCHANT, proposed.id)).toBe(true);
     expect((await listFacts(pool, DEMO_MERCHANT)).map((f) => f.status)).toEqual(["active", "active", "active", "active"]);
+  });
+
+  it("the business profile: one answer per field, read by every case file, cleared with null", async () => {
+    await setProfile(pool, DEMO_MERCHANT, { key: "terms", value: "net_30" });
+    await setProfile(pool, DEMO_MERCHANT, { key: "terms", value: "net_15" }); // replaces, never piles up
+    await setProfile(pool, DEMO_MERCHANT, { key: "what", value: "Product photography" });
+    const notes = await factsFor(pool, DEMO_MERCHANT, "dispute:ANY");
+    expect(notes).toEqual(expect.arrayContaining(["My usual payment terms are Net 15.", "My business: Product photography."]));
+    expect(notes).not.toContain("My usual payment terms are Net 30.");
+    const refs = (await listFacts(pool, DEMO_MERCHANT)).map((f) => f.subjectRef).filter((r) => r?.startsWith("profile:"));
+    expect(refs.sort()).toEqual(["profile:terms:net_15", "profile:what"]);
+    await setProfile(pool, DEMO_MERCHANT, { key: "what", value: null });
+    expect(await factsFor(pool, DEMO_MERCHANT, "dispute:ANY")).not.toContain("My business: Product photography.");
   });
 
   it("the overdue case file carries the facts as merchant-only notes", async () => {
