@@ -324,7 +324,7 @@
       },
       brief: async function () {
         var end = new Date();
-        var start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+        var start = new Date(end.getTime() - 28 * 24 * 60 * 60 * 1000);
         var iso = function (d) { return d.toISOString().replace(/\.\d{3}Z$/, 'Z'); };
         var got = await Promise.all([
           read('/api/paypal/transactions?start_date=' + encodeURIComponent(iso(start)) + '&end_date=' + encodeURIComponent(iso(end)) + '&page=1&page_size=100', 'PayPal transaction data').catch(function () { return null; }),
@@ -348,11 +348,42 @@
         var dueCents = unpaid.reduce(function (s, i) { return s + cents(i.dueAmount != null ? i.dueAmount : i.amount); }, 0);
         var openDis = dis.filter(function (d) { return !/^(RESOLVED|CLOSED)$/.test(d.status); });
         var disCents = openDis.filter(inCur).reduce(function (s, d) { return s + cents(d.amount); }, 0);
+        var buckets = [0, 1, 2, 3].map(function (index) {
+          var bucketStart = new Date(start.getTime() + index * 7 * 24 * 60 * 60 * 1000);
+          var bucketEnd = new Date(bucketStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+          var inBucket = function (isoDate) {
+            var time = new Date(isoDate || '').getTime();
+            return isFinite(time) && time >= bucketStart.getTime() && time < bucketEnd.getTime();
+          };
+          var paymentsInBucket = received.filter(function (t) { return inBucket(t.date); }).length;
+          var disputesInBucket = dis.filter(function (d) { return inBucket(d.createdAt); });
+          return {
+            label: shortDate(bucketStart.toISOString()),
+            payments: paymentsInBucket,
+            disputes: disputesInBucket.length,
+            rate: paymentsInBucket ? disputesInBucket.length / paymentsInBucket * 100 : 0
+          };
+        });
+        var reasons = [];
+        dis.forEach(function (item) {
+          var reason = item.reasonLabel || item.reason || 'Unknown reason';
+          var row = reasons.filter(function (candidate) { return candidate.reason === reason; })[0];
+          if (!row) {
+            row = { reason: reason, cells: [0, 0, 0, 0], disputeIds: [[], [], [], []] };
+            reasons.push(row);
+          }
+          var created = new Date(item.createdAt || '').getTime();
+          var index = isFinite(created) ? Math.floor((created - start.getTime()) / (7 * 24 * 60 * 60 * 1000)) : -1;
+          if (index >= 0 && index < 4) {
+            row.cells[index] += 1;
+            row.disputeIds[index].push(item.id);
+          }
+        });
         var needs = openCount();
         return {
-          week: 'Week of ' + shortDate(start.toISOString()) + ' – ' + shortDate(end.toISOString()),
+          week: 'Dispute trends · ' + shortDate(start.toISOString()) + ' – ' + shortDate(end.toISOString()),
           stats: [
-            { label: 'Money in', value: money(inCents / 100, cur), note: payments + ' completed payment' + (payments === 1 ? '' : 's') + ' in the last 7 days' + (partial ? ' (first 100 only)' : '') },
+            { label: 'Money in', value: money(inCents / 100, cur), note: payments + ' completed payment' + (payments === 1 ? '' : 's') + ' in the last 28 days' + (partial ? ' (first 100 only)' : '') },
             { label: 'Unpaid invoices', value: money(dueCents / 100, cur), note: unpaid.length + ' invoice' + (unpaid.length === 1 ? '' : 's') + ' waiting on payment' },
             { label: 'Open disputes', value: String(openDis.length), note: openDis.length ? money(disCents / 100, cur) + ' in question' : 'Nothing open' },
             { label: 'Needs you', value: String(needs), note: needs ? 'cards waiting in your Inbox' : 'You’re all caught up' }
@@ -360,7 +391,8 @@
           summary: (got[0] ? money(inCents / 100, cur) + ' came in this week from ' + payments + ' payment' + (payments === 1 ? '' : 's') + '. ' : 'I couldn’t read this week’s transactions from PayPal. ') +
             (unpaid.length ? unpaid.length + ' invoice' + (unpaid.length === 1 ? ' is' : 's are') + ' still unpaid, ' + money(dueCents / 100, cur) + ' in total. ' : 'No invoices are waiting on payment. ') +
             (openDis.length ? openDis.length + ' dispute' + (openDis.length === 1 ? ' is' : 's are') + ' open.' : 'No open disputes.'),
-          footnote: 'Built from your live PayPal sandbox data, in ' + cur + '. Code did every calculation; no AI wrote this one yet.'
+          footnote: 'Built from your live PayPal sandbox data, in ' + cur + '. Code did every calculation; no AI wrote this one yet.',
+          trends: { buckets: buckets, reasons: reasons.slice(0, 8), partial: !!(got[2] && got[2].totalItems > dis.length) }
         };
       },
       overview: function () { return read('/api/paypal/overview', 'PayPal overview'); },

@@ -196,6 +196,23 @@ tr:hover td { background: #F7F9FD; }
 .stat { background: var(--tint); border-radius: 16px; padding: 16px; }
 .stat span { display: block; font-size: 13px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .stat b { display: block; margin-top: 4px; font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.trend-panel { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }
+.trend-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.trend-heading h3 { margin: 0 0 3px; font-size: 18px; }
+.trend-heading .note { margin: 0; }
+.trend-badge { padding: 5px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 11px; font-weight: 800; white-space: nowrap; }
+.trend-bars { display: flex; align-items: end; gap: 18px; height: 150px; padding: 12px 20px 0; border: 1px solid var(--line); border-radius: 12px; background: linear-gradient(to top, #F7F9FD 1px, transparent 1px); background-size: 100% 25%; }
+.trend-bar-group { display: flex; height: 100%; min-width: 62px; flex: 1; flex-direction: column; align-items: center; justify-content: end; gap: 4px; }
+.trend-bar { width: min(42px, 70%); min-height: 4px; background: #7B5CFA; border-radius: 7px 7px 2px 2px; }
+.trend-bar-group strong { color: var(--ink); font-size: 12px; }
+.trend-bar-group small { color: var(--muted); font-size: 11px; font-weight: 800; }
+.heatmap-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+.heatmap { min-width: 620px; table-layout: fixed; }
+.heatmap th, .heatmap td { padding: 9px 10px; text-align: center; }
+.heatmap th:first-child { width: 260px; text-align: left; white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }
+.heatmap tbody th { white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }
+.heatmap td { background: rgba(123, 92, 250, var(--heat, 0)); color: var(--ink); font-weight: 800; }
+.heatmap td a { color: inherit; text-decoration: underline; }
 .stat small { display: block; font-size: 13px; font-weight: 600; color: var(--muted); }
 .says { display: flex; gap: 14px; align-items: flex-start; margin-top: 18px; }
 .says .bub { background: #fff; border: 1px solid var(--line); border-radius: 4px 18px 18px 18px; padding: 14px 18px; font-size: 16px; font-weight: 600; max-width: 70ch; }

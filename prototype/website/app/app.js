@@ -548,11 +548,33 @@
   /* ---------------- Weekly brief ---------------- */
   function renderBrief() {
     transport.brief().then(function (b) {
+      var trends = b.trends;
+      var trendMarkup = '';
+      if (trends) {
+        var maxRate = Math.max.apply(null, trends.buckets.map(function (bucket) { return bucket.rate; }).concat([1]));
+        var bars = trends.buckets.map(function (bucket) {
+          var height = Math.max(4, Math.round(bucket.rate / maxRate * 100));
+          return '<div class="trend-bar-group" title="' + esc(bucket.disputes + ' disputes, ' + bucket.payments + ' completed payments, ' + bucket.rate.toFixed(1) + '% dispute rate') + '"><div class="trend-bar" style="height:' + height + '%"></div><strong>' + esc(bucket.rate.toFixed(1) + '%') + '</strong><small>' + esc(bucket.label) + '</small></div>';
+        }).join('');
+        var heatmap = trends.reasons.length ? trends.reasons.map(function (row) {
+          var cells = row.cells.map(function (count, index) {
+            var ids = row.disputeIds[index] || [];
+            var title = ids.length ? ids.join(', ') : 'No disputes';
+            var intensity = count ? Math.min(1, .25 + count / 4) : 0;
+            return '<td title="' + esc(title) + '" style="--heat:' + intensity + '">' + (count ? '<a href="#/disputes">' + esc(String(count)) + '</a>' : '—') + '</td>';
+          }).join('');
+          return '<tr><th>' + esc(row.reason) + '</th>' + cells + '</tr>';
+        }).join('') : '<tr><td colspan="5" class="empty">No disputes in this period.</td></tr>';
+        trendMarkup = '<section class="trend-panel"><div class="trend-heading"><div><h3>Dispute rate</h3><p class="note">Disputes opened divided by completed payments, calculated in code.</p></div><span class="trend-badge">Last 28 days</span></div><div class="trend-bars">' + bars + '</div>' +
+          '<div class="trend-heading"><div><h3>Dispute reasons heatmap</h3><p class="note">Click a count to open the Disputes page. Hover a cell to see dispute IDs.</p></div></div><div class="heatmap-wrap"><table class="heatmap"><thead><tr><th>Reason</th>' + trends.buckets.map(function (bucket) { return '<th>' + esc(bucket.label) + '</th>'; }).join('') + '</tr></thead><tbody>' + heatmap + '</tbody></table></div>' +
+          (trends.partial ? '<p class="note">Showing the first page of PayPal disputes.</p>' : '') + '</section>';
+      }
       view.innerHTML =
         '<section class="panel"><h2>' + esc(b.week) + '</h2><p>Pyp’s weekly look at your business. Insights only reads; it never changes anything in PayPal.</p>' +
         '<div class="stats">' + b.stats.map(function (s) {
           return '<div class="stat"><span>' + esc(s.label) + '</span><b>' + esc(s.value) + '</b><small>' + esc(s.note) + '</small></div>';
         }).join('') + '</div>' +
+        trendMarkup +
         '<div class="says"><div data-fig="brief"></div><div class="bub">' + esc(b.summary) + '</div></div>' +
         '<p class="note">' + esc(b.footnote) + '</p>' +
         '<p style="margin-top:14px"><a class="btn btn-ghost" href="#/inbox">See what needs you</a></p></section>';
