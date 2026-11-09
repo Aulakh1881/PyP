@@ -1,4 +1,4 @@
-/* Pyp dashboard: Setup → Connections.
+/* Pyp dashboard: Settings → Connections.
  *
  * Pyp in the apps the merchant already uses. When a card needs them, Pyp posts it
  * to Slack or Discord, or sends signed JSON to any app (n8n, Zapier, Make). In
@@ -22,15 +22,15 @@
   }
 
   var KINDS = [
-    { id: 'slack', name: 'Slack', blurb: 'Optional: also post cards that need you to a team channel (an incoming webhook).', placeholder: 'https://hooks.slack.com/services/…',
+    { id: 'slack', name: 'Slack channel', blurb: 'Optional: also post cards that need you to a team channel.', placeholder: 'https://hooks.slack.com/services/…',
       how: 'In Pyp’s Slack app: Incoming Webhooks → On → Add New Webhook to Workspace → pick a channel → copy the URL.' },
     { id: 'discord', name: 'Discord', blurb: 'Cards that need you, posted to a Discord channel.', placeholder: 'https://discord.com/api/webhooks/…',
       how: 'In Discord: Channel settings → Integrations → Webhooks → New Webhook → Copy Webhook URL.' },
-    { id: 'webhook', name: 'Any app (n8n, Zapier, Make)', blurb: 'Every new card as signed JSON, so your own automations can do anything with it.', placeholder: 'https://your-n8n.example.com/webhook/…',
+    { id: 'webhook', advanced: true, name: 'Zapier, Make or n8n', blurb: 'If you already use one of these: every card that needs you goes to your automation, so it can text you, log it to a Google Sheet, or make a task in Trello. You build what happens next there.', placeholder: 'https://your-n8n.example.com/webhook/…',
       how: 'In n8n add a Webhook node (POST), in Zapier “Webhooks by Zapier → Catch Hook”, in Make a “Custom webhook”, and paste its URL here.' }
   ];
 
-  // Kept outside mount: Setup redraws (a dial, the kill switch) mount this panel again,
+  // Kept outside mount: Settings redraws (a permission, Pause Pyp) mount this panel again,
   // and a secret shown once or a fresh link code must survive that.
   var secret = null;  // { kind, value } shown once after adding "Any app"
   var code = null;    // { code, expiresAt } for /pyp connect
@@ -97,9 +97,17 @@
         '<p class="wf-hint">One Slack app serves this Pyp server. Slack needs a public address to reach Pyp, so this works once Pyp is deployed (or through a tunnel).</p></details></div>';
     }
 
+    // Advanced stays open once it's in use (or while its one-time secret is showing).
+    function advancedOpen() {
+      return !!(secret && secret.kind === 'webhook') || (data.connections || []).some(function (c) { return c.kind === 'webhook'; });
+    }
+
     function draw() {
       el.innerHTML = '<h2>Connections</h2><p>Pyp in the apps you already use. When something needs you, Pyp tells you there. Messages link back to Pyp: approving, editing and undoing always happen here.</p>' +
-        '<div class="cx-list"><article class="cx-item">' + slashHTML() + '</article>' + KINDS.map(row).join('') + '</div>';
+        '<div class="cx-list"><article class="cx-item">' + slashHTML() + '</article>' +
+        KINDS.filter(function (k) { return !k.advanced; }).map(row).join('') +
+        '<details class="cx-advanced"' + (advancedOpen() ? ' open' : '') + '><summary>Advanced: automation tools</summary>' +
+        KINDS.filter(function (k) { return k.advanced; }).map(row).join('') + '</details></div>';
     }
 
     function busy(b, label, p) {

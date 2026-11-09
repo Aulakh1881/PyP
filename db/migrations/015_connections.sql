@@ -1,4 +1,4 @@
--- 015: Connections (Setup → Connections, jobs/connections.ts).
+-- 015: Connections (Settings → Connections, jobs/connections.ts).
 --
 -- Outbound: when a card needs the merchant, Pyp posts it to their Slack or
 -- Discord channel, or sends signed JSON to any app (n8n, Zapier, Make…). Each

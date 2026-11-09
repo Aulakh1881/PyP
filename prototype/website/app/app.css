@@ -497,6 +497,7 @@ tr:hover td { background: #F7F9FD; }
 .sk-preview p { margin: 6px 0 0; }
 .sk-preview ul { margin: 8px 0 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
 
+<<<<<<< HEAD
 /* Setup → Connections (connections.js). */
 .cx-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
 .cx-item { padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
@@ -516,3 +517,13 @@ tr:hover td { background: #F7F9FD; }
 .cx-howto ol { margin: 8px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
 
 .cx-bot { margin: 4px 0 10px; padding-left: 20px; font-size: 14px; display: flex; flex-direction: column; gap: 4px; }
+=======
+/* Settings: one page, a jump bar to each section. */
+.settings-jump { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 14px; background: rgba(255,255,255,.96); border: 1px solid var(--line); border-radius: 14px; backdrop-filter: blur(4px); }
+.settings-jump p { margin: 0; font-size: 13px; font-weight: 700; color: var(--muted); flex: 1 1 260px; }
+.settings-jump div { display: flex; gap: 6px; flex-wrap: wrap; }
+[id^="set-"] { scroll-margin-top: 76px; }
+>>>>>>> settings-page
+.cx-advanced { margin-top: 4px; }
+.cx-advanced summary { cursor: pointer; font-weight: 800; color: var(--muted); padding: 6px 2px; }
+.cx-advanced .cx-item { margin-top: 8px; }

@@ -131,7 +131,7 @@
       }).join('');
       view.innerHTML =
         '<section class="panel"><div class="activity-head"><div><h2>My skills</h2>' +
-        '<p>Specialists you make. A skill watches what you pick, on your schedule, and <b>Pyp decides</b> each one your way: your playbook, your tone, only the actions you allow. Pyp still asks before anything goes out unless you set that action to Auto in Setup.</p>' +
+        '<p>Specialists you make. A skill watches what you pick, on your schedule, and <b>Pyp decides</b> each one your way: your playbook, your tone, only the actions you allow. Pyp still asks before anything goes out unless you set that action to Auto in Settings.</p>' +
         '<p class="note">Skills are Pyp’s judgment, your way. <a href="#/workflows">Workflows</a> are your rules: you decide, Pyp follows.</p></div>' +
         '<div class="activity-actions"><button class="btn" type="button" data-new>+ New skill</button></div></div>' +
         '<form class="sk-describe" data-describe><label class="wf-f"><span>Describe a skill in your own words, and Pyp drafts it</span>' +
@@ -221,7 +221,7 @@
     }
 
     function triedHTML(r) {
-      if (r.status === 'paused') return '<section class="panel"><p class="setup-error">' + esc(r.message || 'Pyp is paused (kill switch on).') + '</p></section>';
+      if (r.status === 'paused') return '<section class="panel"><p class="setup-error">' + esc(r.message || 'Pyp is paused.') + '</p></section>';
       if (r.status === 'waiting') return '<section class="panel"><p class="setup-error">' + esc(r.message) + '</p></section>';
       var head = '<p><b>Pyp looked at ' + r.found + ' and ' + r.matched + ' passed your checks.</b> ' + (r.skipped ? r.skipped + ' already had a card waiting. ' : '') + 'Nothing was saved or sent.</p>';
       var items = (r.previews || []).map(function (p) {

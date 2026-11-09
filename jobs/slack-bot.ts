@@ -323,7 +323,7 @@ export async function handleMessageEvent(deps: ChatDeps, e: SlackMessageEvent): 
   const who = await linkedMerchant(deps.pool, e.teamId, e.user);
   if ("refusal" in who) {
     return async () => {
-      await say(`${who.refusal} In Pyp: Setup → Connections → Slack → Link Slack, then type \`/pyp connect CODE\`.`);
+      await say(`${who.refusal} In Pyp: Settings → Connections → Link Slack, then type \`/pyp connect CODE\`.`);
     };
   }
   const text = e.text.replace(deps.botUserId ? new RegExp(`<@${deps.botUserId}>`, "g") : /^<@[A-Z0-9]+>\s*/, "").trim().slice(0, 1000);

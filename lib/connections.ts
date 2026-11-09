@@ -93,7 +93,7 @@ export async function runSkillFromSlack(merchantId: string, name: string): Promi
   const out = await runCustomSkillNow(merchantId, s.id, false);
   if (!out) return null;
   if (out.status === "busy") return "Pyp is already running a check. Try again in a minute.";
-  if (out.status === "paused") return "Pyp is paused (kill switch on), so the skill didn't run.";
+  if (out.status === "paused") return "Pyp is paused, so the skill didn't run. Turn it back on in Settings.";
   const name_ = slack(s.name);
   if (out.status === "waiting") return `“${name_}” isn't finished yet. Open it on My skills in Pyp.`;
   const cards = out.cardIds.length;

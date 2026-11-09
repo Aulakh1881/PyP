@@ -543,7 +543,7 @@ export async function handleSlash(deps: SlashDeps, cmd: SlashCommand): Promise<{
           returning (select name from merchants m where m.id = slack_links.merchant_id) as merchant_name`,
         [code, cmd.teamId, cmd.teamDomain, cmd.userId, cmd.userName, deps.now],
       );
-      if (!res.rows[0]) return { reply: "That code didn't work. In Pyp, open Setup → Connections → Slack and get a new one (codes last 15 minutes)." };
+      if (!res.rows[0]) return { reply: "That code didn't work. In Pyp, open Settings → Connections and get a new one (codes last 15 minutes)." };
       return { reply: `Linked to *${slackText(String(res.rows[0].merchant_name))}* in Pyp. Only you can use /pyp here.\n${SLASH_HELP}` };
     } catch (err) {
       if ((err as { code?: string }).code === "23505") return { reply: "This Slack workspace is already linked to a Pyp account. Unlink it there first (/pyp disconnect)." };
@@ -553,7 +553,7 @@ export async function handleSlash(deps: SlashDeps, cmd: SlashCommand): Promise<{
 
   const link = await deps.pool.query("select merchant_id, slack_user_id, slack_user_name from slack_links where team_id = $1", [cmd.teamId]);
   const row = link.rows[0];
-  if (!row) return { reply: "This Slack workspace isn't linked to Pyp yet. In Pyp, open Setup → Connections → Slack, tap *Link Slack*, then type `/pyp connect CODE` here." };
+  if (!row) return { reply: "This Slack workspace isn't linked to Pyp yet. In Pyp, open Settings → Connections, tap *Link Slack*, then type `/pyp connect CODE` here." };
   if (row.slack_user_id !== cmd.userId) return { reply: `Only ${slackText(String(row.slack_user_name || "the person who linked Pyp"))} can use /pyp in this workspace.` };
   const merchantId = String(row.merchant_id);
 
