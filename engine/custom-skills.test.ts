@@ -27,6 +27,15 @@ describe("zonedTime", () => {
     expect(zonedTime("2026-03-08", "09:00", LA).toISOString()).toBe("2026-03-08T16:00:00.000Z"); // the day clocks go forward
     expect(zonedTime("2026-07-01", "09:00", "Asia/Kolkata").toISOString()).toBe("2026-07-01T03:30:00.000Z");
   });
+
+  it("a time skipped by spring-forward runs just after the jump; one that happens twice runs the first time", () => {
+    // 02:30 doesn't exist on Mar 8 in New York (02:00 EST → 03:00 EDT): runs at 03:30 EDT, 07:30 UTC.
+    expect(zonedTime("2026-03-08", "02:30", "America/New_York").toISOString()).toBe("2026-03-08T07:30:00.000Z");
+    // London: 01:30 doesn't exist on Mar 29 (01:00 GMT → 02:00 BST): 02:30 BST, 01:30 UTC.
+    expect(zonedTime("2026-03-29", "01:30", "Europe/London").toISOString()).toBe("2026-03-29T01:30:00.000Z");
+    // 01:30 happens twice on Nov 1 in New York: the first, 01:30 EDT, 05:30 UTC.
+    expect(zonedTime("2026-11-01", "01:30", "America/New_York").toISOString()).toBe("2026-11-01T05:30:00.000Z");
+  });
 });
 
 describe("nextRun", () => {

@@ -88,7 +88,7 @@ export async function draftSkill(agent: AgentClient, description: string, opts: 
         schema: toApiSchema(draftSchema),
         fullSchema: z.toJSONSchema(draftSchema, { io: "output" }) as Record<string, unknown>,
         tier: "fast",
-        maxOutputTokens: 1200,
+        maxOutputTokens: 1500,
         signal: opts.signal,
         purpose: "skill-draft",
       }),

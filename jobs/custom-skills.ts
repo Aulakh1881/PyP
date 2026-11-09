@@ -31,6 +31,8 @@ export interface StoredSkill {
 export const TRY_LIMIT = 3;
 /** A scheduled run that found another check running tries again this many minutes later. */
 export const BUSY_RETRY_MINUTES = 5;
+/** A scheduled run that failed (PayPal or the database down) tries again this many minutes later, until its next time. */
+export const ERROR_RETRY_MINUTES = 15;
 
 /** True when migration 014 hasn't been run on this database yet. */
 export function missingSkillsTable(err: unknown): boolean {
@@ -75,7 +77,8 @@ export interface SkillInput {
 
 /**
  * Saves a skill. One with problems is saved switched off (a draft). Switching
- * one on (or changing its schedule) sets its next run from now.
+ * one on, or changing its schedule, sets its next run from now; other edits
+ * (a rename, the playbook) keep the next run, so "every 5 days" keeps its rhythm.
  */
 export async function saveSkill(
   db: Db,
@@ -88,7 +91,9 @@ export async function saveSkill(
   const next = enabled ? nextRun(input.spec.schedule, opts.now, opts.timeZone, opts.now) : null;
   const res = opts.id
     ? await db.query(
-        `update custom_skills set name = $3, enabled = $4, spec = $5, next_run_at = $6, updated_at = now()
+        `update custom_skills set name = $3, enabled = $4, spec = $5, updated_at = now(),
+                next_run_at = case when $4 and enabled and next_run_at is not null and spec->'schedule' = $5::jsonb->'schedule'
+                                   then next_run_at else $6::timestamptz end
           where merchant_id = $1 and id = $2 returning ${COLUMNS}`,
         [merchantId, opts.id, input.name, enabled, JSON.stringify(input.spec), next],
       )
@@ -120,7 +125,7 @@ export interface SkillPreview {
 }
 
 export interface SkillRunOutcome {
-  status: "ok" | "paused" | "waiting";
+  status: "ok" | "paused" | "waiting" | "error";
   at: string;
   /** How many invoices or disputes the skill watches right now. */
   found: number;
@@ -160,9 +165,16 @@ export async function runSkillLocked(deps: SweepDeps, merchantId: string, s: Sto
   const busy = await busySubjects(deps.pool, merchantId);
   const limit = opts.dryRun ? TRY_LIMIT : SWEEP_LIMIT;
   const trigger = `skill:${s.name}`;
+  // Least recently handled by this skill first (never before anything), so the
+  // per-run cap never leaves the same invoices or disputes out run after run.
+  const last = await lastRunBySkill(deps.pool, merchantId, trigger);
+  const ordered = items
+    .map((item, i) => ({ item, i, at: last.get(subjectRef(item.subject)) ?? -Infinity }))
+    .sort((a, b) => a.at - b.at || a.i - b.i)
+    .map((x) => x.item);
   const askFirst = { commands: plan.askFirst, reason: `Your skill “${s.name}” asks you first` };
 
-  for (const item of items) {
+  for (const item of ordered) {
     if (out.ran >= limit) break;
     try {
       if (!passesFilters(s.spec, await item.facts())) continue;
@@ -178,6 +190,7 @@ export async function runSkillLocked(deps: SweepDeps, merchantId: string, s: Sto
         agent: deps.agent,
         trigger: opts.dryRun ? `${trigger} (try it)` : trigger,
         instruction: plan.instruction,
+        instructionKind: "standing",
         onlyCommands: plan.commands,
         askFirst,
       });
@@ -199,6 +212,11 @@ export async function runSkillLocked(deps: SweepDeps, merchantId: string, s: Sto
     }
   }
   return out;
+}
+
+async function lastRunBySkill(pool: Pool, merchantId: string, trigger: string): Promise<Map<string, number>> {
+  const res = await pool.query("select subject_ref, max(started_at) as at from runs where merchant_id = $1 and trigger = $2 group by subject_ref", [merchantId, trigger]);
+  return new Map(res.rows.map((r) => [r.subject_ref as string, new Date(r.at).getTime()]));
 }
 
 function preview(subject: { kind: string; id: string }, result: Awaited<ReturnType<typeof runSkill>>): SkillPreview {
@@ -261,20 +279,30 @@ export async function runDueSkills(deps: SweepDeps): Promise<{ skillId: string; 
     const s = toSkill(row);
     const merchantId = String(row.merchant_id);
     const next = nextRun(s.spec.schedule, now, String(row.timezone), now);
-    const claimed = await deps.pool.query("update custom_skills set next_run_at = $3 where id = $1 and next_run_at = $2 returning id", [s.id, row.next_run_at, next]);
-    if (!claimed.rows[0]) continue; // another worker has it
+    // Atomic: only one worker moves a due, switched-on skill to its next time.
+    const claimed = await deps.pool.query("update custom_skills set next_run_at = $3 where id = $1 and enabled and next_run_at <= $2 returning id", [s.id, now, next]);
+    if (!claimed.rows[0]) continue; // another worker has it, or it was switched off
+    // Try again soon, but never later than the next scheduled time; a skill switched off meanwhile stays off.
+    const retryIn = async (minutes: number) => {
+      const at = new Date(now.getTime() + minutes * 60_000);
+      if (!next || at < next) await deps.pool.query("update custom_skills set next_run_at = $2 where id = $1 and enabled", [s.id, at]);
+    };
     try {
       const out = await withSweepLock(deps.pool, merchantId, () => runSkillLocked(deps, merchantId, s));
       if (out.status === "busy") {
-        // Another check is running: try again shortly, then back to the schedule.
-        await deps.pool.query("update custom_skills set next_run_at = $2 where id = $1", [s.id, new Date(now.getTime() + BUSY_RETRY_MINUTES * 60_000)]);
+        await retryIn(BUSY_RETRY_MINUTES); // another check is running
         done.push({ skillId: s.id, name: s.name, outcome: out });
         continue;
       }
       await recordRun(deps.pool, merchantId, s.id, out);
       done.push({ skillId: s.id, name: s.name, outcome: out });
     } catch (err) {
-      done.push({ skillId: s.id, name: s.name, outcome: { status: "error", message: (err as Error).message } });
+      // PayPal or the database failed before any subject ran: say so on the page and try again.
+      const message = (err as Error).message;
+      const out: SkillRunOutcome = { status: "error", at: now.toISOString(), found: 0, matched: 0, skipped: 0, ran: 0, cardIds: [], failed: [message], notes: [], message };
+      await recordRun(deps.pool, merchantId, s.id, out).catch(() => {});
+      await retryIn(ERROR_RETRY_MINUTES).catch(() => {});
+      done.push({ skillId: s.id, name: s.name, outcome: { status: "error", message } });
     }
   }
   return done;

@@ -4,7 +4,7 @@
 // out the deadline, the offer amounts and every id the model may cite.
 
 import { formatMoney } from "@/engine/format";
-import type { BuyerFacts, CaseFile, Dispute, GatherContext, SubjectRef } from "@/engine/types";
+import type { BuyerFacts, CaseFile, CaseFileOptions, Dispute, GatherContext, SubjectRef } from "@/engine/types";
 import { block, tag, textTag, untrusted } from "@/engine/xml";
 import { truncate } from "@/engine/prompt-builder";
 import { parseAmounts, type ParsedAmount } from "@/skills/collections/request-parser";
@@ -49,6 +49,7 @@ export async function buildDisputeCaseFile(
   ctx: GatherContext,
   subject: SubjectRef,
   instruction?: string,
+  opts: CaseFileOptions = {},
 ): Promise<CaseFile<DisputeFacts>> {
   if (subject.kind !== "dispute") throw new Error(`Disputes can't handle subject kind "${subject.kind}"`);
   if (!ctx.read.getDispute) throw new Error("PayPal reads don't include getDispute yet");
@@ -92,7 +93,8 @@ export async function buildDisputeCaseFile(
     writtenAs: "the full disputed amount",
   };
   const request = instruction?.trim() ? truncate(instruction.trim(), MAX_INSTRUCTION_CHARS) : null;
-  const parsed = request ? parseAmounts(request, dispute.currency) : { amounts: [], problems: [] };
+  // Amounts in a custom skill's playbook ("disputes under $100") are a rule, not an offer to make.
+  const parsed = request && !opts.standing ? parseAmounts(request, dispute.currency) : { amounts: [], problems: [] };
   const amounts = [full, ...parsed.amounts.filter((a) => a.value !== full.value)];
 
   const tracking = dispute.tracking.map((t, i) => ({ ...t, id: `trk_${i + 1}` }));

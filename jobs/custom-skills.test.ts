@@ -122,6 +122,45 @@ describe.skipIf(!TEST_DB_URL)("custom skills (Postgres)", () => {
     expect((await listSkills(pool, DEMO_MERCHANT))[0].nextRunAt).toBe("2026-10-29T16:00:00.000Z");
   });
 
+  it("allowing Cancel is standing permission, not a request: cancel stays off the menu until the reminders are used up", async () => {
+    const spec: SkillSpec = { ...bigOnes, filters: [], actions: [{ action: "remind", askFirst: false }, { action: "cancel", askFirst: true }], playbook: "Never cancel or void anything small." };
+    const { skill } = (await saveSkill(pool, DEMO_MERCHANT, { name: "Cleanup", enabled: true, spec }, { now: NOW, timeZone: LA }))!;
+    const agent = new ScriptedAgentClient([firm()]);
+    await runSkillNow({ pool, read: reads([acmeInvoice]), agent, now: () => NOW }, DEMO_MERCHANT, skill.id);
+    const turn = agent.requests[0].turn;
+    expect(turn).toContain('<command id="invoice.sendReminder"');
+    expect(turn).not.toContain('<command id="invoice.cancel"'); // 0 reminders sent, and the merchant didn't ask about this invoice
+  });
+
+  it("a scheduled run that fails before any invoice is tried again in 15 minutes, and says why on the page", async () => {
+    await saveSkill(pool, DEMO_MERCHANT, { name: "Big ones", enabled: true, spec: bigOnes }, { now: NOW, timeZone: LA });
+    const broken: SweepReads = { ...reads([]), overdueInvoices: async () => { throw new Error("PayPal 503"); } };
+    const at = new Date("2026-10-28T16:01:00Z");
+    const done = await runDueSkills({ pool, read: broken, agent: new ScriptedAgentClient([]), now: () => at });
+    expect(done[0].outcome).toMatchObject({ status: "error", message: "PayPal 503" });
+    const s = (await listSkills(pool, DEMO_MERCHANT))[0];
+    expect(s.nextRunAt).toBe("2026-10-28T16:16:00.000Z");
+    expect(s.lastOutcome).toMatchObject({ status: "error", message: "PayPal 503" });
+  });
+
+  it("claims a due skill whatever the timestamp's precision (set by SQL now())", async () => {
+    await saveSkill(pool, DEMO_MERCHANT, { name: "Big ones", enabled: true, spec: bigOnes }, { now: NOW, timeZone: LA });
+    await pool.query("update custom_skills set next_run_at = now() - interval '1 minute'");
+    const done = await runDueSkills({ pool, read: reads([acmeInvoice]), agent: new ScriptedAgentClient([firm()]), now: () => new Date() });
+    expect(done).toHaveLength(1);
+    expect(await runDueSkills({ pool, read: reads([acmeInvoice]), agent: new ScriptedAgentClient([]), now: () => new Date() })).toEqual([]);
+  });
+
+  it("editing a skill without touching its schedule keeps its next run (every N days keeps its rhythm)", async () => {
+    const spec: SkillSpec = { ...bigOnes, schedule: { kind: "every", days: 5, time: "09:00" } };
+    const first = (await saveSkill(pool, DEMO_MERCHANT, { name: "Every 5", enabled: true, spec }, { now: NOW, timeZone: LA }))!;
+    const later = new Date(NOW.getTime() + 2 * 86_400_000);
+    const renamed = (await saveSkill(pool, DEMO_MERCHANT, { name: "Every five", enabled: true, spec: { ...spec, playbook: "New words." } }, { id: first.skill.id, now: later, timeZone: LA }))!;
+    expect(renamed.skill.nextRunAt).toBe(first.skill.nextRunAt);
+    const moved = (await saveSkill(pool, DEMO_MERCHANT, { name: "Every five", enabled: true, spec: { ...spec, schedule: { kind: "daily", time: "09:00" } } }, { id: first.skill.id, now: later, timeZone: LA }))!;
+    expect(moved.skill.nextRunAt).toBe("2026-10-30T16:00:00.000Z"); // the new schedule, from now
+  });
+
   it("a manual skill never runs by itself", async () => {
     await saveSkill(pool, DEMO_MERCHANT, { name: "By hand", enabled: true, spec: { ...bigOnes, schedule: { kind: "manual" } } }, { now: NOW, timeZone: LA });
     expect((await listSkills(pool, DEMO_MERCHANT))[0].nextRunAt).toBeNull();

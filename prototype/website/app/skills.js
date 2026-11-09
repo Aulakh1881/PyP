@@ -190,7 +190,7 @@
         '<button type="button" class="wf-back" data-back>← My skills</button>' +
         '<label class="wf-name"><span class="sr-label">Skill name</span><input data-name maxlength="60" value="' + esc(editing.name) + '" placeholder="Name this skill"></label>' +
         '<label class="wf-on"><span>On</span><button type="button" class="bigswitch wf-switch" role="switch" aria-checked="' + !!editing.enabled + '" aria-label="Skill on" data-on><span></span></button></label>' +
-        '<button type="button" class="btn btn-ghost btn-sm" data-try-open>Try it</button>' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-try-open title="Saves the skill as it is now, then shows what Pyp would do. Nothing is sent.">Save &amp; try it</button>' +
         '<button type="button" class="btn btn-sm" data-save>Save</button>' +
         '</div>' +
         (editing.notes && editing.notes.length ? '<div class="sk-notes" role="status"><b>From Pyp’s draft:</b><ul>' + editing.notes.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('') + '</ul></div>' : '') +
@@ -304,8 +304,10 @@
       }
       if (s && t.hasAttribute('data-try')) {
         var slot = view.querySelector('[data-list-result]');
-        slot.innerHTML = '<div class="loading">Pyp is trying “' + esc(s.name) + '”… nothing will be saved or sent.</div>';
-        return withBusy(t, 'Trying…', function () { return tryIt(s.id, slot); });
+        return withBusy(t, 'Trying…', function () {
+          slot.innerHTML = '<div class="loading">Pyp is trying “' + esc(s.name) + '”… nothing will be saved or sent.</div>';
+          return tryIt(s.id, slot).catch(function (err) { slot.innerHTML = ''; throw err; });
+        });
       }
 
       if (!editing) return;
@@ -335,7 +337,7 @@
             if (r.problems.length) { drawEditor(); throw new Error('Finish the skill first: ' + r.problems[0]); }
             var slot = view.querySelector('[data-try-result]');
             slot.innerHTML = '<section class="panel"><div class="loading">Pyp is trying it… nothing will be saved or sent.</div></section>';
-            return tryIt(editing.id, slot);
+            return tryIt(editing.id, slot).catch(function (err) { slot.innerHTML = ''; throw err; });
           });
         });
       }
@@ -372,7 +374,12 @@
         if (sp.watch !== 'invoice_due_soon') delete sp.dueWithinDays;
         return drawEditor();
       }
-      if (k === 'dueWithinDays') { sp.dueWithinDays = Number(el.value) || 3; return; }
+      if (k === 'dueWithinDays') {
+        var dn = Math.round(Number(el.value));
+        if (el.value !== '' && isFinite(dn)) sp.dueWithinDays = Math.min(30, Math.max(1, dn));
+        if (e.type === 'change') el.value = sp.dueWithinDays || 3;
+        return;
+      }
       if (k === 'playbook' || k === 'tone') { sp[k] = el.value; return; }
 
       var s = el.getAttribute('data-s');
@@ -382,7 +389,15 @@
           sp.schedule = el.value === 'manual' ? { kind: 'manual' } : el.value === 'weekly' ? { kind: 'weekly', weekday: 'Mon', time: time } : el.value === 'monthly' ? { kind: 'monthly', day: 1, time: time } : el.value === 'every' ? { kind: 'every', days: 3, time: time } : { kind: 'daily', time: time };
           return drawEditor();
         }
-        sp.schedule[s] = s === 'day' || s === 'days' ? Number(el.value) : el.value;
+        // Keep the form saveable: a cleared or out-of-range number snaps back into range, a cleared time keeps the last one.
+        if (s === 'day' || s === 'days') {
+          var lo = s === 'day' ? 1 : 2, hi = s === 'day' ? 28 : 30, n = Math.round(Number(el.value));
+          if (el.value !== '' && isFinite(n)) sp.schedule[s] = Math.min(hi, Math.max(lo, n));
+          if (e.type === 'change') el.value = sp.schedule[s];
+        } else if (s === 'time') {
+          if (/^([01]\d|2[0-3]):[0-5]\d$/.test(el.value)) sp.schedule.time = el.value;
+          else if (e.type === 'change') el.value = sp.schedule.time;
+        } else sp.schedule[s] = el.value;
         return;
       }
 

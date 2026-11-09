@@ -37,9 +37,9 @@ export async function decide<P, F>(input: {
   if (skill.policy.neverAuto.includes(cmd.id)) {
     return { decision: "ask", rule: "never_auto", reason: "This action always needs your approval" };
   }
-  if (forceAsk) return { decision: "ask", rule: "skill_ask_first", reason: forceAsk };
   const limit = cmd.overLimit ? await cmd.overLimit(params, rule, ctx) : null;
   if (limit) return { decision: "ask", rule: "limit", reason: limit };
+  if (forceAsk) return { decision: "ask", rule: "skill_ask_first", reason: forceAsk };
   if (confidence === "low") return { decision: "ask", rule: "low_confidence", reason: "Pyp wasn't sure" };
   if (askedMerchant) return { decision: "ask", rule: "has_question", reason: "Pyp has a question for you" };
   if (rule.dial === "ask") return { decision: "ask", rule: "dial_ask", reason: "You asked to approve these" };

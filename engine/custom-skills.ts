@@ -201,14 +201,14 @@ export function skillPlan(name: string, spec: SkillSpec): { skill: SkillId; inst
 
 const DAY_MS = 86_400_000;
 
-/** YYYY-MM-DD and HH:MM of an instant in a time zone. */
-function localParts(at: Date, timeZone: string): { date: string; weekday: string; day: number } {
+/** The YYYY-MM-DD date of an instant in a time zone. */
+function localParts(at: Date, timeZone: string): { date: string } {
   const p = Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", weekday: "short" })
+    new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" })
       .formatToParts(at)
       .map((x) => [x.type, x.value]),
   );
-  return { date: `${p.year}-${p.month}-${p.day}`, weekday: p.weekday, day: Number(p.day) };
+  return { date: `${p.year}-${p.month}-${p.day}` };
 }
 
 /** The zone's offset from UTC at an instant, in ms. */
@@ -224,15 +224,20 @@ function offsetAt(at: number, timeZone: string): number {
 
 /**
  * The instant a local date and time happens in a zone. A time skipped by a DST
- * change (02:30 on spring-forward night) lands an hour later, as clocks read.
+ * change (02:30 on spring-forward night) runs at the later of the two readings,
+ * just after the clocks jump, in every zone.
  */
 export function zonedTime(date: string, hhmm: string, timeZone: string): Date {
   const [y, m, d] = date.split("-").map(Number);
   const [hh, mm] = hhmm.split(":").map(Number);
   const wall = Date.UTC(y, m - 1, d, hh, mm);
-  let at = wall - offsetAt(wall, timeZone);
-  at = wall - offsetAt(at, timeZone); // once more, in case the guess crossed a DST change
-  return new Date(at);
+  const a1 = wall - offsetAt(wall, timeZone);
+  const a2 = wall - offsetAt(a1, timeZone); // once more, in case the guess crossed a DST change
+  // Keep a candidate that really reads as this local time (the earlier one when the
+  // clocks go back and it happens twice); none does in the spring-forward gap: the later.
+  const reads = (at: number) => at + offsetAt(at, timeZone) === wall;
+  const real = [a1, a2].filter(reads);
+  return new Date(real.length ? Math.min(...real) : Math.max(a1, a2));
 }
 
 function addDays(date: string, n: number): string {
