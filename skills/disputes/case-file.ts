@@ -128,6 +128,8 @@ export async function buildDisputeCaseFile(
       opened: dispute.createdAt,
       "response-due": dispute.sellerResponseDueDate,
       "hours-left": hoursToDeadline,
+      // Days for the merchant to read; code does the division so the model doesn't.
+      "days-left": hoursToDeadline !== null && hoursToDeadline >= 48 ? Math.floor(hoursToDeadline / 24) : null,
       urgent: urgent ? "yes" : null,
       "deadline-passed": deadlinePassed ? "yes" : null,
     }),

@@ -75,6 +75,7 @@
     orders: { title: 'Order details', render: renderOrder },
     invoices: { title: 'Invoices', render: renderInvoices },
     disputes: { title: 'Disputes', render: renderDisputes },
+    clients: { title: 'Clients', render: renderClients },
     inbox: { title: 'Inbox', render: renderInbox },
     activity: { title: 'Activity', render: renderActivity },
     brief: { title: 'Weekly brief', render: renderBrief },
@@ -205,6 +206,98 @@
     loadTransactions();
   }
 
+  /* ---------------- Clients ---------------- */
+  // Pyp's own client list: who Pyp may invoice by name or nickname. PayPal has no
+  // contacts list, so saving here never changes PayPal.
+  function renderClients() {
+    if (!transport.clients) {
+      view.innerHTML = '<section class="panel"><h2>Clients</h2><p>Clients are saved on the Pyp server. Sign in to the live dashboard to manage them.</p></section>';
+      return;
+    }
+    var editing = null; // id of the saved client being edited, or 'new'
+    var prefill = null;
+    var data = null;
+
+    function load() {
+      transport.clients().then(function (d) { data = d; draw(); }, function (e) {
+        view.innerHTML = '<section class="panel"><h2>Clients</h2><p class="setup-error">' + esc(e.message) + '</p></section>';
+      });
+    }
+
+    function form(c) {
+      c = c || {};
+      return '<form class="client-form" data-client-form>' +
+        '<label>Name<input name="name" maxlength="120" value="' + esc(c.name || '') + '" placeholder="John Smith"></label>' +
+        '<label>Business<input name="businessName" maxlength="120" value="' + esc(c.businessName || '') + '" placeholder="Optional"></label>' +
+        '<label>Email<input name="email" type="email" required maxlength="254" value="' + esc(c.email || '') + '" placeholder="john@example.com"></label>' +
+        '<label>Nicknames<input name="nicknames" maxlength="300" value="' + esc((c.nicknames || []).join(', ')) + '" placeholder="John, JS"></label>' +
+        '<div class="client-form-actions"><button class="btn" type="submit">Save client</button><button class="btn btn-ghost" type="button" data-cancel>Cancel</button></div>' +
+        '</form>';
+    }
+
+    function who(c) { return c.businessName && c.name ? c.name + ' · ' + c.businessName : c.businessName || c.name || c.email; }
+
+    function draw() {
+      var saved = data.saved || [];
+      var rows = saved.map(function (c) {
+        if (editing === c.id) return '<tr><td colspan="4">' + form(c) + '</td></tr>';
+        return '<tr><td><b>' + esc(who(c)) + '</b>' + (c.source === 'chat' ? ' <span class="chip chip-info">added in chat</span>' : '') + '</td><td>' + esc(c.email) + '</td><td>' + esc((c.nicknames || []).join(', ') || '—') +
+          '</td><td class="num"><div class="row-actions"><button class="btn btn-ghost btn-sm" type="button" data-edit="' + esc(c.id) + '">Edit</button><button class="btn btn-danger btn-sm" type="button" data-del="' + esc(c.id) + '">Remove</button></div></td></tr>';
+      }).join('');
+      var others = (data.fromPayPal || []).map(function (c, i) {
+        return '<tr><td>' + esc(who(c)) + '</td><td>' + esc(c.email) + '</td><td class="num"><div class="row-actions"><button class="btn btn-ghost btn-sm" type="button" data-adopt="' + i + '">Save to Pyp</button></div></td></tr>';
+      }).join('');
+      view.innerHTML =
+        '<section class="panel"><div class="activity-head"><div><h2>Your clients</h2><p>Who Pyp can invoice from the chat. Add nicknames so “invoice Pyp $200” finds the right client. Saving a client here never changes PayPal.</p></div>' +
+        '<div class="activity-actions"><button class="btn" type="button" data-new>Add client</button></div></div>' +
+        (editing === 'new' ? form(prefill) : '') +
+        (rows ? '<div class="tablewrap"><table><thead><tr><th>Client</th><th>Email</th><th>Nicknames</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+          : (editing === 'new' ? '' : '<div class="empty">No saved clients yet. Add one here, or tell Pyp in the chat: “add John Smith, john@example.com”.</div>')) +
+        '</section>' +
+        '<section class="panel"><h2>From your PayPal invoices</h2><p>People you’ve invoiced before. Pyp can already invoice them by name; save one to add nicknames.</p>' +
+        (others ? '<div class="tablewrap"><table><thead><tr><th>Client</th><th>Email</th><th></th></tr></thead><tbody>' + others + '</tbody></table></div>'
+          : '<div class="empty">' + (data.paypalOk === false ? 'PayPal didn’t answer just now.' : 'Everyone you’ve invoiced is saved.') + '</div>') +
+        '</section>';
+      var first = view.querySelector('[data-client-form] input');
+      if (first) first.focus();
+    }
+
+    function onClick(e) {
+      var b = e.target.closest('button');
+      if (!b || !data) return;
+      if (b.hasAttribute('data-new')) { editing = 'new'; prefill = null; draw(); }
+      else if (b.hasAttribute('data-cancel')) { editing = null; prefill = null; draw(); }
+      else if (b.hasAttribute('data-edit')) { editing = b.getAttribute('data-edit'); draw(); }
+      else if (b.hasAttribute('data-adopt')) { editing = 'new'; prefill = data.fromPayPal[Number(b.getAttribute('data-adopt'))]; draw(); }
+      else if (b.hasAttribute('data-del')) {
+        b.disabled = true;
+        transport.deleteClient(b.getAttribute('data-del')).then(function () { toast('Removed from your clients. PayPal and past invoices are unchanged.'); load(); }, function (err) { b.disabled = false; toast(err.message); });
+      }
+    }
+    function onSubmit(e) {
+      if (!e.target.matches('[data-client-form]')) return;
+      e.preventDefault();
+      var f = new FormData(e.target);
+      var c = {
+        name: String(f.get('name') || ''),
+        businessName: String(f.get('businessName') || ''),
+        email: String(f.get('email') || ''),
+        nicknames: String(f.get('nicknames') || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean)
+      };
+      var btn = e.target.querySelector('[type=submit]');
+      btn.disabled = true;
+      transport.saveClient(c, editing === 'new' ? null : editing).then(function () {
+        toast('Saved. Ask Pyp to invoice them any time.');
+        editing = null; prefill = null; load();
+      }, function (err) { btn.disabled = false; toast(err.message); });
+    }
+    view.addEventListener('click', onClick);
+    view.addEventListener('submit', onSubmit);
+    cleanup.push(function () { view.removeEventListener('click', onClick); view.removeEventListener('submit', onSubmit); });
+    view.innerHTML = '<section class="panel"><h2>Your clients</h2><div class="loading">Loading clients…</div></section>';
+    load();
+  }
+
   function renderInvoices() {
     var page = 1;
     var pageSize = 25;
@@ -291,34 +384,84 @@
     });
   }
 
+  // What kind of card: the skill it came from. Anything else (a general question) is Other.
+  var INBOX_KINDS = [
+    { id: 'all', label: 'All types' },
+    { id: 'invoice', label: 'Invoices' },
+    { id: 'dispute', label: 'Disputes' },
+    { id: 'insight', label: 'Weekly briefs' },
+    { id: 'other', label: 'Other' }
+  ];
+  var inboxKind = 'all';
+  var inboxQuery = '';
+
   function renderInbox() {
     view.innerHTML =
-      '<div class="tabs" role="group" aria-label="Filter cards">' +
+      // One toolbar: status as tabs, type as a menu, and search.
+      '<div class="inbox-bar">' +
+      '<div class="inbox-seg" role="group" aria-label="Filter by status">' +
       INBOX_TABS.map(function (t) {
-        return '<button type="button" data-itab="' + t.id + '" aria-pressed="' + (t.id === inboxTab) + '">' + t.label + ' <span class="n" data-icount="' + t.id + '"></span></button>';
-      }).join('') + '</div><div id="inbox-host"></div>';
+        return '<button type="button" data-itab="' + t.id + '" aria-pressed="' + (t.id === inboxTab) + '">' + t.label + '<span class="n" data-icount="' + t.id + '"></span></button>';
+      }).join('') + '</div>' +
+      '<label class="inbox-type"><span class="sr-label">Type</span><select data-ikind>' +
+      INBOX_KINDS.map(function (k) {
+        return '<option value="' + k.id + '"' + (k.id === inboxKind ? ' selected' : '') + '>' + k.label + '</option>';
+      }).join('') + '</select></label>' +
+      '<label class="inbox-search"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="sr-label">Search the Inbox</span><input type="search" data-isearch placeholder="Search by title, client or invoice" value="' + esc(inboxQuery) + '"></label>' +
+      '</div><div id="inbox-host"></div>';
 
-    var tab = INBOX_TABS.filter(function (t) { return t.id === inboxTab; })[0];
-    inboxHandle = window.PypInbox.mount(document.getElementById('inbox-host'), transport, { layout: 'grid', filter: tab.fn, emptyText: tab.empty });
+    function matches(i) {
+      if (inboxKind !== 'all' && (INBOX_KINDS.some(function (k) { return k.id === i.kind; }) ? i.kind : 'other') !== inboxKind) return false;
+      var q = inboxQuery.trim().toLowerCase();
+      if (!q) return true;
+      return [i.title, i.meta, i.amount, i.label, i.box && i.box.title].join(' ').toLowerCase().indexOf(q) >= 0;
+    }
+    function status() { return INBOX_TABS.filter(function (t) { return t.id === inboxTab; })[0]; }
+    function combined() {
+      var t = status();
+      return function (i) { return matches(i) && (!t.fn || t.fn(i)); };
+    }
+    function emptyText() {
+      return inboxQuery.trim() || inboxKind !== 'all' ? 'No cards match. Try another search or type.' : status().empty;
+    }
 
+    inboxHandle = window.PypInbox.mount(document.getElementById('inbox-host'), transport, { layout: 'grid', filter: combined(), emptyText: emptyText() });
+
+    var lastItems = [];
     function counts(items) {
+      lastItems = items;
+      var shown = items.filter(matches);
       INBOX_TABS.forEach(function (t) {
         var el = view.querySelector('[data-icount="' + t.id + '"]');
-        if (el) el.textContent = String(t.fn ? items.filter(t.fn).length : items.length);
+        if (el) el.textContent = String(t.fn ? shown.filter(t.fn).length : shown.length);
       });
+    }
+    function apply() {
+      inboxHandle.setFilter(combined(), emptyText());
+      counts(lastItems);
     }
     transport.inbox().then(function (d) { counts(d.items); });
     cleanup.push(transport.subscribe(counts));
 
-    view.querySelector('.tabs').addEventListener('click', function (e) {
+    // On the toolbar itself, so nothing is left behind on the page when you leave the Inbox.
+    var bar = view.querySelector('.inbox-bar');
+    bar.addEventListener('click', function (e) {
       var b = e.target.closest('[data-itab]');
       if (!b) return;
       inboxTab = b.getAttribute('data-itab');
-      view.querySelectorAll('[data-itab]').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); });
-      var t = INBOX_TABS.filter(function (x) { return x.id === inboxTab; })[0];
-      inboxHandle.setFilter(t.fn, t.empty);
+      bar.querySelectorAll('[data-itab]').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+      apply();
+    });
+    bar.querySelector('[data-ikind]').addEventListener('change', function (e) {
+      inboxKind = e.target.value;
+      apply();
+    });
+    view.querySelector('[data-isearch]').addEventListener('input', function (e) {
+      inboxQuery = e.target.value;
+      apply();
     });
   }
+
 
   /* ---------------- Activity ---------------- */
   function statusClass(s) {

@@ -10,7 +10,7 @@ import type { PayPalReads } from "@/engine/types";
 import { ScriptedAgentClient } from "@/gateway/scripted";
 import { answerCard } from "@/jobs/answer-run";
 import { getControls, updateControls } from "@/jobs/controls";
-import { listCards, saveRun } from "@/jobs/store";
+import { answerQuestionsInChat, listCards, saveRun } from "@/jobs/store";
 import { DEMO_MERCHANT, TEST_DB_URL, freshDatabase } from "@/jobs/test-db";
 import { PayPalError } from "@/paypal/http";
 import type { PayPalWriteClient } from "@/paypal/write-client";
@@ -207,6 +207,18 @@ describe.skipIf(!TEST_DB_URL)("controls (Postgres)", () => {
       );
       expect((await card(id)).state).toBe("executed");
       expect((await card(id)).front.reason).toBe("You answered: Send one more reminder");
+    });
+
+    it("a question answered by typing in the chat closes too; other cards and other merchants' are left alone", async () => {
+      const ask = await stored(askAnswer());
+      const reminder = await stored(friendlyReminder());
+      expect(await answerQuestionsInChat(pool, "00000000-0000-0000-0000-000000000002", [ask], "wait a week")).toBe(0);
+      expect(await answerQuestionsInChat(pool, DEMO_MERCHANT, [ask, reminder], "wait a week")).toBe(1);
+      expect(await card(ask)).toMatchObject({ state: "executed", front: { reason: "You answered in the chat: wait a week" } });
+      expect((await card(reminder)).state).toBe("awaiting_approval");
+      expect(await answerQuestionsInChat(pool, DEMO_MERCHANT, [ask], "again")).toBe(0); // already answered
+      const deps = { pool, read, agent: new ScriptedAgentClient([friendlyReminder()]), now: () => NOW };
+      expect((await answerCard(deps, DEMO_MERCHANT, ask, 0)).status).toBe("not_waiting");
     });
 
     it("a question can be answered once, and only with one of its options", async () => {

@@ -8,10 +8,17 @@ import { serverAgent } from "@/lib/agent";
 import { requireMerchant } from "@/lib/session";
 import { getPool } from "@/jobs/db";
 import { runChatMessage } from "@/jobs/chat-run";
+import { runSweepNow } from "@/lib/sweeps";
 import { sharedPayPalHttp } from "@/paypal/http";
 import { PayPalReadClient } from "@/paypal/engine-reads";
 
-const Turn = z.object({ from: z.enum(["merchant", "pyp"]), text: z.string().max(1000), waiting: z.boolean().optional() });
+const Turn = z.object({
+  from: z.enum(["merchant", "pyp"]),
+  text: z.string().max(1000),
+  waiting: z.boolean().optional(),
+  // Cards this Pyp line made; a question among them is closed when the merchant answers in chat.
+  cardIds: z.array(z.string().uuid()).max(5).optional(),
+});
 // history: the last few lines of this chat, oldest first, so follow-ups make sense (engine/chat.ts).
 const Body = z.object({ message: z.string().trim().min(1).max(1000), history: z.array(Turn).max(20).optional() });
 
@@ -23,7 +30,13 @@ export async function POST(request: Request) {
 
   const read = new PayPalReadClient(sharedPayPalHttp());
   const outcome = await runChatMessage(
-    { pool: getPool(), read, agent: serverAgent(), subjects: () => read.openSubjects() },
+    {
+      pool: getPool(),
+      read,
+      agent: serverAgent(),
+      subjects: () => read.openSubjects(),
+      weeklyBrief: () => runSweepNow(session.merchantId, "weekly-brief"),
+    },
     session.merchantId,
     body.data.message,
     request.signal,

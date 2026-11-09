@@ -43,6 +43,8 @@ export interface FakeWorld {
   remindCallsToday?: number;
   notes?: string[];
   clients?: Client[];
+  /** Clients the merchant saved in Pyp (EngineDb.savedClients). */
+  savedClients?: Client[];
   /** Earlier invoices by recipient email. Unset = the read isn't available. */
   clientInvoices?: Record<string, Invoice[]>;
   /** Unset = the hold read isn't available; null = no hold. */
@@ -78,6 +80,7 @@ export function context(world: FakeWorld, r: MerchantRules = rules()): SkillCont
     async merchantNotes() {
       return world.notes ?? [];
     },
+    ...(world.savedClients ? { savedClients: async () => world.savedClients! } : {}),
     ...(world.hold !== undefined
       ? {
           activeHold: async () => {
