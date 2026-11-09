@@ -23,18 +23,15 @@
     '.pypx-deck:hover{box-shadow:0 8px 24px rgba(11,31,77,.08)}',
     '.pypx-deckhead{display:flex;align-items:center;gap:10px;margin-bottom:12px;cursor:pointer}',
     '.pypx-decktitle{margin:0;font-size:17px;font-weight:800}.pypx-deckcount{min-width:24px;padding:2px 8px;border-radius:999px;background:var(--ink);color:#fff;font-size:12px;text-align:center}',
-    '.pypx-decktoggle{margin-left:auto;min-height:34px;padding:0 10px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);font:800 12px inherit;font-family:inherit;cursor:pointer}',
-    '.pypx-decktoggle:hover{background:#EAF1FF;color:#1747B8}.pypx-decktoggle::after{content:"";}',
-    '.pypx-deck:not(.is-expanded) .pypx-grid{display:grid;grid-template-columns:1fr;grid-template-rows:1fr;gap:0;padding-bottom:18px;overflow:visible}',
-    '.pypx-deck:not(.is-expanded) .pypx-card{grid-column:1;grid-row:1;transition:transform 300ms cubic-bezier(.4,.2,.2,1)}',
-    '.pypx-deck:not(.is-expanded) .pypx-card:nth-child(1){z-index:3}',
-    '.pypx-deck:not(.is-expanded) .pypx-card:nth-child(2){z-index:2;transform:translateY(8px)}',
-    '.pypx-deck:not(.is-expanded) .pypx-card:nth-child(3){z-index:1;transform:translateY(16px)}',
-    '.pypx-deck:not(.is-expanded) .pypx-card:not(:nth-child(-n+3)){display:none}',
-    '.pypx-deck:not(.is-expanded):hover .pypx-card:nth-child(1){transform:translateY(-3px)}',
-    '.pypx-deck:not(.is-expanded):hover .pypx-card:nth-child(2){transform:translateY(24px)}',
-    '.pypx-deck:not(.is-expanded):hover .pypx-card:nth-child(3){transform:translateY(48px)}',
-    '.pypx-deck.is-expanded .pypx-grid{grid-template-columns:1fr;gap:12px}',
+    '.pypx-decktoggle{margin-left:auto;min-height:34px;padding:0 10px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);font-size:12px;font-weight:800;font-family:inherit;cursor:pointer}',
+    '.pypx-decktoggle:hover{background:#EAF1FF;color:#1747B8}',
+    '.pypx-deck .pypx-grid{grid-template-columns:1fr;gap:12px}',
+    /* Collapsed: the cards beyond the top one show as card edges under it. Decoration only: */
+    /* the hidden cards aren't in the page, so nothing live (an Undo countdown) is ever covered. */
+    '.pypx-peek{position:relative;height:16px;margin:-6px 10px 0}',
+    '.pypx-peek span{position:absolute;left:0;right:0;border:1px solid var(--line);border-top:0;border-radius:0 0 14px 14px;background:#fff}',
+    '.pypx-peek span:nth-child(1){top:0;height:10px;margin:0 6px;box-shadow:0 4px 10px rgba(11,31,77,.05)}',
+    '.pypx-peek span:nth-child(2){top:0;height:16px;margin:0 14px;z-index:-1;background:#FBFCFE}',
     '.pypx.stack .pypx-head{margin-bottom:12px}.pypx.stack .pypx-hello h2{font-size:22px}.pypx.stack .pypx-sum{font-size:14px}',
     '.pypx.stack .pypx-grid{grid-template-columns:1fr;gap:12px}',
     '.pypx-card{perspective:1400px;min-height:0;transition:min-height 280ms ease}',
@@ -94,6 +91,10 @@
     '.pypx-deckico{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0}',
     '@media (prefers-reduced-motion: reduce){.pypx-inner,.pypx-card,.pypx-deck:not(.is-expanded) .pypx-card{transition:none}}'
   ].join('\n');
+
+  // Inbox decks: one per kind of card, in this order (the Inbox's type filter uses the same kinds).
+  var DECK_ORDER = ['invoice', 'dispute', 'refund', 'insight', 'workflow', 'other'];
+  var DECK_LABELS = { invoice: 'Invoices', dispute: 'Disputes', refund: 'Refunds', insight: 'Weekly briefs', workflow: 'Workflows', other: 'Other' };
 
   var ICONS = {
     invoice: { bg: '#E6EFFF', fg: '#1747B8', path: '<path d="M7 3h7l4 4v14H7z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M10 11h5M10 15h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>' },
@@ -194,22 +195,32 @@
         (function () {
           var shown = filter ? data.items.filter(filter) : data.items;
           if (!shown.length) return '<p class="pypx-empty">' + esc(options.emptyText || 'Nothing here right now.') + '</p>';
+          // The extension's narrow layout (and any caller that opts out) keeps the flat list.
+          if (options.layout === 'stack' || options.decks === false) {
+            return '<div class="pypx-grid">' + shown.map(function (it) { return cardHTML(it, !!flipped[it.id], drafts[it.id]); }).join('') + '</div>';
+          }
           var groups = {};
-          var groupOrder = ['invoice', 'dispute', 'refund', 'pyp'];
-          var groupLabels = { invoice: 'Invoices', dispute: 'Disputes', refund: 'Refunds', pyp: 'Pyp activity' };
-          shown.slice().sort(function (a, b) { return String(b.createdAt || '').localeCompare(String(a.createdAt || '')); }).forEach(function (item) {
-            var kind = groupLabels[item.kind] ? item.kind : 'pyp';
-            if (!groups[kind]) groups[kind] = [];
-            groups[kind].push(item);
+          shown.forEach(function (item) {
+            var kind = DECK_LABELS[item.kind] ? item.kind : 'other';
+            (groups[kind] = groups[kind] || []).push(item);
           });
-          return '<div class="pypx-decks">' + groupOrder.filter(function (kind) { return groups[kind] && groups[kind].length; }).map(function (kind) {
+          return '<div class="pypx-decks">' + DECK_ORDER.filter(function (kind) { return groups[kind]; }).map(function (kind) {
             var items = groups[kind];
             var expanded = !!deckOpen[kind];
-            var visible = expanded ? items : items.slice(0, 3);
-            var dico = ICONS[kind] || ICONS.invoice;
-            return '<section class="pypx-deck' + (expanded ? ' is-expanded' : '') + '" data-deck="' + kind + '"><div class="pypx-deckhead" data-deck-toggle="' + kind + '" role="button" tabindex="0" aria-expanded="' + expanded + '"><span class="pypx-deckico" style="background:' + dico.bg + ';color:' + dico.fg + '"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">' + dico.path + '</svg></span><h3 class="pypx-decktitle">' + groupLabels[kind] + '</h3><span class="pypx-deckcount">' + items.length + '</span>' +
-              (items.length > 3 ? '<button type="button" class="pypx-decktoggle" data-deck-toggle="' + kind + '" aria-expanded="' + expanded + '">' + (expanded ? 'Collapse' : 'Show all') + '</button>' : '') +
-              '</div><div class="pypx-grid">' + visible.map(function (it) { return cardHTML(it, !!flipped[it.id], drafts[it.id]); }).join('') + '</div></section>';
+            // Never tuck away a card that needs to be seen now: an Undo countdown (running or paused),
+            // one being edited, or one flipped to its trace. Otherwise a collapsed deck shows its top card.
+            var mustShow = function (it, i) { return i === 0 || it.undoEndsAt || it.pausedLeft != null || it.reviewing || flipped[it.id] || drafts[it.id] != null; };
+            var visible = expanded ? items : items.filter(mustShow);
+            var hidden = items.length - visible.length;
+            var dico = ICONS[kind] || ICONS.other;
+            var gridId = 'pypx-deck-' + kind;
+            return '<section class="pypx-deck' + (expanded ? ' is-expanded' : '') + '" data-deck="' + kind + '" aria-labelledby="' + gridId + '-h">' +
+              '<div class="pypx-deckhead"><span class="pypx-deckico" style="background:' + dico.bg + ';color:' + dico.fg + '"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">' + dico.path + '</svg></span>' +
+              '<h3 class="pypx-decktitle" id="' + gridId + '-h">' + DECK_LABELS[kind] + '</h3><span class="pypx-deckcount" aria-label="' + items.length + ' card' + (items.length === 1 ? '' : 's') + '">' + items.length + '</span>' +
+              (expanded || hidden ? '<button type="button" class="pypx-decktoggle" data-deck-toggle="' + kind + '" aria-expanded="' + expanded + '" aria-controls="' + gridId + '">' + (expanded ? 'Show less' : 'Show all ' + items.length) + '</button>' : '') +
+              '</div><div class="pypx-grid" id="' + gridId + '">' + visible.map(function (it) { return cardHTML(it, !!flipped[it.id], drafts[it.id]); }).join('') + '</div>' +
+              (!expanded && hidden ? '<div class="pypx-peek" aria-hidden="true"><span></span>' + (hidden > 1 ? '<span></span>' : '') + '</div>' : '') +
+              '</section>';
           }).join('') + '</div>';
         })();
       if (typeof options.onCount === 'function') options.onCount(open);
@@ -236,6 +247,8 @@
         var deckKind = deckToggle.getAttribute('data-deck-toggle');
         deckOpen[deckKind] = !deckOpen[deckKind];
         render();
+        var again = container.querySelector('[data-deck-toggle="' + deckKind + '"]');
+        if (again) again.focus();
         return;
       }
       var card = e.target.closest('.pypx-card');
@@ -259,15 +272,6 @@
       }
     });
 
-    container.addEventListener('keydown', function (e) {
-      var deckToggle = e.target.closest('[data-deck-toggle]');
-      if (!deckToggle || (e.key !== 'Enter' && e.key !== ' ')) return;
-      e.preventDefault();
-      var deckKind = deckToggle.getAttribute('data-deck-toggle');
-      deckOpen[deckKind] = !deckOpen[deckKind];
-      render();
-    });
-
     container.addEventListener('input', function (e) {
       if (e.target.matches('[data-draft]')) {
         drafts[e.target.closest('.pypx-card').getAttribute('data-id')] = e.target.value;
@@ -279,10 +283,16 @@
       data = Object.assign({}, data, { items: items });
       var active = container.ownerDocument.activeElement;
       var hadFocusIn = active && container.contains(active) ? active.closest('.pypx-card') : null;
+      var deckOf = active && container.contains(active) && active.closest('[data-deck]');
+      var toggleWasFocused = active && active.hasAttribute && active.hasAttribute('data-deck-toggle') ? active.getAttribute('data-deck-toggle') : null;
       render();
       if (hadFocusIn) {
         var again = container.querySelector('[data-id="' + hadFocusIn.getAttribute('data-id') + '"] .pypx-front .pypx-btn:not(:disabled), [data-id="' + hadFocusIn.getAttribute('data-id') + '"] .pypx-front [data-flip]');
+        if (!again && deckOf) again = container.querySelector('[data-deck-toggle="' + deckOf.getAttribute('data-deck') + '"]');
         if (again) again.focus();
+      } else if (toggleWasFocused) {
+        var t = container.querySelector('[data-deck-toggle="' + toggleWasFocused + '"]');
+        if (t) t.focus();
       }
     });
 
