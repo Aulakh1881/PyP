@@ -23,7 +23,7 @@ PayPal AI Hackathon 2026 · feature freeze **Tue Nov 10** · submission **Thu No
 - **Three surfaces on one backend:** a **website** (public landing page), the **dashboard** (Inbox of action cards, Activity tab, setup screen, Pyp widget and chat), and a **Chrome extension** that opens Pyp in Chrome's side panel next to PayPal.
 - **Skills:** Collections (create, send and chase invoices), Disputes (draft evidence, merchant approves), Insights lite (weekly brief). Stretch: Pyp-to-Pyp dispute negotiation.
 - **PayPal:** reads through PayPal's official MCP server (read tools only); writes through our REST client in the executor, the only code that changes anything in PayPal.
-- **Stack:** TypeScript, Next.js on Render, Render Postgres, Claude (Haiku / Sonnet / Opus 5.5) with Ollama for local development, AG Grid for the Activity tab.
+- **Stack:** TypeScript, Next.js on Render, Render Postgres, Claude (Haiku / Sonnet / Opus 5.5) with Ollama for local development, AG Grid for the Activity tab, and Bryntum Scheduler Community for the Disputes deadline timeline.
 
 ## Repository map
 
@@ -96,6 +96,10 @@ After pulling new code:
 4. `npm run dev`, sign in, open `/dashboard`, and type the sentence. Approve the card; "Why?" flips it to the trace.
 
 Pyp only invoices clients PayPal already knows, named in full ("Jordan Kim", not "Jordan"; decision D13). Database tests need `TEST_DATABASE_URL` (see `.env.example`); without it they are skipped.
+
+### Bryntum dispute schedule
+
+The live prototype Disputes page includes a read-only Bryntum Scheduler Community timeline. It maps each PayPal dispute's creation date to its response deadline and shows status, reason, and amount in the event tooltip. The Community package is MIT-licensed and is installed with `npm install`; `npm run live` serves its browser modules locally through the prototype server.
 
 One Next.js project lives at the repo root. `app/` is the App Router folder (pages and API routes); the other folders are plain TypeScript, imported with the `@/` alias (for example `@/engine/policy`). CI runs lint, typecheck, tests and the build on every pull request and every push to `main`.
 
