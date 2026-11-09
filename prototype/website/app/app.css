@@ -517,3 +517,25 @@ tr:hover td { background: #F7F9FD; }
 .proof-item.is-bad { background: #FFF6F4; border-color: #F1C3BD; }
 .proof-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .proof-actions label { cursor: pointer; position: relative; }
+
+/* Settings → Connections (connections.js). */
+.cx-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.cx-item { padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.cx-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.cx-head h3 { font-size: 17px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; }
+.cx-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cx-blurb { margin: 4px 0 0; color: var(--muted); font-weight: 600; font-size: 14px; }
+.cx-form { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-top: 10px; }
+.cx-form .wf-f { flex: 1 1 320px; }
+.cx-secret { margin-top: 10px; padding: 12px 14px; border-radius: 12px; background: #FFF4E2; color: #6B3A00; font-size: 14px; }
+.cx-secret code { display: block; margin-top: 6px; padding: 8px 10px; background: #fff; border-radius: 8px; word-break: break-all; font-size: 13px; }
+.cx-slash { margin: 0; }
+.cx-slash h4 { margin: 0 0 6px; font-size: 15px; }
+.cx-slash p { margin: 0 0 8px; font-size: 14px; }
+.cx-howto { margin-top: 10px; font-size: 14px; }
+.cx-howto summary { cursor: pointer; font-weight: 800; color: #1747B8; }
+.cx-howto ol { margin: 8px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.cx-bot { margin: 4px 0 10px; padding-left: 20px; font-size: 14px; display: flex; flex-direction: column; gap: 4px; }
+.cx-advanced { margin-top: 4px; }
+.cx-advanced summary { cursor: pointer; font-weight: 800; color: var(--muted); padding: 6px 2px; }
+.cx-advanced .cx-item { margin-top: 8px; }

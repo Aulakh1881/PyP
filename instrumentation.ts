@@ -3,7 +3,8 @@
 // it runs Auto actions whose undo window has passed and follow-ups that have
 // come due (jobs/due-run.ts), and once a day from 08:00 merchant-local the
 // overdue and dispute-deadline sweeps (jobs/sweep-run.ts), and the merchant's
-// custom skills when their schedule comes round (jobs/custom-skills.ts).
+// custom skills when their schedule comes round (jobs/custom-skills.ts), and new
+// cards go to the merchant's Slack, Discord or other app (jobs/connections.ts).
 //
 //   PYP_WORKER=off              don't start it (tests, a second instance)
 //   PYP_WORKER_INTERVAL_S=15    seconds between ticks (default 15)
@@ -20,6 +21,7 @@ export async function register() {
 
   const { runDueWorkFromEnv } = await import("./executor/from-env");
   const { runDailySweepsFromEnv, runDueSkillsFromEnv } = await import("./lib/sweeps");
+  const { postNewCardsFromEnv, syncSlackDmsFromEnv } = await import("./lib/connections");
   const seconds = Math.max(5, Number(process.env.PYP_WORKER_INTERVAL_S ?? "15") || 15);
   let busy = false;
   g.pypWorker = setInterval(async () => {
@@ -36,4 +38,22 @@ export async function register() {
     }
   }, seconds * 1000);
   g.pypWorker.unref?.();
+
+  // Telling other apps (Slack DMs, Slack/Discord channels, any app) has its own loop,
+  // so a slow or broken app never holds up Auto actions, follow-ups or sweeps.
+  let telling = false;
+  const tell = setInterval(async () => {
+    if (telling) return;
+    telling = true;
+    try {
+      for (const p of await postNewCardsFromEnv()) console.log(`[pyp connections] ${p.kind} card ${p.cardId}: ${p.status}`);
+      const dm = await syncSlackDmsFromEnv();
+      if (dm.posted || dm.updated || dm.failed.length) console.log(`[pyp slack] ${JSON.stringify(dm)}`);
+    } catch (err) {
+      console.error(`[pyp connections] tick failed: ${(err as Error).message}`);
+    } finally {
+      telling = false;
+    }
+  }, seconds * 1000);
+  tell.unref?.();
 }
