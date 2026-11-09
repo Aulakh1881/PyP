@@ -553,25 +553,49 @@
     var pageSize = 25;
     view.innerHTML = '<section class="panel"><h2>PayPal disputes</h2><p>Read-only disputes from your connected sandbox merchant.</p><div data-dispute-results><div class="loading">Loading disputes…</div></div></section>';
     var results = view.querySelector('[data-dispute-results]');
+    var DAY = 24 * 60 * 60 * 1000;
+    var currentScheduler = null;
+    var loadId = 0;
+    function destroyScheduler() {
+      if (currentScheduler) { currentScheduler.destroy(); currentScheduler = null; }
+    }
+    cleanup.push(function () { loadId += 1; destroyScheduler(); });
+    function isClosed(item) { return /^(resolved|closed|won|lost)$/i.test(String(item.status || '')); }
+    // Local calendar date, so a late-evening deadline isn't shown as tomorrow's UTC date.
+    function localDate(iso) {
+      var d = new Date(iso || '');
+      return isFinite(d.getTime()) ? d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+    }
+    function startOfDay(time) { var d = new Date(time); d.setHours(0, 0, 0, 0); return d.getTime(); }
 
     function loadDisputes() {
+      var thisLoad = ++loadId;
+      destroyScheduler();
       results.innerHTML = '<div class="loading">Loading disputes…</div>';
       transport.disputes({ page: page, pageSize: pageSize }).then(function (data) {
+        if (thisLoad !== loadId) return;
         var disputes = (data.disputes || []).slice().sort(function (a, b) {
           var aDue = new Date(a.responseDueDate).getTime();
           var bDue = new Date(b.responseDueDate).getTime();
-          var aClosed = /^(resolved|closed|won|lost)$/i.test(String(a.status || ''));
-          var bClosed = /^(resolved|closed|won|lost)$/i.test(String(b.status || ''));
+          var aClosed = isClosed(a);
+          var bClosed = isClosed(b);
           if (aClosed !== bClosed) return aClosed ? 1 : -1;
           if (!isFinite(aDue)) return 1;
           if (!isFinite(bDue)) return -1;
           return aDue - bDue;
         });
-        function deadlineText(iso) {
-          var due = new Date(iso).getTime();
+        // Closed disputes have no countdown. Otherwise count local calendar days, and test
+        // "past due" on the exact time first so a deadline a few hours ago never reads "Due today".
+        function deadlineText(item) {
+          if (isClosed(item)) return 'Closed';
+          var due = new Date(item.responseDueDate).getTime();
           if (!isFinite(due)) return '—';
-          var days = Math.ceil((due - Date.now()) / (24 * 60 * 60 * 1000));
-          if (days < 0) return Math.abs(days) + ' day' + (Math.abs(days) === 1 ? '' : 's') + ' overdue';
+          var now = Date.now();
+          var days = Math.round((startOfDay(due) - startOfDay(now)) / DAY);
+          if (due < now) {
+            var late = Math.max(0, -days);
+            return late ? late + ' day' + (late === 1 ? '' : 's') + ' overdue' : 'Overdue today';
+          }
           if (days === 0) return 'Due today';
           return days + ' day' + (days === 1 ? '' : 's') + ' remaining';
         }
@@ -585,8 +609,7 @@
         }
         function urgencyFor(item) {
           var due = new Date(item.responseDueDate).getTime();
-          var closed = /^(resolved|closed|won|lost)$/i.test(String(item.status || ''));
-          if (closed) return 'gray';
+          if (isClosed(item)) return 'gray';
           if (!isFinite(due) || due < Date.now()) return 'red';
           if (due <= Date.now() + 7 * 24 * 60 * 60 * 1000) return 'amber';
           return 'green';
@@ -596,9 +619,9 @@
           return '<tr><td class="transaction-id" title="' + esc(item.id) + '">' + esc(item.id) + '</td>' +
             '<td><span class="status status-' + esc(item.status) + '" title="' + esc(item.status) + '">' + esc(item.statusLabel || item.status) + '</span></td>' +
             '<td title="' + esc(item.reason) + '">' + esc(item.reasonLabel || item.reason) + '</td>' +
-            '<td>' + esc(item.createdAt ? item.createdAt.slice(0, 10) : '—') + '</td>' +
-            '<td>' + esc(item.responseDueDate ? item.responseDueDate.slice(0, 10) : '—') + '</td>' +
-            '<td>' + esc(deadlineText(item.responseDueDate)) + '</td>' +
+            '<td>' + esc(localDate(item.createdAt) || '—') + '</td>' +
+            '<td>' + esc(localDate(item.responseDueDate) || '—') + '</td>' +
+            '<td>' + esc(deadlineText(item)) + '</td>' +
             '<td class="num">' + esc(amount) + '</td>' +
             '<td><button class="btn btn-ghost dispute-review-btn" type="button" data-review-dispute="' + esc(item.id) + '">Review</button></td></tr>';
         }).join('');
@@ -606,15 +629,15 @@
         var now = Date.now();
         var dueSoon = disputes.filter(function (item) {
           var due = new Date(item.responseDueDate).getTime();
-          return isFinite(due) && due >= now && due <= now + 7 * 24 * 60 * 60 * 1000;
+          return isFinite(due) && due >= now && due <= now + 7 * DAY && !isClosed(item);
         }).length;
         var overdue = disputes.filter(function (item) {
           var due = new Date(item.responseDueDate).getTime();
-          return isFinite(due) && due < now && !/^(resolved|closed|won|lost)$/i.test(String(item.status || ''));
+          return isFinite(due) && due < now && !isClosed(item);
         }).length;
         results.innerHTML =
           (rows ? '<section class="dispute-schedule"><div class="dispute-schedule-heading"><div><h3>Dispute deadline schedule</h3><p class="note">A read-only timeline of the time remaining to respond.</p></div><span class="schedule-legend"><span class="schedule-dot schedule-dot-green"></span>7+ days <span class="schedule-dot schedule-dot-amber"></span>Due soon <span class="schedule-dot schedule-dot-red"></span>Overdue <span class="schedule-dot schedule-dot-milestone"></span>Milestones</span></div><div class="dispute-scheduler" data-dispute-scheduler><div class="loading">Loading schedule…</div></div></section>' : '') +
-          (rows ? '<div class="dispute-urgency" aria-label="Dispute deadline summary"><div><strong>' + esc(String(data.totalItems || 0)) + '</strong><span>Total disputes</span></div><div class="' + (dueSoon ? 'is-warning' : '') + '"><strong>' + esc(String(dueSoon)) + '</strong><span>Due within 7 days</span></div><div class="' + (overdue ? 'is-danger' : '') + '"><strong>' + esc(String(overdue)) + '</strong><span>Overdue</span></div></div>' : '') +
+          (rows ? '<div class="dispute-urgency" aria-label="Dispute deadline summary"><div><strong>' + esc(String(data.totalItems || 0)) + '</strong><span>Total disputes</span></div><div class="' + (dueSoon ? 'is-warning' : '') + '"><strong>' + esc(String(dueSoon)) + '</strong><span>Due within 7 days' + (totalPages > 1 ? ' (this page)' : '') + '</span></div><div class="' + (overdue ? 'is-danger' : '') + '"><strong>' + esc(String(overdue)) + '</strong><span>Overdue' + (totalPages > 1 ? ' (this page)' : '') + '</span></div></div>' : '') +
           '<div class="transaction-summary">' + esc(String(data.totalItems)) + ' dispute' + (data.totalItems === 1 ? '' : 's') + ' found</div>' +
           (rows ? '<div class="tablewrap"><table><thead><tr><th>Dispute ID</th><th>Status</th><th>Reason</th><th>Created</th><th>Response due</th><th>Time remaining</th><th class="num">Amount</th><th>Review</th></tr></thead><tbody>' + rows + '</tbody></table></div>' :
           '') +
@@ -631,15 +654,15 @@
             '<dt>Status</dt><dd>' + esc(item.statusLabel || item.status || '—') + '</dd>' +
             '<dt>Reason</dt><dd>' + esc(item.reasonLabel || item.reason || '—') + '</dd>' +
             '<dt>Amount</dt><dd>' + esc(amount) + '</dd>' +
-            '<dt>Created</dt><dd>' + esc(item.createdAt ? item.createdAt.slice(0, 10) : '—') + '</dd>' +
-            '<dt>Response due</dt><dd>' + esc(item.responseDueDate ? item.responseDueDate.slice(0, 10) : '—') + '</dd>' +
-            '<dt>Time remaining</dt><dd>' + esc(deadlineText(item.responseDueDate)) + '</dd>' +
+            '<dt>Created</dt><dd>' + esc(localDate(item.createdAt) || '—') + '</dd>' +
+            '<dt>Response due</dt><dd>' + esc(localDate(item.responseDueDate) || '—') + '</dd>' +
+            '<dt>Time remaining</dt><dd>' + esc(deadlineText(item)) + '</dd>' +
             '<dt>Transaction</dt><dd>' + esc(item.transactionId || 'Not provided by PayPal') + '</dd></dl></section>';
           review.querySelector('.dispute-review').insertAdjacentHTML('beforeend',
             '<div class="evidence-milestones"><h4>Evidence milestones</h4><ol>' +
-            '<li class="is-complete"><span>1</span><div><strong>Dispute opened</strong><small>' + esc(item.createdAt ? item.createdAt.slice(0, 10) : 'Date unavailable') + '</small></div></li>' +
+            '<li class="is-complete"><span>1</span><div><strong>Dispute opened</strong><small>' + esc(localDate(item.createdAt) || 'Date unavailable') + '</small></div></li>' +
             '<li class="is-current"><span>2</span><div><strong>' + esc(evidenceStage(item)) + '</strong><small>Based on the current PayPal status</small></div></li>' +
-            '<li><span>3</span><div><strong>Response deadline</strong><small>' + esc(item.responseDueDate ? item.responseDueDate.slice(0, 10) : 'Date unavailable') + '</small></div></li>' +
+            '<li><span>3</span><div><strong>Response deadline</strong><small>' + esc(localDate(item.responseDueDate) || 'Date unavailable') + '</small></div></li>' +
             '</ol><p class="note">These milestones are read-only. Pyp has not submitted evidence.</p></div>');
           review.querySelector('[data-close-review]').addEventListener('click', function () { review.innerHTML = ''; });
           review.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -652,9 +675,11 @@
         });
         if (schedule) {
           import('@bryntum/scheduler-community').then(function (module) {
+           // Paged away or left the route while Bryntum loaded: don't attach to a stale node.
+           if (thisLoad !== loadId || !schedule.isConnected) return;
            var scheduledDisputes = disputes.filter(function (item) { return item.createdAt && item.responseDueDate; });
            var resources = scheduledDisputes.map(function (item) {
-             return { id: item.id, name: item.id + ' · ' + deadlineText(item.responseDueDate), statusLabel: item.statusLabel || item.status, reasonLabel: item.reasonLabel || item.reason };
+             return { id: item.id, name: item.id + ' · ' + deadlineText(item), statusLabel: item.statusLabel || item.status, reasonLabel: item.reasonLabel || item.reason };
            });
            var events = [];
            scheduledDisputes.forEach(function (item) {
@@ -664,7 +689,7 @@
              events.push({
                id: item.id,
                resourceId: item.id,
-               name: (item.reasonLabel || item.reason || 'Dispute') + ' · ' + deadlineText(item.responseDueDate),
+               name: (item.reasonLabel || item.reason || 'Dispute') + ' · ' + deadlineText(item),
                startDate: startDate,
                endDate: dueDate,
                eventColor: urgencyFor(item),
@@ -711,9 +736,14 @@
              schedule.innerHTML = '<div class="empty">No disputes have both creation and response dates for the schedule.</div>';
              return;
            }
-           var start = new Date(Math.min.apply(null, disputeEvents.map(function (event) { return new Date(event.startDate).getTime(); })));
-           var end = new Date(Math.max.apply(null, disputeEvents.map(function (event) { return new Date(event.endDate).getTime(); })));
-           end.setDate(end.getDate() + 1);
+           // Keep today in view: old sandbox disputes would otherwise stretch the axis over months
+           // or years and open it far from every live deadline. Bars older than 60 days are clipped.
+           var nowTime = Date.now();
+           var earliest = Math.min.apply(null, disputeEvents.map(function (event) { return new Date(event.startDate).getTime(); }));
+           var latest = Math.max.apply(null, disputeEvents.map(function (event) { return new Date(event.endDate).getTime(); }));
+           var start = new Date(startOfDay(Math.max(earliest, nowTime - 60 * DAY)));
+           var end = new Date(startOfDay(Math.max(latest, nowTime + 7 * DAY)) + DAY);
+           var spanDays = (end.getTime() - start.getTime()) / DAY;
            schedule.innerHTML = '';
            var scheduler = new module.Scheduler({
              appendTo: schedule,
@@ -721,7 +751,8 @@
              maxHeight: 520,
              startDate: start,
              endDate: end,
-             viewPreset: 'weekAndDay',
+             viewPreset: spanDays > 45 ? 'weekAndMonth' : 'weekAndDay',
+             visibleDate: { date: new Date(nowTime), block: 'center' },
              rowHeight: 44,
              barMargin: 5,
              readOnly: true,
@@ -740,8 +771,8 @@
                    }
                    return '<strong>' + esc(item.reasonLabel || item.reason || 'Dispute') + '</strong><br>' +
                      esc(item.statusLabel || item.status || 'Unknown') + ' · ' + esc(amount) + '<br>' +
-                     'Respond by ' + esc(item.responseDueDate ? item.responseDueDate.slice(0, 10) : '—') + '<br>' +
-                     esc(deadlineText(item.responseDueDate));
+                     'Respond by ' + esc(localDate(item.responseDueDate) || '—') + '<br>' +
+                     esc(deadlineText(item));
                  }
                }
              },
@@ -749,7 +780,7 @@
              resources: resources,
              events: events
            });
-           cleanup.push(function () { scheduler.destroy(); });
+           currentScheduler = scheduler;
           }).catch(function (error) {
            schedule.innerHTML = '<p class="setup-error">The dispute schedule could not load: ' + esc(error.message) + '</p>';
           });
@@ -757,6 +788,7 @@
         results.querySelector('[data-page-prev]').addEventListener('click', function () { page -= 1; loadDisputes(); });
         results.querySelector('[data-page-next]').addEventListener('click', function () { page += 1; loadDisputes(); });
       }).catch(function (error) {
+        if (thisLoad !== loadId) return;
         results.innerHTML = '<p class="setup-error">' + esc(error.message) + '</p><p class="note">Confirm the PayPal app has Customer disputes access enabled, then retry.</p>';
       });
     }
@@ -912,10 +944,14 @@
       var trends = b.trends;
       var trendMarkup = '';
       if (trends) {
-        var maxRate = Math.max.apply(null, trends.buckets.map(function (bucket) { return bucket.rate; }).concat([1]));
+        // rate is null for a week with no payments: there is nothing to divide by, so show "—".
+        var maxRate = Math.max.apply(null, trends.buckets.map(function (bucket) { return bucket.rate || 0; }).concat([1]));
         var bars = trends.buckets.map(function (bucket) {
-          var height = Math.max(4, Math.round(bucket.rate / maxRate * 100));
-          return '<div class="trend-bar-group" title="' + esc(bucket.disputes + ' disputes, ' + bucket.payments + ' completed payments, ' + bucket.rate.toFixed(1) + '% dispute rate') + '"><div class="trend-bar" style="height:' + height + '%"></div><strong>' + esc(bucket.rate.toFixed(1) + '%') + '</strong><small>' + esc(bucket.label) + '</small></div>';
+          var none = bucket.rate == null;
+          var height = none ? 0 : Math.max(4, Math.round(bucket.rate / maxRate * 100));
+          var title = bucket.disputes + ' dispute' + (bucket.disputes === 1 ? '' : 's') + ', ' + bucket.payments + ' completed payment' + (bucket.payments === 1 ? '' : 's') +
+            (none ? ': no payments, so no rate' : ', ' + bucket.rate.toFixed(1) + '% dispute rate');
+          return '<div class="trend-bar-group" title="' + esc(title) + '"><div class="trend-bar" style="height:' + height + '%' + (none ? ';visibility:hidden' : '') + '"></div><strong>' + esc(none ? '—' : bucket.rate.toFixed(1) + '%') + '</strong><small>' + esc(bucket.label) + '</small></div>';
         }).join('');
         var heatmap = trends.reasons.length ? trends.reasons.map(function (row) {
           var cells = row.cells.map(function (count, index) {
@@ -928,10 +964,10 @@
         }).join('') : '<tr><td colspan="5" class="empty">No disputes in this period.</td></tr>';
         trendMarkup = '<section class="trend-panel"><div class="trend-heading"><div><h3>Dispute rate</h3><p class="note">Disputes opened divided by completed payments, calculated in code.</p></div><span class="trend-badge">Last 28 days</span></div><div class="trend-bars">' + bars + '</div>' +
           '<div class="trend-heading"><div><h3>Dispute reasons heatmap</h3><p class="note">Click a count to open the Disputes page. Hover a cell to see dispute IDs.</p></div></div><div class="heatmap-wrap"><table class="heatmap"><thead><tr><th>Reason</th>' + trends.buckets.map(function (bucket) { return '<th>' + esc(bucket.label) + '</th>'; }).join('') + '</tr></thead><tbody>' + heatmap + '</tbody></table></div>' +
-          (trends.partial ? '<p class="note">Showing the first page of PayPal disputes.</p>' : '') + '</section>';
+          (trends.partial ? '<p class="note">' + esc(trends.partial) + '</p>' : '') + '</section>';
       }
       view.innerHTML =
-        '<section class="panel"><h2>' + esc(b.week) + '</h2><p>Pyp’s weekly look at your business. Insights only reads; it never changes anything in PayPal.</p>' +
+        '<section class="panel"><h2>' + esc(b.week) + '</h2><p>Pyp’s look at the last 28 days of your business. Insights only reads; it never changes anything in PayPal.</p>' +
         '<div class="stats">' + b.stats.map(function (s) {
           return '<div class="stat"><span>' + esc(s.label) + '</span><b>' + esc(s.value) + '</b><small>' + esc(s.note) + '</small></div>';
         }).join('') + '</div>' +
