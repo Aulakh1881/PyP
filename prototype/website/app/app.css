@@ -508,9 +508,11 @@ tr:hover td { background: #F7F9FD; }
 .cx-form .wf-f { flex: 1 1 320px; }
 .cx-secret { margin-top: 10px; padding: 12px 14px; border-radius: 12px; background: #FFF4E2; color: #6B3A00; font-size: 14px; }
 .cx-secret code { display: block; margin-top: 6px; padding: 8px 10px; background: #fff; border-radius: 8px; word-break: break-all; font-size: 13px; }
-.cx-slash { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.cx-slash { margin: 0; }
 .cx-slash h4 { margin: 0 0 6px; font-size: 15px; }
 .cx-slash p { margin: 0 0 8px; font-size: 14px; }
 .cx-howto { margin-top: 10px; font-size: 14px; }
 .cx-howto summary { cursor: pointer; font-weight: 800; color: #1747B8; }
 .cx-howto ol { margin: 8px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+
+.cx-bot { margin: 4px 0 10px; padding-left: 20px; font-size: 14px; display: flex; flex-direction: column; gap: 4px; }

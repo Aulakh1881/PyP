@@ -21,7 +21,7 @@ export async function register() {
 
   const { runDueWorkFromEnv } = await import("./executor/from-env");
   const { runDailySweepsFromEnv, runDueSkillsFromEnv } = await import("./lib/sweeps");
-  const { postNewCardsFromEnv } = await import("./lib/connections");
+  const { postNewCardsFromEnv, syncSlackDmsFromEnv } = await import("./lib/connections");
   const seconds = Math.max(5, Number(process.env.PYP_WORKER_INTERVAL_S ?? "15") || 15);
   let busy = false;
   g.pypWorker = setInterval(async () => {
@@ -31,7 +31,6 @@ export async function register() {
       for (const r of await runDueWorkFromEnv()) console.log(`[pyp worker] ${r.commandId} ${r.status}: ${r.message}`);
       for (const s of await runDailySweepsFromEnv()) console.log(`[pyp worker] sweep ${s.name}: ${JSON.stringify(s.outcome)}`);
       for (const s of await runDueSkillsFromEnv()) console.log(`[pyp worker] skill ${s.name}: ${JSON.stringify(s.outcome)}`);
-      for (const p of await postNewCardsFromEnv()) console.log(`[pyp worker] ${p.kind} card ${p.cardId}: ${p.status}`);
     } catch (err) {
       console.error(`[pyp worker] tick failed: ${(err as Error).message}`);
     } finally {
@@ -39,4 +38,22 @@ export async function register() {
     }
   }, seconds * 1000);
   g.pypWorker.unref?.();
+
+  // Telling other apps (Slack DMs, Slack/Discord channels, any app) has its own loop,
+  // so a slow or broken app never holds up Auto actions, follow-ups or sweeps.
+  let telling = false;
+  const tell = setInterval(async () => {
+    if (telling) return;
+    telling = true;
+    try {
+      for (const p of await postNewCardsFromEnv()) console.log(`[pyp connections] ${p.kind} card ${p.cardId}: ${p.status}`);
+      const dm = await syncSlackDmsFromEnv();
+      if (dm.posted || dm.updated || dm.failed.length) console.log(`[pyp slack] ${JSON.stringify(dm)}`);
+    } catch (err) {
+      console.error(`[pyp connections] tick failed: ${(err as Error).message}`);
+    } finally {
+      telling = false;
+    }
+  }, seconds * 1000);
+  tell.unref?.();
 }

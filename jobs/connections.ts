@@ -11,6 +11,8 @@
 // signing secret (lib/slack.ts).
 
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import type { Pool } from "pg";
 
 type Db = Pick<Pool, "query">;
@@ -70,20 +72,49 @@ export function urlProblem(kind: ConnectionKind, raw: string): string | null {
   if (u.protocol !== "https:") return "Use an https:// address.";
   if (kind === "slack") return u.hostname === "hooks.slack.com" && u.pathname.startsWith("/services/") ? null : "Use the Incoming Webhook URL from your Slack app (https://hooks.slack.com/services/…).";
   if (kind === "discord") {
-    return (u.hostname === "discord.com" || u.hostname === "discordapp.com") && u.pathname.startsWith("/api/webhooks/")
+    return /^(?:(?:canary|ptb)\.)?discord(?:app)?\.com$/.test(u.hostname) && u.pathname.startsWith("/api/webhooks/")
       ? null
       : "Use a channel webhook URL from Discord (Channel settings → Integrations → Webhooks).";
   }
-  const host = u.hostname.toLowerCase();
-  const privateHost =
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host.endsWith(".internal") ||
-    host === "metadata.google.internal" ||
-    /^\[?(::1|fc|fd|fe80)/i.test(host) ||
-    /^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(host) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(host);
-  return privateHost ? "Use a public https address (your n8n, Zapier or Make webhook)." : null;
+  const host = u.hostname.toLowerCase().replace(/\.$/, "").replace(/^\[|\]$/g, "");
+  const internalName = host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal") || host.endsWith(".local") || !host.includes(".") && !isIP(host);
+  return internalName || (isIP(host) && privateAddress(host)) ? PUBLIC_ONLY : null;
+}
+
+const PUBLIC_ONLY = "Use a public https address (your n8n, Zapier or Make webhook).";
+
+/** Loopback, private, link-local, CGNAT, unique-local, unspecified, IPv4-mapped private: not on the internet. */
+export function privateAddress(ip: string): boolean {
+  const v = ip.toLowerCase();
+  if (isIP(v) === 4) {
+    const [a, b] = v.split(".").map(Number);
+    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
+  }
+  if (isIP(v) === 6) {
+    if (v === "::" || v === "::1") return true;
+    const mapped = /^::ffff:(?:(\d+\.\d+\.\d+\.\d+)|([0-9a-f]{1,4}):([0-9a-f]{1,4}))$/.exec(v);
+    if (mapped) {
+      const v4 = mapped[1] ?? [parseInt(mapped[2], 16) >> 8, parseInt(mapped[2], 16) & 255, parseInt(mapped[3], 16) >> 8, parseInt(mapped[3], 16) & 255].join(".");
+      return privateAddress(v4);
+    }
+    return /^(fc|fd|fe[89ab]|fe[c-f]|ff)/.test(v); // unique-local, link-local, site-local, multicast
+  }
+  return true;
+}
+
+/**
+ * "Any app": the name must resolve only to public addresses, checked when it's
+ * saved and again before each send (a name can be pointed somewhere new).
+ */
+export async function resolvesPublic(raw: string, resolve: (host: string) => Promise<{ address: string }[]> = (h) => lookup(h, { all: true })): Promise<boolean> {
+  const host = new URL(raw).hostname.replace(/^\[|\]$/g, "");
+  if (isIP(host)) return !privateAddress(host);
+  try {
+    const addrs = await resolve(host);
+    return addrs.length > 0 && addrs.every((a) => !privateAddress(a.address));
+  } catch {
+    return false;
+  }
 }
 
 export async function listConnections(db: Db, merchantId: string): Promise<Connection[]> {
@@ -95,21 +126,37 @@ export async function listConnections(db: Db, merchantId: string): Promise<Conne
  * Adds or replaces a connection. "Any app" gets a fresh signing secret, which
  * is returned this once so the merchant can paste it into n8n / Zapier.
  */
-export async function saveConnection(db: Db, merchantId: string, kind: ConnectionKind, url: string): Promise<{ connection: Connection; secret: string | null } | { error: string }> {
+export async function saveConnection(
+  db: Db,
+  merchantId: string,
+  kind: ConnectionKind,
+  url: string,
+  resolve?: (host: string) => Promise<{ address: string }[]>,
+): Promise<{ connection: Connection; secret: string | null } | { error: string }> {
   const problem = urlProblem(kind, url);
   if (problem) return { error: problem };
-  const secret = kind === "webhook" ? randomBytes(24).toString("hex") : null;
+  if (kind === "webhook" && !(await resolvesPublic(url.trim(), resolve))) return { error: PUBLIC_ONLY };
+  const fresh = kind === "webhook" ? randomBytes(24).toString("hex") : null;
+  // Changing only the URL keeps the secret, so the app's check keeps working. Posting
+  // starts from now: changing it never replays (or drops) older cards.
   const res = await db.query(
     `insert into connections (merchant_id, kind, url, secret) values ($1, $2, $3, $4)
-     on conflict (merchant_id, kind) do update set url = $3, secret = $4, enabled = true, last_status = null, last_sent_at = null, updated_at = now(), created_at = now()
-     returning ${COLUMNS}`,
-    [merchantId, kind, url.trim(), secret],
+     on conflict (merchant_id, kind) do update set url = $3, secret = coalesce(connections.secret, $4), enabled = true,
+        last_status = null, last_sent_at = null, failures = 0, post_from = now(), updated_at = now()
+     returning ${COLUMNS}, (xmax = 0) as inserted`,
+    [merchantId, kind, url.trim(), fresh],
   );
-  return { connection: toConnection(res.rows[0]), secret };
+  const row = res.rows[0];
+  return { connection: toConnection(row), secret: row.inserted ? fresh : null };
 }
 
 export async function setConnectionEnabled(db: Db, merchantId: string, kind: ConnectionKind, enabled: boolean): Promise<Connection | null> {
-  const res = await db.query(`update connections set enabled = $3, updated_at = now() where merchant_id = $1 and kind = $2 returning ${COLUMNS}`, [merchantId, kind, enabled]);
+  // Switching back on posts what comes next, never the backlog from while it was off.
+  const res = await db.query(
+    `update connections set enabled = $3, failures = 0, post_from = case when $3 and not enabled then now() else post_from end, updated_at = now()
+      where merchant_id = $1 and kind = $2 returning ${COLUMNS}`,
+    [merchantId, kind, enabled],
+  );
   return res.rows[0] ? toConnection(res.rows[0]) : null;
 }
 
@@ -148,8 +195,8 @@ export function slackMessage(card: CardForPost, link: string) {
     text: slackText(fallback),
     blocks: [
       { type: "context", elements: [{ type: "mrkdwn", text: slackText(`*${headline(card)}* · ${f.eyebrow ?? card.skill}`) }] },
-      { type: "section", text: { type: "mrkdwn", text: slackText(`*${clip(f.title, 150)}*${line2 ? `\n${clip(line2, 200)}` : ""}${f.body ? `\n${clip(f.body, 500)}` : ""}`) } },
-      ...(f.reason ? [{ type: "context", elements: [{ type: "mrkdwn", text: slackText(clip(f.reason, 200)) }] }] : []),
+      { type: "section", text: { type: "mrkdwn", text: `*${clip(slackText(f.title ?? ""), 150)}*${line2 ? `\n${clip(slackText(line2), 200)}` : ""}${f.body ? `\n${clip(slackText(f.body), 500)}` : ""}` } },
+      ...(f.reason ? [{ type: "context", elements: [{ type: "mrkdwn", text: clip(slackText(f.reason), 200) }] }] : []),
       { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "Open in Pyp" }, url: link, style: "primary" }] },
     ],
   };
@@ -205,7 +252,18 @@ export function signWebhook(secret: string, timestamp: string, body: string): st
 export type Fetcher = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 
 /** Sends one card to one connection. Never throws: says what happened. */
-export async function postCard(fetcher: Fetcher, c: Connection, card: CardForPost, link: string, now: Date): Promise<{ ok: boolean; status: string }> {
+/** Seconds a post may take: a slow app never holds up the worker. */
+export const POST_TIMEOUT_MS = 5_000;
+
+export async function postCard(
+  fetcher: Fetcher,
+  c: Connection,
+  card: CardForPost,
+  link: string,
+  now: Date,
+  resolve?: (host: string) => Promise<{ address: string }[]>,
+): Promise<{ ok: boolean; status: string }> {
+  if (c.kind === "webhook" && !(await resolvesPublic(c.url, resolve))) return { ok: false, status: "Failed: the address isn't public" };
   const payload = c.kind === "slack" ? slackMessage(card, link) : c.kind === "discord" ? discordMessage(card, link) : webhookEvent(card, link);
   const body = JSON.stringify(payload);
   const headers: Record<string, string> = { "Content-Type": "application/json", "User-Agent": "Pyp-Connections/1" };
@@ -215,17 +273,29 @@ export async function postCard(fetcher: Fetcher, c: Connection, card: CardForPos
     headers["X-Pyp-Signature"] = `sha256=${signWebhook(c.secret, ts, body)}`;
   }
   try {
-    const res = await fetcher(c.url, { method: "POST", headers, body, signal: AbortSignal.timeout(10_000) });
+    const res = await fetcher(c.url, { method: "POST", headers, body, signal: AbortSignal.timeout(POST_TIMEOUT_MS) });
     if (res.ok) return { ok: true, status: "Sent" };
-    const why = (await res.text().catch(() => "")).slice(0, 120);
+    // Slack and Discord explain errors in a word ("no_service"); another app's reply body is never kept.
+    const why = c.kind === "webhook" ? "" : (await res.text().catch(() => "")).slice(0, 80);
     return { ok: false, status: `Failed (${res.status}${why ? `: ${why}` : ""})` };
   } catch (err) {
-    return { ok: false, status: `Failed: ${(err as Error).message}`.slice(0, 160) };
+    const timedOut = (err as Error).name === "TimeoutError" || (err as Error).name === "AbortError";
+    return { ok: false, status: timedOut ? "Failed: no answer in 5 s" : "Failed: couldn't reach it" };
   }
 }
 
-async function markSent(db: Db, id: string, status: string, now: Date) {
-  await db.query("update connections set last_status = $2, last_sent_at = $3 where id = $1", [id, status, now]);
+/** A connection that fails this many posts in a row switches itself off (it says why). */
+export const PAUSE_AFTER_FAILURES = 5;
+
+async function markSent(db: Db, id: string, status: string, now: Date, ok = true) {
+  await db.query(
+    `update connections set last_sent_at = $3,
+        failures = case when $4 then 0 else failures + 1 end,
+        enabled = case when not $4 and failures + 1 >= $5 then false else enabled end,
+        last_status = case when not $4 and failures + 1 >= $5 then $2 || ' · switched off after ' || $5 || ' failures in a row' else $2 end
+      where id = $1`,
+    [id, status, now, ok, PAUSE_AFTER_FAILURES],
+  );
 }
 
 /** A sample card, for "Send a test". */
@@ -248,7 +318,7 @@ export async function sendTest(db: Db, fetcher: Fetcher, merchantId: string, kin
   const c = (await listConnections(db, merchantId)).find((x) => x.kind === kind);
   if (!c) return null;
   const out = await postCard(fetcher, c, TEST_CARD(now), link, now);
-  await markSent(db, c.id, out.ok ? "Test sent" : out.status, now);
+  await markSent(db, c.id, out.ok ? "Test sent" : out.status, now, true);
   return out;
 }
 
@@ -261,38 +331,50 @@ export const POST_LIMIT = 10;
  * added, waiting for the merchant (or in their undo window). A failed post is
  * not retried (it says why on the Connections list); the card is in the Inbox anyway.
  */
-export async function postNewCards(deps: { pool: Pool; fetcher: Fetcher; link: (cardId: string) => string; now?: () => Date; merchantIds?: string[] }) {
+export async function postNewCards(deps: {
+  pool: Pool;
+  fetcher: Fetcher;
+  link: (cardId: string) => string;
+  now?: () => Date;
+  merchantIds?: string[];
+  resolve?: (host: string) => Promise<{ address: string }[]>;
+}) {
   const now = (deps.now ?? (() => new Date()))();
   let conns;
   try {
     conns = await deps.pool.query(
-      `select ${COLUMNS}, merchant_id from connections where enabled ${deps.merchantIds ? "and merchant_id = any($1::uuid[])" : ""}`,
+      `select ${COLUMNS}, merchant_id, post_from from connections where enabled ${deps.merchantIds ? "and merchant_id = any($1::uuid[])" : ""}`,
       deps.merchantIds ? [deps.merchantIds] : [],
     );
   } catch (err) {
     if (missingConnectionsTable(err)) return [];
     throw err;
   }
-  const done: { kind: ConnectionKind; cardId: string; ok: boolean; status: string }[] = [];
-  for (const row of conns.rows as Record<string, unknown>[]) {
+  type Done = { kind: ConnectionKind; cardId: string; ok: boolean; status: string };
+  // Connections run side by side, so one slow app never holds up the others.
+  const perConnection = (conns.rows as Record<string, unknown>[]).map(async (row): Promise<Done[]> => {
+    const done: Done[] = [];
     const c = toConnection(row);
     const cards = await deps.pool.query(
       `select k.id, k.skill, k.state, k.front_json, k.created_at from cards k
         where k.merchant_id = $1 and k.state in ('awaiting_approval', 'scheduled') and k.created_at >= $2
           and not exists (select 1 from connection_posts p where p.connection_id = $3 and p.card_id = k.id)
         order by k.created_at limit $4`,
-      [row.merchant_id, c.createdAt, c.id, POST_LIMIT],
+      [row.merchant_id, row.post_from, c.id, POST_LIMIT],
     );
     for (const k of cards.rows as Record<string, unknown>[]) {
       const claimed = await deps.pool.query("insert into connection_posts (connection_id, card_id) values ($1, $2) on conflict do nothing returning card_id", [c.id, k.id]);
       if (!claimed.rows[0]) continue; // another worker has it
       const card: CardForPost = { id: String(k.id), skill: String(k.skill), state: String(k.state), createdAt: iso(k.created_at)!, front: (k.front_json ?? {}) as CardForPost["front"] };
-      const out = await postCard(deps.fetcher, c, card, deps.link(card.id), now);
-      await markSent(deps.pool, c.id, out.status, now);
+      const out = await postCard(deps.fetcher, c, card, deps.link(card.id), now, deps.resolve);
+      await markSent(deps.pool, c.id, out.status, now, out.ok);
       done.push({ kind: c.kind, cardId: card.id, ...out });
+      // Switched itself off after too many failures: stop here.
+      if (!out.ok && (await deps.pool.query("select enabled from connections where id = $1", [c.id])).rows[0]?.enabled === false) break;
     }
-  }
-  return done;
+    return done;
+  });
+  return (await Promise.all(perConnection.map((p) => p.catch(() => [] as Done[])))).flat();
 }
 
 // ---------- Slack: /pyp ----------

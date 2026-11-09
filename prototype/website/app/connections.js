@@ -22,21 +22,24 @@
   }
 
   var KINDS = [
-    { id: 'slack', name: 'Slack', blurb: 'Cards that need you, posted to a channel. Plus /pyp to talk to Pyp from Slack.', placeholder: 'https://hooks.slack.com/services/…',
-      how: 'In your Slack app: Incoming Webhooks → On → Add New Webhook to Workspace → pick a channel → copy the URL.' },
+    { id: 'slack', name: 'Slack', blurb: 'Optional: also post cards that need you to a team channel (an incoming webhook).', placeholder: 'https://hooks.slack.com/services/…',
+      how: 'In Pyp’s Slack app: Incoming Webhooks → On → Add New Webhook to Workspace → pick a channel → copy the URL.' },
     { id: 'discord', name: 'Discord', blurb: 'Cards that need you, posted to a Discord channel.', placeholder: 'https://discord.com/api/webhooks/…',
       how: 'In Discord: Channel settings → Integrations → Webhooks → New Webhook → Copy Webhook URL.' },
     { id: 'webhook', name: 'Any app (n8n, Zapier, Make)', blurb: 'Every new card as signed JSON, so your own automations can do anything with it.', placeholder: 'https://your-n8n.example.com/webhook/…',
       how: 'In n8n add a Webhook node (POST), in Zapier “Webhooks by Zapier → Catch Hook”, in Make a “Custom webhook”, and paste its URL here.' }
   ];
 
+  // Kept outside mount: Setup redraws (a dial, the kill switch) mount this panel again,
+  // and a secret shown once or a fresh link code must survive that.
+  var secret = null;  // { kind, value } shown once after adding "Any app"
+  var code = null;    // { code, expiresAt } for /pyp connect
+
   function mount(el, transport, helpers) {
     var toast = helpers.toast;
     if (!transport.connections) { el.innerHTML = ''; return; }
     var data = null;
     var editing = {};   // kind -> true while its URL box is open
-    var secret = null;  // { kind, value } shown once after saving "Any app"
-    var code = null;    // { code, expiresAt } for /pyp connect
 
     function load() {
       return transport.connections().then(function (d) { data = d; draw(); }, function (e) {
@@ -67,30 +70,36 @@
         html += '<div class="cx-secret" role="status"><b>Your signing secret (shown once, copy it now):</b><code>' + esc(secret.value) + '</code>' +
           '<p class="wf-hint">Each request has <code>X-Pyp-Timestamp</code> and <code>X-Pyp-Signature: sha256=…</code>, the HMAC-SHA256 of “timestamp.body” with this secret. Check it to know the request came from Pyp.</p></div>';
       }
-      if (k.id === 'slack') html += slashHTML();
       return html + '</article>';
     }
 
     function slashHTML() {
       var s = data.slack;
+      var what = '<ul class="cx-bot"><li><b>Cards come to you as a DM</b> with buttons. Reminders, follow-ups and questions can be approved or answered right in Slack. Anything that moves money or answers a dispute says “Review in Pyp”.</li>' +
+        '<li><b>Talk to Pyp</b>: DM it or @mention it, like “invoice Acme $450 for product photos”. Follow-ups in the thread work like the chat here.</li>' +
+        '<li><b>/pyp</b> works too, and <code>/pyp run Friday cleanup</code> runs one of your skills.</li></ul>';
       var body = s
-        ? '<p>Linked to <b>' + esc(s.teamName) + '</b>' + (s.userName ? ' as <b>@' + esc(s.userName) + '</b>' : '') + '. Only they can use /pyp there.</p><button type="button" class="btn btn-ghost btn-sm" data-slack-unlink>Unlink Slack</button>'
+        ? '<p>Linked to <b>' + esc(s.teamName) + '</b>' + (s.userName ? ' as <b>@' + esc(s.userName) + '</b>' : '') + '. Only they can talk to Pyp or use its buttons there.</p>' + what + '<button type="button" class="btn btn-ghost btn-sm" data-slack-unlink>Unlink Slack</button>'
         : code
           ? '<p>In Slack, type <code>/pyp connect ' + esc(code.code) + '</code> (works for 15 minutes).</p><button type="button" class="btn btn-ghost btn-sm" data-slack-code>New code</button>'
-          : '<p>Talk to Pyp from Slack: <code>/pyp invoice Acme $450 for product photos</code> or <code>/pyp run Friday cleanup</code>. What Pyp proposes waits in your Inbox.</p><button type="button" class="btn btn-sm" data-slack-code>Link Slack</button>';
-      return '<div class="cx-slash"><h4>/pyp in Slack</h4>' + body +
-        (data.slashReady ? '' : '<p class="wf-hint">This Pyp server needs <code>SLACK_SIGNING_SECRET</code> (your Slack app → Basic Information) before /pyp works.</p>') +
-        '<details class="cx-howto"><summary>Set up the Slack app (5 minutes)</summary><ol>' +
+          : what + '<button type="button" class="btn btn-sm" data-slack-code>Link Slack</button>';
+      return '<div class="cx-slash"><h4>Pyp in Slack</h4>' + body +
+        (data.botReady ? '' : '<p class="wf-hint">This Pyp server isn’t set up for Slack yet: it needs <code>SLACK_SIGNING_SECRET</code> and <code>SLACK_BOT_TOKEN</code> from Pyp’s Slack app (steps below).</p>') +
+        '<details class="cx-howto"><summary>Set up Pyp’s Slack app (once per Pyp server, about 10 minutes)</summary><ol>' +
         '<li>Go to api.slack.com/apps → <b>Create New App</b> → From scratch → name it “Pyp”, pick your workspace.</li>' +
-        '<li><b>Incoming Webhooks</b> → On → Add New Webhook → pick a channel → paste the URL above.</li>' +
-        '<li><b>Slash Commands</b> → Create New Command → <code>/pyp</code>, Request URL <code>https://&lt;your Pyp address&gt;/api/slack/commands</code>.</li>' +
-        '<li><b>Basic Information</b> → copy the Signing Secret into the server’s <code>SLACK_SIGNING_SECRET</code>.</li>' +
-        '<li>Install the app to your workspace, then tap <b>Link Slack</b> here.</li></ol></details></div>';
+        '<li><b>OAuth &amp; Permissions</b> → Bot Token Scopes: <code>chat:write</code>, <code>im:write</code>, <code>im:history</code>, <code>app_mentions:read</code>, <code>commands</code>, <code>incoming-webhook</code>.</li>' +
+        '<li><b>Event Subscriptions</b> → On → Request URL <code>https://&lt;your Pyp address&gt;/api/slack/events</code> → bot events <code>message.im</code> and <code>app_mention</code>.</li>' +
+        '<li><b>Interactivity &amp; Shortcuts</b> → On → Request URL <code>https://&lt;your Pyp address&gt;/api/slack/interactions</code>.</li>' +
+        '<li><b>Slash Commands</b> → <code>/pyp</code>, Request URL <code>https://&lt;your Pyp address&gt;/api/slack/commands</code>.</li>' +
+        '<li><b>App Home</b> → Messages Tab on, and allow people to send messages.</li>' +
+        '<li><b>Install to Workspace</b>. Put the Bot User OAuth Token in <code>SLACK_BOT_TOKEN</code> and Basic Information → Signing Secret in <code>SLACK_SIGNING_SECRET</code>, then restart Pyp.</li>' +
+        '<li>Back here, tap <b>Link Slack</b> and type the code in Slack.</li></ol>' +
+        '<p class="wf-hint">One Slack app serves this Pyp server. Slack needs a public address to reach Pyp, so this works once Pyp is deployed (or through a tunnel).</p></details></div>';
     }
 
     function draw() {
       el.innerHTML = '<h2>Connections</h2><p>Pyp in the apps you already use. When something needs you, Pyp tells you there. Messages link back to Pyp: approving, editing and undoing always happen here.</p>' +
-        '<div class="cx-list">' + KINDS.map(row).join('') + '</div>';
+        '<div class="cx-list"><article class="cx-item">' + slashHTML() + '</article>' + KINDS.map(row).join('') + '</div>';
     }
 
     function busy(b, label, p) {

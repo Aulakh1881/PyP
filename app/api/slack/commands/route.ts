@@ -35,10 +35,14 @@ export async function POST(request: Request) {
     },
   );
   // Only ever post back to Slack itself.
-  if (out.later && /^https:\/\/hooks\.slack\.com\//.test(responseUrl)) {
+  if (out.later && !/^https:\/\/hooks\.slack\.com\//.test(responseUrl)) return ephemeral("Slack didn't say where to answer. Try again.");
+  if (out.later) {
     const later = out.later;
     after(async () => {
-      const text = await later().catch((err: Error) => `Pyp couldn't finish that: ${err.message}`);
+      const text = await later().catch((err: Error) => {
+        console.error(`[pyp slack] /pyp failed: ${err.message}`);
+        return "Pyp couldn't finish that. Try again, or use the chat in Pyp.";
+      });
       await fetcher(responseUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ response_type: "ephemeral", text }) }).catch(() => undefined);
     });
   }

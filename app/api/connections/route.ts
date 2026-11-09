@@ -11,7 +11,12 @@ export async function GET() {
   try {
     const pool = getPool();
     const [connections, slack] = await Promise.all([listConnections(pool, session.merchantId), slackLink(pool, session.merchantId)]);
-    return Response.json({ connections: connections.map(masked), slack, slashReady: !!process.env.SLACK_SIGNING_SECRET });
+    return Response.json({
+      connections: connections.map(masked),
+      slack,
+      slashReady: !!process.env.SLACK_SIGNING_SECRET,
+      botReady: !!process.env.SLACK_SIGNING_SECRET && !!process.env.SLACK_BOT_TOKEN,
+    });
   } catch (err) {
     if (missingConnectionsTable(err)) return Response.json({ error: "The database needs migration 015_connections.sql first" }, { status: 503 });
     throw err;

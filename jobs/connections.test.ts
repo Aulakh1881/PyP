@@ -8,6 +8,7 @@ import {
   newSlackCode,
   postNewCards,
   saveConnection,
+  setConnectionEnabled,
   signWebhook,
   slackLink,
   slackMessage,
@@ -21,6 +22,8 @@ import { saveNotice } from "./store";
 import { DEMO_MERCHANT, TEST_DB_URL, freshDatabase } from "./test-db";
 
 const NOW = new Date("2026-11-09T18:00:00Z");
+const publicDns = async () => [{ address: "93.184.216.34" }];
+const privateDns = async () => [{ address: "127.0.0.1" }];
 const card: CardForPost = {
   id: "c1",
   skill: "collections",
@@ -36,9 +39,27 @@ describe("connections: URLs, messages and signatures", () => {
     expect(urlProblem("discord", "https://discord.com/api/webhooks/1/abc")).toBeNull();
     expect(urlProblem("discord", "http://discord.com/api/webhooks/1/abc")).toMatch(/https/);
     expect(urlProblem("webhook", "https://n8n.example.com/webhook/pyp")).toBeNull();
-    for (const bad of ["https://localhost/x", "https://127.0.0.1/x", "https://10.0.0.5/x", "https://192.168.1.2/x", "https://169.254.169.254/latest", "https://[::1]/x"]) {
-      expect(urlProblem("webhook", bad)).toMatch(/public/);
+    for (const bad of [
+      "https://localhost/x",
+      "https://localhost./x",
+      "https://redis/x",
+      "https://127.0.0.1/x",
+      "https://2130706433/x",
+      "https://10.0.0.5/x",
+      "https://192.168.1.2/x",
+      "https://169.254.169.254/latest",
+      "https://100.100.100.200/x",
+      "https://[::1]/x",
+      "https://[::]/x",
+      "https://[::ffff:127.0.0.1]/x",
+      "https://[::ffff:a9fe:a9fe]/x",
+      "https://[fd00::1]/x",
+      "https://[fec0::1]/x",
+    ]) {
+      expect(urlProblem("webhook", bad), bad).toMatch(/public/);
     }
+    expect(urlProblem("webhook", "https://fdic.gov/hook")).toBeNull(); // a real name that starts with "fd"
+    expect(urlProblem("discord", "https://canary.discord.com/api/webhooks/1/abc")).toBeNull();
   });
 
   it("Slack: model text can't become a link or an @channel; the button opens Pyp", () => {
@@ -100,11 +121,11 @@ describe.skipIf(!TEST_DB_URL)("connections (Postgres)", () => {
 
   it("posts each new card that needs you to each connection, once; signed for any app", async () => {
     await saveConnection(pool, DEMO_MERCHANT, "slack", "https://hooks.slack.com/services/T/B/x");
-    const { secret } = (await saveConnection(pool, DEMO_MERCHANT, "webhook", "https://n8n.example.com/webhook/pyp")) as { secret: string };
+    const { secret } = (await saveConnection(pool, DEMO_MERCHANT, "webhook", "https://n8n.example.com/webhook/pyp", publicDns)) as { secret: string };
     const id = await newCard("Remind Acme");
     await newCard("Already done", "executed"); // a heads-up, not something that needs you
     const { sent, fetcher } = recorder();
-    const deps = { pool, fetcher, link: () => "https://pyp/app/#/inbox" };
+    const deps = { pool, fetcher, link: () => "https://pyp/app/#/inbox", resolve: publicDns };
     const done = await postNewCards(deps);
     expect(done.map((d) => [d.kind, d.cardId, d.ok])).toEqual([
       ["slack", id, true],
@@ -114,6 +135,34 @@ describe.skipIf(!TEST_DB_URL)("connections (Postgres)", () => {
     expect(hook.headers["X-Pyp-Signature"]).toBe(`sha256=${signWebhook(secret, hook.headers["X-Pyp-Timestamp"], hook.body)}`);
     expect(await postNewCards(deps)).toEqual([]); // claimed: never twice
     expect((await listConnections(pool, DEMO_MERCHANT)).every((c) => c.lastStatus === "Sent")).toBe(true);
+  });
+
+  it("any app: a name that points at a private address is refused when saved, and again when sending", async () => {
+    expect(await saveConnection(pool, DEMO_MERCHANT, "webhook", "https://127-0-0-1.nip.io/x", privateDns)).toEqual({ error: expect.stringMatching(/public/) });
+    await saveConnection(pool, DEMO_MERCHANT, "webhook", "https://n8n.example.com/webhook/pyp", publicDns);
+    await newCard("Remind Acme");
+    const { sent, fetcher } = recorder();
+    const done = await postNewCards({ pool, fetcher, link: () => "https://pyp", resolve: privateDns }); // re-pointed since
+    expect(done[0]).toMatchObject({ ok: false, status: "Failed: the address isn't public" });
+    expect(sent).toHaveLength(0);
+  });
+
+  it("switching a connection back on never posts the backlog; one that keeps failing switches itself off", async () => {
+    await saveConnection(pool, DEMO_MERCHANT, "discord", "https://discord.com/api/webhooks/1/abc");
+    await setConnectionEnabled(pool, DEMO_MERCHANT, "discord", false);
+    await newCard("Made while off");
+    await setConnectionEnabled(pool, DEMO_MERCHANT, "discord", true);
+    const ok = recorder();
+    expect(await postNewCards({ pool, fetcher: ok.fetcher, link: () => "https://pyp" })).toEqual([]);
+
+    const bad = recorder(500);
+    for (let i = 0; i < 5; i++) {
+      await newCard(`Card ${i}`);
+      await postNewCards({ pool, fetcher: bad.fetcher, link: () => "https://pyp" });
+    }
+    const c = (await listConnections(pool, DEMO_MERCHANT))[0];
+    expect(c.enabled).toBe(false);
+    expect(c.lastStatus).toMatch(/switched off after 5 failures in a row/);
   });
 
   it("a failed post says why on the list, and isn't retried into a flood", async () => {
