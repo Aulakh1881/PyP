@@ -17,36 +17,52 @@
     '.pypx-hello h2{margin:0;font-family:"Baloo 2",Nunito,system-ui,sans-serif;font-weight:800;font-size:clamp(28px,5vw,40px);line-height:1.05;letter-spacing:-.01em}',
     '.pypx-demo{font:800 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.12em;color:#8A5A00;background:#FFF4D6;border:1px solid #F2D58A;border-radius:6px;padding:5px 8px}',
     '.pypx-sum{margin:0;font-size:18px;font-weight:600;color:var(--muted)}.pypx-sum b{color:var(--ink);font-weight:800}',
-    '.pypx-grid{display:grid;gap:22px;grid-template-columns:repeat(3,minmax(0,1fr))}',
-    '@media (max-width:1180px){.pypx-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}',
-    '@media (max-width:720px){.pypx-grid{grid-template-columns:1fr}}',
+    '.pypx-grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr))}',
+    '.pypx-decks{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr));gap:18px;align-items:start}',
+    '.pypx-deck{border:1px solid var(--line);border-radius:18px;background:#F7F9FD;padding:14px;transition:box-shadow 180ms,transform 180ms}',
+    '.pypx-deck:hover{box-shadow:0 8px 24px rgba(11,31,77,.08)}',
+    '.pypx-deckhead{display:flex;align-items:center;gap:10px;margin-bottom:12px;cursor:pointer}',
+    '.pypx-decktitle{margin:0;font-size:17px;font-weight:800}.pypx-deckcount{min-width:24px;padding:2px 8px;border-radius:999px;background:var(--ink);color:#fff;font-size:12px;text-align:center}',
+    '.pypx-decktoggle{margin-left:auto;min-height:34px;padding:0 10px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);font:800 12px inherit;font-family:inherit;cursor:pointer}',
+    '.pypx-decktoggle:hover{background:#EAF1FF;color:#1747B8}.pypx-decktoggle::after{content:"";}',
+    '.pypx-deck:not(.is-expanded) .pypx-grid{display:grid;grid-template-columns:1fr;grid-template-rows:1fr;gap:0;padding-bottom:18px;overflow:visible}',
+    '.pypx-deck:not(.is-expanded) .pypx-card{grid-column:1;grid-row:1;transition:transform 300ms cubic-bezier(.4,.2,.2,1)}',
+    '.pypx-deck:not(.is-expanded) .pypx-card:nth-child(1){z-index:3}',
+    '.pypx-deck:not(.is-expanded) .pypx-card:nth-child(2){z-index:2;transform:translateY(8px)}',
+    '.pypx-deck:not(.is-expanded) .pypx-card:nth-child(3){z-index:1;transform:translateY(16px)}',
+    '.pypx-deck:not(.is-expanded) .pypx-card:not(:nth-child(-n+3)){display:none}',
+    '.pypx-deck:not(.is-expanded):hover .pypx-card:nth-child(1){transform:translateY(-3px)}',
+    '.pypx-deck:not(.is-expanded):hover .pypx-card:nth-child(2){transform:translateY(24px)}',
+    '.pypx-deck:not(.is-expanded):hover .pypx-card:nth-child(3){transform:translateY(48px)}',
+    '.pypx-deck.is-expanded .pypx-grid{grid-template-columns:1fr;gap:12px}',
     '.pypx.stack .pypx-head{margin-bottom:12px}.pypx.stack .pypx-hello h2{font-size:22px}.pypx.stack .pypx-sum{font-size:14px}',
     '.pypx.stack .pypx-grid{grid-template-columns:1fr;gap:12px}',
-    '.pypx-card{perspective:1400px;min-height:280px}',
-    '.pypx.stack .pypx-card{min-height:220px}',
+    '.pypx-card{perspective:1400px;min-height:0;transition:min-height 280ms ease}',
+    '.pypx-card.flipped{min-height:380px}',
+    '.pypx.stack .pypx-card{min-height:0}.pypx.stack .pypx-card.flipped{min-height:360px}',
     '.pypx-inner{position:relative;display:grid;width:100%;height:100%;min-height:inherit;transition:transform 520ms cubic-bezier(.3,.7,.3,1);transform-style:preserve-3d}',
     '.pypx-card.flipped .pypx-inner{transform:rotateY(180deg)}',
-    '.pypx-face{position:relative;grid-area:1/1;min-width:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;background:#fff;border:1px solid var(--line);border-radius:22px;box-shadow:0 10px 30px rgba(11,31,77,.07);padding:22px;display:flex;flex-direction:column;gap:10px;overflow:hidden}',
-    '.pypx.stack .pypx-face{padding:16px;border-radius:18px;gap:8px}',
+    '.pypx-face{position:relative;grid-area:1/1;min-width:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 4px 16px rgba(11,31,77,.05);padding:14px;display:flex;flex-direction:column;gap:6px;overflow:hidden}',
+    '.pypx.stack .pypx-face{padding:14px;border-radius:16px;gap:6px}',
     '.pypx-back{transform:rotateY(180deg);position:absolute;inset:0}',
     '.pypx-top{display:flex;align-items:center;gap:10px}',
     '.pypx-ico{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0}',
     '.pypx-label{font-size:13px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}',
     '.pypx-badge{margin-left:auto;font-size:13px;font-weight:800;padding:5px 11px;border-radius:999px;white-space:nowrap}',
     '.b-blue{background:#E6EFFF;color:#1747B8}.b-amber{background:#FFF0D6;color:#8A4B00}.b-green{background:#DDF5E9;color:#0B6B47}.b-done{background:#0E7A50;color:#fff}.b-gray{background:#EEF1F6;color:#4A5B7C}',
-    '.pypx-title{margin:2px 0 0;font-size:22px;line-height:1.2;font-weight:800}',
-    '.pypx.stack .pypx-title{font-size:18px}',
-    '.pypx-meta{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px;font-weight:600;color:var(--muted)}.pypx-meta b{color:var(--ink);font-weight:800}',
-    '.pypx-box{border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:4px;margin-top:4px;max-height:180px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}',
-    '.pypx-box .e{font-size:13px;font-weight:800;letter-spacing:.09em;text-transform:uppercase}',
-    '.pypx-box .t{font-size:17px;line-height:1.35;font-weight:800}.pypx-box .s{font-size:15px;line-height:1.45;font-weight:600;color:var(--muted)}.pypx-box .s:empty{display:none}',
+    '.pypx-title{margin:0;font-size:16px;line-height:1.25;font-weight:800}',
+    '.pypx.stack .pypx-title{font-size:16px}',
+    '.pypx-meta{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:600;color:var(--muted)}.pypx-meta b{color:var(--ink);font-weight:800}',
+    '.pypx-box{border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:1px;margin-top:2px;max-height:180px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}',
+    '.pypx-box .e{font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}',
+    '.pypx-box .t{font-size:14px;font-weight:800}.pypx-box .s{font-size:12px;font-weight:600;color:var(--muted)}.pypx-box .s:empty{display:none}',
     '.x-blue{background:#EAF1FF}.x-blue .e{color:#1747B8}.x-amber{background:#FFF4E2}.x-amber .e{color:#8A4B00}.x-green{background:#E3F6EC}.x-green .e{color:#0B6B47}.x-gray{background:#F2F4F8}.x-gray .e{color:#4A5B7C}',
     '.pypx-draft{display:flex;flex-direction:column;gap:6px;margin-top:4px}',
     '.pypx-draft label{font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#8A4B00}',
     '.pypx-draft textarea{width:100%;min-height:110px;resize:vertical;border:1.5px solid #EED796;border-radius:12px;padding:10px 12px;font:600 14px/1.45 inherit;font-family:inherit;color:var(--ink);background:#FFFBF2}',
     '.pypx-draft textarea:focus{outline:2px solid #1F6BFF;outline-offset:1px}',
-    '.pypx-foot{margin-top:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-top:8px}',
-    '.pypx-btn{min-height:40px;padding:0 16px;border-radius:10px;border:1.5px solid transparent;white-space:nowrap;font:800 14px/1 inherit;font-family:inherit;cursor:pointer;transition:transform 120ms,background 120ms,border-color 120ms}',
+    '.pypx-foot{margin-top:auto;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-top:4px}',
+    '.pypx-btn{min-height:38px;padding:0 14px;border-radius:10px;border:1.5px solid transparent;white-space:nowrap;font:800 14px/1 inherit;font-family:inherit;cursor:pointer;transition:transform 120ms,background 120ms,border-color 120ms}',
     '.pypx-btn:active{transform:scale(.97)}.pypx-btn:disabled{cursor:default;transform:none}.pypx-btn:disabled:not(.s-success){opacity:.5;cursor:not-allowed}',
     '.pypx-btn:focus-visible,.pypx-flip:focus-visible{outline:2px solid #1F6BFF;outline-offset:2px}',
     /* One look per role. primary: the one main action. secondary/outline: another step (Edit, Undo).
@@ -59,7 +75,7 @@
     '.s-choice{width:100%;justify-content:flex-start;text-align:left;display:flex;align-items:center;gap:10px;min-height:44px;white-space:normal;line-height:1.3;padding:8px 14px;background:#fff;color:var(--ink);border-color:#D3DBE8;font-weight:700;font-size:15px}',
     '.s-choice::before{content:"";width:14px;height:14px;flex-shrink:0;border-radius:50%;border:2px solid #9FB2D4}',
     '.s-choice:hover:not(:disabled){border-color:#1F5FE0;background:#F3F7FF}.s-choice:hover:not(:disabled)::before{border-color:#1F5FE0}',
-    '.pypx-flip{margin-left:auto;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 4px;background:none;border:0;color:#1747B8;font:800 14px/1 inherit;font-family:inherit;cursor:pointer}',
+    '.pypx-flip{margin-left:auto;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;min-height:38px;padding:0 4px;background:none;border:0;color:#1747B8;font:700 13px/1 inherit;font-family:inherit;cursor:pointer}',
     '.pypx-flip:hover{text-decoration:underline}',
     '.pypx-bhead{display:flex;align-items:baseline;gap:10px}',
     '.pypx-bhead h3{margin:0;font-size:19px;font-weight:800}',
@@ -75,7 +91,8 @@
     '.pypx-rnote{margin:6px 0 0;font-size:13px;font-weight:700;color:#8A4B00}',
     '.pypx-empty{margin:0;padding:28px;border:1.5px dashed var(--line);border-radius:18px;text-align:center;font-size:16px;font-weight:700;color:var(--muted);background:#fff}',
     '.pypx-paused{display:flex;align-items:center;gap:10px;margin:0 0 16px;padding:12px 16px;border-radius:14px;background:#FFF0D6;color:#6B3A00;font-size:15px;font-weight:800}',
-    '@media (prefers-reduced-motion: reduce){.pypx-inner{transition:none}}'
+    '.pypx-deckico{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0}',
+    '@media (prefers-reduced-motion: reduce){.pypx-inner,.pypx-card,.pypx-deck:not(.is-expanded) .pypx-card{transition:none}}'
   ].join('\n');
 
   var ICONS = {
@@ -160,6 +177,7 @@
     var timer = null;
     var data = null;
     var filter = options.filter || null;
+    var deckOpen = {};
 
     container.classList.add('pypx');
     if (options.layout === 'stack') container.classList.add('stack');
@@ -176,7 +194,23 @@
         (function () {
           var shown = filter ? data.items.filter(filter) : data.items;
           if (!shown.length) return '<p class="pypx-empty">' + esc(options.emptyText || 'Nothing here right now.') + '</p>';
-          return '<div class="pypx-grid">' + shown.map(function (it) { return cardHTML(it, !!flipped[it.id], drafts[it.id]); }).join('') + '</div>';
+          var groups = {};
+          var groupOrder = ['invoice', 'dispute', 'refund', 'pyp'];
+          var groupLabels = { invoice: 'Invoices', dispute: 'Disputes', refund: 'Refunds', pyp: 'Pyp activity' };
+          shown.slice().sort(function (a, b) { return String(b.createdAt || '').localeCompare(String(a.createdAt || '')); }).forEach(function (item) {
+            var kind = groupLabels[item.kind] ? item.kind : 'pyp';
+            if (!groups[kind]) groups[kind] = [];
+            groups[kind].push(item);
+          });
+          return '<div class="pypx-decks">' + groupOrder.filter(function (kind) { return groups[kind] && groups[kind].length; }).map(function (kind) {
+            var items = groups[kind];
+            var expanded = !!deckOpen[kind];
+            var visible = expanded ? items : items.slice(0, 3);
+            var dico = ICONS[kind] || ICONS.invoice;
+            return '<section class="pypx-deck' + (expanded ? ' is-expanded' : '') + '" data-deck="' + kind + '"><div class="pypx-deckhead" data-deck-toggle="' + kind + '" role="button" tabindex="0" aria-expanded="' + expanded + '"><span class="pypx-deckico" style="background:' + dico.bg + ';color:' + dico.fg + '"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">' + dico.path + '</svg></span><h3 class="pypx-decktitle">' + groupLabels[kind] + '</h3><span class="pypx-deckcount">' + items.length + '</span>' +
+              (items.length > 3 ? '<button type="button" class="pypx-decktoggle" data-deck-toggle="' + kind + '" aria-expanded="' + expanded + '">' + (expanded ? 'Collapse' : 'Show all') + '</button>' : '') +
+              '</div><div class="pypx-grid">' + visible.map(function (it) { return cardHTML(it, !!flipped[it.id], drafts[it.id]); }).join('') + '</div></section>';
+          }).join('') + '</div>';
         })();
       if (typeof options.onCount === 'function') options.onCount(open);
       startTimer();
@@ -197,6 +231,13 @@
     }
 
     container.addEventListener('click', function (e) {
+      var deckToggle = e.target.closest('[data-deck-toggle]');
+      if (deckToggle) {
+        var deckKind = deckToggle.getAttribute('data-deck-toggle');
+        deckOpen[deckKind] = !deckOpen[deckKind];
+        render();
+        return;
+      }
       var card = e.target.closest('.pypx-card');
       if (!card) return;
       var id = card.getAttribute('data-id');
@@ -216,6 +257,15 @@
         var extra = action === 'send' ? { draft: drafts[id] } : undefined;
         transport.act(id, action, extra);
       }
+    });
+
+    container.addEventListener('keydown', function (e) {
+      var deckToggle = e.target.closest('[data-deck-toggle]');
+      if (!deckToggle || (e.key !== 'Enter' && e.key !== ' ')) return;
+      e.preventDefault();
+      var deckKind = deckToggle.getAttribute('data-deck-toggle');
+      deckOpen[deckKind] = !deckOpen[deckKind];
+      render();
     });
 
     container.addEventListener('input', function (e) {
