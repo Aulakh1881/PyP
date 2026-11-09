@@ -4,7 +4,7 @@
 // the model only reads them.
 
 import { daysBetween, formatMoney, localDate } from "@/engine/format";
-import type { CaseFile, Client, Hold, Invoice, MerchantRules, SkillContext, SubjectRef } from "@/engine/types";
+import type { CaseFile, CaseFileOptions, Client, Hold, Invoice, MerchantRules, SkillContext, SubjectRef } from "@/engine/types";
 import { block, tag, textTag } from "@/engine/xml";
 import { truncate } from "@/engine/prompt-builder";
 import { addDays, ALL_TERMS, clientsNamed, EMAIL, parseAmounts, parseTerms, type ParsedAmount, type ParsedTerm } from "./request-parser";
@@ -97,8 +97,9 @@ export async function buildCollectionsCaseFile(
   ctx: SkillContext,
   subject: SubjectRef,
   instruction?: string,
+  opts: CaseFileOptions = {},
 ): Promise<CaseFile<CollectionsFacts>> {
-  if (subject.kind === "invoice") return overdueCaseFile(ctx, subject, instruction);
+  if (subject.kind === "invoice") return overdueCaseFile(ctx, subject, instruction, opts);
   if (subject.kind === "new-invoice") {
     if (!instruction?.trim()) throw new Error("A new-invoice run needs the merchant's request");
     return newInvoiceCaseFile(ctx, subject, instruction);
@@ -139,7 +140,7 @@ function dayDiff(from: string, to: string): number {
   return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
 }
 
-async function overdueCaseFile(ctx: SkillContext, subject: SubjectRef, instruction?: string): Promise<CaseFile<CollectionsFacts>> {
+async function overdueCaseFile(ctx: SkillContext, subject: SubjectRef, instruction?: string, opts: CaseFileOptions = {}): Promise<CaseFile<CollectionsFacts>> {
   const now = ctx.now();
   const tz = ctx.merchant.timezone;
 
@@ -164,7 +165,8 @@ async function overdueCaseFile(ctx: SkillContext, subject: SubjectRef, instructi
     notes,
     history,
     hold,
-    merchantAsked: asksToCancel(instruction),
+    // A custom skill's playbook is standing guidance, never a request to cancel this invoice.
+    merchantAsked: !opts.standing && asksToCancel(instruction),
   };
   const limits = reminderLimits(ctx.rules);
 

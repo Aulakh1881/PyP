@@ -128,7 +128,7 @@ async function weeklyBrief(deps: ChatRunDeps): Promise<{ reply: string; cardIds:
 /** What the chat says after making the brief (null: the sweep threw). */
 export function briefReply(out: SweepOutcome | null): string {
   if (!out) return "I couldn't make the brief just now. Try again in a moment.";
-  if (out.status === "paused") return "Pyp is paused. Turn it back on in Setup to make a brief.";
+  if (out.status === "paused") return "Pyp is paused. Turn it back on in Settings to make a brief.";
   if (out.status === "busy") return "Pyp is already running a check. Try again in a minute.";
   if (out.cardIds.length) return `This week's brief is in your Inbox. ${BRIEF_SCHEDULE}`;
   if (out.skipped) return `This week's brief is already in your Inbox. ${BRIEF_SCHEDULE}`;

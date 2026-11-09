@@ -13,6 +13,11 @@ export type Risk = "read" | "internal" | "config" | "message" | "money";
 export type Dial = "off" | "ask" | "auto";
 export type Confidence = "low" | "medium" | "high";
 
+/** How a case file treats the merchant's instruction (see SkillDef.buildCaseFile). */
+export interface CaseFileOptions {
+  standing?: boolean;
+}
+
 /** What one run is about: an invoice id, a dispute id, "new-invoice:<chat id>", ... */
 export interface SubjectRef {
   kind: string;
@@ -88,7 +93,12 @@ export interface SkillDef<F = unknown> {
   triggers: { events?: string[]; sweeps?: string[]; chat?: boolean };
   model: { tier: Tier; effort?: Effort; maxOutputTokens?: number };
   /** `instruction` is the merchant's own words when the run came from chat. */
-  buildCaseFile: (ctx: GatherContext, subject: SubjectRef, instruction?: string) => Promise<CaseFile<F>>;
+  /**
+   * `opts.standing`: the instruction is standing guidance (a custom skill's playbook), not a
+   * request about this one subject, so it never counts as "the merchant asked to cancel" and
+   * amounts in it are never offered.
+   */
+  buildCaseFile: (ctx: GatherContext, subject: SubjectRef, instruction?: string, opts?: CaseFileOptions) => Promise<CaseFile<F>>;
   /**
    * Plain-code handlers for events with one right answer (design §0.14), keyed
    * by PayPal event type. No model call. A handler may say "run" to hand the

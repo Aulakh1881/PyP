@@ -130,6 +130,49 @@ export function disputeFacts(d: Dispute, now: Date): WorkflowFacts {
 
 // ---------- Running ----------
 
+export interface WatchedSubject {
+  subject: SubjectRef;
+  /** Code's facts about it, for the checks. Read lazily: a dispute's tracking is a second read. */
+  facts: () => Promise<WorkflowFacts>;
+}
+
+/**
+ * What an invoice or dispute trigger covers today, each with code's facts.
+ * Shared by workflows and custom skills. `dueWithinDays` is for invoice_due_soon.
+ */
+export async function subjectsFor(
+  deps: Pick<SweepDeps, "read">,
+  ctx: Pick<SkillContext, "db" | "now" | "merchant">,
+  trigger: "invoice_overdue" | "invoice_due_soon" | "dispute_opened" | "dispute_deadline" | TriggerId,
+  dueWithinDays = 3,
+): Promise<WatchedSubject[]> {
+  const now = ctx.now;
+  const tz = ctx.merchant.timezone;
+  if (trigger === "invoice_overdue") {
+    const list = await deps.read.overdueInvoices(localDate(now(), tz));
+    return list.map((i) => ({ subject: { kind: "invoice", id: i.id }, facts: () => invoiceFacts(i, ctx) }));
+  }
+  if (trigger === "invoice_due_soon") {
+    const unpaid = (await deps.read.unpaidInvoices?.()) ?? [];
+    const soon = unpaid.filter((i) => {
+      if (!i.dueDate) return false;
+      const left = -daysBetween(i.dueDate, now(), tz);
+      return left >= 0 && left <= dueWithinDays;
+    });
+    return soon.map((i) => ({ subject: { kind: "invoice", id: i.id }, facts: () => invoiceFacts(i, ctx) }));
+  }
+  if (trigger === "dispute_opened" || trigger === "dispute_deadline") {
+    const horizon = trigger === "dispute_deadline" ? DEADLINE_HOURS * 3_600_000 : 365 * 86_400_000;
+    const list = await deps.read.disputesDueBefore(new Date(now().getTime() + horizon));
+    return list.map((d) => ({
+      subject: { kind: "dispute", id: d.id },
+      // Tracking comes with the full read.
+      facts: async () => disputeFacts((await deps.read.getDispute?.(d.id)) ?? d, now()),
+    }));
+  }
+  return [];
+}
+
 export interface WorkflowRunOutcome {
   status: "ok" | "paused" | "waiting";
   found: number;
@@ -216,29 +259,7 @@ export async function runWorkflowLocked(deps: SweepDeps, merchantId: string, w: 
   }
 
   // Invoices or disputes: list what the When covers, with code's facts for each.
-  const today = localDate(now(), merchant.timezone);
-  let items: { subject: SubjectRef; facts: () => Promise<WorkflowFacts> }[] = [];
-  if (trigger.id === "invoice_overdue") {
-    const list = await deps.read.overdueInvoices(today);
-    items = list.map((i) => ({ subject: { kind: "invoice", id: i.id }, facts: () => invoiceFacts(i, ctx) }));
-  } else if (trigger.id === "invoice_due_soon") {
-    const days = Number(when.params?.days ?? 3);
-    const unpaid = (await deps.read.unpaidInvoices?.()) ?? [];
-    const soon = unpaid.filter((i) => {
-      if (!i.dueDate) return false;
-      const left = -daysBetween(i.dueDate, now(), merchant.timezone);
-      return left >= 0 && left <= days;
-    });
-    items = soon.map((i) => ({ subject: { kind: "invoice", id: i.id }, facts: () => invoiceFacts(i, ctx) }));
-  } else {
-    const horizon = trigger.id === "dispute_deadline" ? DEADLINE_HOURS * 3_600_000 : 365 * 86_400_000;
-    const list = await deps.read.disputesDueBefore(new Date(now().getTime() + horizon));
-    items = list.map((d) => ({
-      subject: { kind: "dispute", id: d.id },
-      // Tracking comes with the full read.
-      facts: async () => disputeFacts((await deps.read.getDispute?.(d.id)) ?? d, now()),
-    }));
-  }
+  const items = await subjectsFor(deps, ctx, trigger.id, Number(when.params?.days ?? 3));
 
   out.found = items.length;
   const busy = await busySubjects(deps.pool, merchantId);

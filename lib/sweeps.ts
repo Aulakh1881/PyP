@@ -2,6 +2,7 @@
 
 import { getPool } from "@/jobs/db";
 import { runDailySweeps, runSweep, withSweepLock, type SweepName } from "@/jobs/sweep-run";
+import { runDueSkills, runSkillNow } from "@/jobs/custom-skills";
 import { getWorkflow, runWorkflowLocked } from "@/jobs/workflows";
 import { serverAgent } from "@/lib/agent";
 import { PayPalReadClient } from "@/paypal/engine-reads";
@@ -23,3 +24,9 @@ export async function runWorkflowNow(merchantId: string, workflowId: string) {
   if (!w) return null;
   return withSweepLock(d.pool, merchantId, () => runWorkflowLocked(d, merchantId, w, true));
 }
+
+/** Custom skills whose next run has come (the worker, every tick). */
+export const runDueSkillsFromEnv = () => runDueSkills({ ...deps(), merchantIds: sweptMerchant ? [sweptMerchant] : undefined });
+
+/** "Run now" (cards in the Inbox) or "Try it" (dryRun: nothing saved or sent) on one custom skill. */
+export const runCustomSkillNow = (merchantId: string, skillId: string, dryRun = false) => runSkillNow(deps(), merchantId, skillId, { dryRun });

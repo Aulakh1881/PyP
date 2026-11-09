@@ -73,6 +73,10 @@ export interface RunInput<F> {
   task?: string;
   /** A merchant's workflow can limit the run to these commands (its Then blocks). Unset: the whole menu. */
   onlyCommands?: CommandId[];
+  /** "standing": the instruction is a custom skill's playbook, not a request about this subject. */
+  instructionKind?: "request" | "standing";
+  /** A custom skill's "ask me first": these always become a card. Stricter only; never loosens a dial. */
+  askFirst?: { commands: CommandId[]; reason: string };
   signal?: AbortSignal;
 }
 
@@ -129,7 +133,7 @@ export async function runSkill<F>(input: RunInput<F>): Promise<RunResult<F>> {
   };
   let cf: CaseFile<F>;
   try {
-    cf = await skill.buildCaseFile(gatherCtx, subject, input.instruction);
+    cf = await skill.buildCaseFile(gatherCtx, subject, input.instruction, { standing: input.instructionKind === "standing" });
   } catch (err) {
     return failed(`Couldn't build the case file: ${(err as Error).message}`);
   }
@@ -149,7 +153,7 @@ export async function runSkill<F>(input: RunInput<F>): Promise<RunResult<F>> {
   const task = input.task ?? skill.task?.(subject) ?? `Decide what to do about ${subject.kind} ${subject.id} now.`;
   let turn: string;
   try {
-    turn = buildTurnPrompt(cf, menu, ctx.rules, task, cf.includesInstruction ? undefined : input.instruction);
+    turn = buildTurnPrompt(cf, menu, ctx.rules, task, cf.includesInstruction ? undefined : input.instruction, input.instructionKind === "standing");
   } catch (err) {
     return failed(`Couldn't build the prompt: ${(err as Error).message}`);
   }
@@ -240,6 +244,7 @@ export async function runSkill<F>(input: RunInput<F>): Promise<RunResult<F>> {
         rules: ctx.rules,
         confidence: response.confidence,
         askedMerchant: askedMerchant && action.command !== "merchant.ask",
+        forceAsk: input.askFirst?.commands.includes(action.command) ? input.askFirst.reason : undefined,
         ctx: checkCtx,
       });
     } catch (err) {

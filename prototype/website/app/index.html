@@ -9,6 +9,22 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Nunito:wght@600;700;800&display=swap">
 <link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="/vendor/bryntum/scheduler-community/scheduler.css">
+<link rel="stylesheet" href="/vendor/bryntum/scheduler-community/svalbard.css">
+<script type="importmap">
+{
+  "imports": {
+    "@bryntum/core-community": "/vendor/bryntum/core-community/",
+    "@bryntum/core-community/": "/vendor/bryntum/core-community/",
+    "@bryntum/engine-community": "/vendor/bryntum/engine-community/",
+    "@bryntum/engine-community/": "/vendor/bryntum/engine-community/",
+    "@bryntum/grid-community": "/vendor/bryntum/grid-community/",
+    "@bryntum/grid-community/": "/vendor/bryntum/grid-community/",
+    "@bryntum/scheduler-community": "/vendor/bryntum/scheduler-community/entry.js",
+    "@bryntum/scheduler-community/": "/vendor/bryntum/scheduler-community/"
+  }
+}
+</script>
 </head>
 <body>
 
@@ -33,6 +49,7 @@
             <li><a href="#/business" data-nav="business"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a6 6 0 0 0-6 6c0 2.2 1.2 3.6 2.4 4.6.6.5.9 1.2.9 2V18h5.4v-1.4c0-.8.3-1.5.9-2 1.2-1 2.4-2.4 2.4-4.6a6 6 0 0 0-6-6z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M10 21h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>About my business</a></li>
             <li><a href="#/clients" data-nav="clients"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2 .8 3 2.8 3 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>Clients</a></li>
             <li><a href="#/workflows" data-nav="workflows"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3.5" width="7" height="5" rx="1.5" stroke="currentColor" stroke-width="2" fill="none"/><rect x="14" y="15.5" width="7" height="5" rx="1.5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M6.5 8.5v4.5a2 2 0 0 0 2 2H14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>Workflows</a></li>
+            <li><a href="#/skills" data-nav="skills"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.2 4.6 5 .7-3.6 3.5.9 5L12 14.4 7.5 16.8l.9-5L4.8 8.3l5-.7z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M6 20h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>My skills</a></li>
           </ul>
         </li>
         <li class="nav-group" data-group="reports">
@@ -42,7 +59,7 @@
             <li><a href="#/brief" data-nav="brief"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V9M12 19V5M19 19v-7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>Weekly brief</a></li>
           </ul>
         </li>
-        <li class="nav-bottom"><a href="#/setup" data-nav="setup"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="7" r="2.2" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="10" cy="17" r="2.2" stroke="currentColor" stroke-width="2" fill="none"/></svg>Setup</a></li>
+        <li class="nav-bottom"><a href="#/settings" data-nav="settings"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="7" r="2.2" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="10" cy="17" r="2.2" stroke="currentColor" stroke-width="2" fill="none"/></svg>Settings</a></li>
       </ul>
     </nav>
     <div class="sidefoot">
@@ -74,6 +91,8 @@
 <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@36.2.0/dist/ag-grid-community.min.js"></script>
 <script src="activity-grid.js"></script>
 <script src="workflows.js"></script>
+<script src="skills.js"></script>
+<script src="connections.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
