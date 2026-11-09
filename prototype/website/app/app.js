@@ -77,6 +77,7 @@
     clients: { title: 'Clients', render: renderClients },
     business: { title: 'About my business', render: renderMemory },
     workflows: { title: 'Workflows', render: function () { window.PypWorkflows.render(view, transport, { toast: toast, cleanup: cleanup }); } },
+    skills: { title: 'My skills', render: function () { window.PypSkills.render(view, transport, { toast: toast, cleanup: cleanup }); } },
     inbox: { title: 'Inbox', render: renderInbox },
     activity: { title: 'Activity', render: renderActivity },
     brief: { title: 'Weekly brief', render: renderBrief },
