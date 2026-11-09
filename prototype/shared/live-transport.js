@@ -554,6 +554,40 @@
         if (!r.ok) throw new Error(r.body.message || r.body.error || 'The workflow didn’t run (' + r.status + ').');
         return r.body;
       },
+      // The merchant's custom skills (/api/skills): Pyp's judgment, their way. Run now
+      // makes cards like any run; Try it and drafting save nothing and send nothing.
+      skills: async function () {
+        var r = await api('/api/skills');
+        if (!r.ok && !r.body.catalog) throw new Error(r.body.error || 'Your skills are unavailable (' + r.status + ').');
+        return { skills: r.body.skills || [], catalog: r.body.catalog, timeZone: r.body.timeZone || '', error: r.ok ? null : r.body.error };
+      },
+      saveSkill: async function (s, id) {
+        var r = await api('/api/skills' + (id ? '/' + encodeURIComponent(id) : ''), { method: id ? 'PUT' : 'POST', body: JSON.stringify(s) });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn’t save that skill (' + r.status + ').');
+        return r.body;
+      },
+      deleteSkill: async function (id) {
+        var r = await api('/api/skills/' + encodeURIComponent(id), { method: 'DELETE' });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn’t delete that skill (' + r.status + ').');
+      },
+      runSkill: async function (id) {
+        var r = await api('/api/skills/' + encodeURIComponent(id) + '/run', { method: 'POST' });
+        lastJson = '';
+        await refresh().catch(function () { emit(); });
+        if (!r.ok) throw new Error(r.body.message || r.body.error || 'The skill didn’t run (' + r.status + ').');
+        return r.body;
+      },
+      trySkill: async function (id) {
+        var r = await api('/api/skills/' + encodeURIComponent(id) + '/try', { method: 'POST' });
+        if (!r.ok && r.status !== 409) throw new Error(r.body.message || r.body.error || 'Couldn’t try the skill (' + r.status + ').');
+        if (r.status === 409 && r.body.status === 'busy') throw new Error(r.body.message);
+        return r.body;
+      },
+      draftSkill: async function (description) {
+        var r = await api('/api/skills/draft', { method: 'POST', body: JSON.stringify({ description: description }) });
+        if (!r.ok) throw new Error(r.body.error || 'Pyp couldn’t draft that (' + r.status + ').');
+        return r.body;
+      },
       // Pyp's own client list (/api/clients). Saving a client never touches PayPal.
       clients: function () { return read('/api/clients', 'Your clients'); },
       saveClient: async function (c, id) {

@@ -73,6 +73,8 @@ export interface RunInput<F> {
   task?: string;
   /** A merchant's workflow can limit the run to these commands (its Then blocks). Unset: the whole menu. */
   onlyCommands?: CommandId[];
+  /** A custom skill's "ask me first": these always become a card. Stricter only; never loosens a dial. */
+  askFirst?: { commands: CommandId[]; reason: string };
   signal?: AbortSignal;
 }
 
@@ -240,6 +242,7 @@ export async function runSkill<F>(input: RunInput<F>): Promise<RunResult<F>> {
         rules: ctx.rules,
         confidence: response.confidence,
         askedMerchant: askedMerchant && action.command !== "merchant.ask",
+        forceAsk: input.askFirst?.commands.includes(action.command) ? input.askFirst.reason : undefined,
         ctx: checkCtx,
       });
     } catch (err) {

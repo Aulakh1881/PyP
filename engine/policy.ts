@@ -24,9 +24,11 @@ export async function decide<P, F>(input: {
   rules: MerchantRules;
   confidence: Confidence;
   askedMerchant: boolean;
+  /** The merchant asked to approve this one (a custom skill's "ask me first"): the reason to show. */
+  forceAsk?: string;
   ctx: CheckContext<F>;
 }): Promise<PolicyResult> {
-  const { cmd, params, skill, rules, confidence, askedMerchant, ctx } = input;
+  const { cmd, params, skill, rules, confidence, askedMerchant, forceAsk, ctx } = input;
   const rule = ruleFor(cmd.id, rules, skill);
 
   if (rules.killSwitch) return { decision: "block", rule: "kill_switch", reason: "Pyp is paused" };
@@ -35,6 +37,7 @@ export async function decide<P, F>(input: {
   if (skill.policy.neverAuto.includes(cmd.id)) {
     return { decision: "ask", rule: "never_auto", reason: "This action always needs your approval" };
   }
+  if (forceAsk) return { decision: "ask", rule: "skill_ask_first", reason: forceAsk };
   const limit = cmd.overLimit ? await cmd.overLimit(params, rule, ctx) : null;
   if (limit) return { decision: "ask", rule: "limit", reason: limit };
   if (confidence === "low") return { decision: "ask", rule: "low_confidence", reason: "Pyp wasn't sure" };

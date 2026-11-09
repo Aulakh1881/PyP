@@ -14,6 +14,9 @@ The heart of Pyp, plain TypeScript:
 - `router.ts`: `handleEvent()`, the fixed-label door for PayPal events. Events with one right answer (paid, cancelled, dispute closed) run a skill's plain-code handler with no model call; the rest are normal runs
 - `quarantine.ts`: the separate, command-free call that classifies buyer text (design §7.6)
 - `chat.ts`: `handleChat()`, the minimal chat receptionist (design §7.8 stage 1)
+- `workflows.ts`: the merchant's rules (When → If → Then); code walks the diagram
+- `custom-skills.ts`: the merchant's custom skills (what to watch, code's checks, a schedule, allowed actions, playbook, tone) and the time-zone-safe schedule maths. A skill is Pyp's judgment, the merchant's way; its run is limited to existing commands, and "ask me first" can only make a dial stricter
+- `skill-draft.ts`: "Describe it, Pyp drafts it": one sentence becomes a skill's form; the model only picks from code's options and code checks every value
 - `content-checks.ts`: outbound text rules every skill shares (amounts, invoice numbers, links)
 - `stream.ts`: draining the gateway stream; the partial summary kept for the trace
 - `types.ts`: the shared contracts (SkillDef, CommandDef, CaseFile, AgentClient, the PayPal reads and database calls the engine needs). **Change these deliberately and tell the team.**
