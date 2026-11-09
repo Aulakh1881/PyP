@@ -433,12 +433,15 @@ export async function postNewCards(deps: {
   const perConnection = (conns.rows as Record<string, unknown>[]).map(async (row): Promise<Done[]> => {
     const done: Done[] = [];
     const c = toConnection(row);
+    // post_from is compared in Postgres (microseconds): read back through JavaScript it loses
+    // its microseconds, and a card made just before switch-on would look newer.
     const cards = await deps.pool.query(
       `select k.id, k.skill, k.state, k.front_json, k.created_at from cards k
-        where k.merchant_id = $1 and k.state in ('awaiting_approval', 'scheduled') and k.created_at > $2
-          and not exists (select 1 from connection_posts p where p.connection_id = $3 and p.card_id = k.id)
-        order by k.created_at limit $4`,
-      [row.merchant_id, row.post_from, c.id, POST_LIMIT],
+        where k.merchant_id = $1 and k.state in ('awaiting_approval', 'scheduled')
+          and k.created_at > (select post_from from connections where id = $2)
+          and not exists (select 1 from connection_posts p where p.connection_id = $2 and p.card_id = k.id)
+        order by k.created_at limit $3`,
+      [row.merchant_id, c.id, POST_LIMIT],
     );
     for (const k of cards.rows as Record<string, unknown>[]) {
       const claimed = await deps.pool.query("insert into connection_posts (connection_id, card_id) values ($1, $2) on conflict do nothing returning card_id", [c.id, k.id]);

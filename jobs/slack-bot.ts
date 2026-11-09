@@ -167,10 +167,12 @@ export async function syncSlackDms(deps: BotDeps): Promise<{ posted: number; upd
       await deps.pool.query("delete from slack_messages where merchant_id = $1 and ts is null and updated_at < now() - interval '2 minutes'", [merchantId]);
       const fresh = await deps.pool.query(
         `${CARD_SQL}
-          where c.merchant_id = $1 and c.state = any($2) and c.created_at >= $3
+          where c.merchant_id = $1 and c.state = any($2)
+            -- Compared in Postgres: linked_at read back through JavaScript loses its microseconds.
+            and c.created_at >= (select linked_at from slack_links where merchant_id = $1)
             and not exists (select 1 from slack_messages m where m.card_id = c.id)
-          order by c.created_at limit $4`,
-        [merchantId, WAITING, link.linked_at, DM_LIMIT],
+          order by c.created_at limit $3`,
+        [merchantId, WAITING, DM_LIMIT],
       );
       for (const row of fresh.rows as Record<string, unknown>[]) {
         const card = toBotCard(row);
