@@ -482,6 +482,12 @@
         if (!r.ok) throw new Error(r.body.error || 'Couldn\u2019t save that (' + r.status + ').');
         return r.body.fact;
       },
+      // One answer in the business profile (null clears it).
+      setProfile: async function (key, value) {
+        var r = await api('/api/facts/profile', { method: 'PUT', body: JSON.stringify({ key: key, value: value }) });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn\u2019t save that (' + r.status + ').');
+        return r.body.fact;
+      },
       deleteFact: async function (id) {
         var r = await api('/api/facts/' + encodeURIComponent(id), { method: 'DELETE' });
         if (!r.ok) throw new Error(r.body.error || 'Couldn\u2019t forget that (' + r.status + ').');

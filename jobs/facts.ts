@@ -93,7 +93,7 @@ export async function factsFor(db: Db, merchantId: string, subjectRef: string, c
     const res = await db.query(
       `select text, client_email from merchant_facts
         where merchant_id = $1 and status = 'active'
-          and ((client_email is null and subject_ref is null)
+          and ((client_email is null and (subject_ref is null or subject_ref like 'profile:%'))
                or subject_ref = $2
                or lower(client_email) = any($3::text[]))
         order by created_at desc limit $4`,
@@ -104,4 +104,49 @@ export async function factsFor(db: Db, merchantId: string, subjectRef: string, c
     if (missingFactsTable(err)) return []; // before migration 013: nothing remembered yet
     throw err;
   }
+}
+
+// ---------- The business profile: quick picks, each saved as one fact ----------
+
+/** The profile's fields. Every one is optional; each answer becomes a fact Pyp reads. */
+export const PROFILE = {
+  what: { label: "What you do", text: (v: string) => `My business: ${v}.` },
+  terms: {
+    label: "Usual terms",
+    options: { receipt: "Due on receipt", net_15: "Net 15", net_30: "Net 30", net_60: "Net 60" },
+    text: (v: string) => `My usual payment terms are ${PROFILE.terms.options[v as keyof typeof PROFILE.terms.options]}.`,
+  },
+  tone: {
+    label: "Reminder tone",
+    options: { gentle: "Gentle", balanced: "Balanced", firm: "Firm" },
+    text: (v: string) =>
+      v === "gentle" ? "Keep reminders gentle and warm." : v === "firm" ? "Reminders can be firm and direct." : "Reminders should be friendly but clear.",
+  },
+  late_fees: {
+    label: "Late fees",
+    options: { never: "Never", ask: "Ask me first" },
+    text: (v: string) => (v === "never" ? "I never charge late fees." : "Ask me before mentioning late fees."),
+  },
+} as const;
+export type ProfileKey = keyof typeof PROFILE;
+
+export const ProfileInput = z.discriminatedUnion("key", [
+  z.object({ key: z.literal("what"), value: z.string().trim().max(120).nullable() }),
+  z.object({ key: z.literal("terms"), value: z.enum(["receipt", "net_15", "net_30", "net_60"]).nullable() }),
+  z.object({ key: z.literal("tone"), value: z.enum(["gentle", "balanced", "firm"]).nullable() }),
+  z.object({ key: z.literal("late_fees"), value: z.enum(["never", "ask"]).nullable() }),
+]);
+export type ProfileInput = z.infer<typeof ProfileInput>;
+
+/**
+ * Sets one profile answer (null or "" clears it). Stored as a fact whose subject_ref
+ * is "profile:<key>:<value>", so the page can show the pick and case files read the text.
+ */
+export async function setProfile(db: Db, merchantId: string, input: ProfileInput): Promise<Fact | null> {
+  await db.query("delete from merchant_facts where merchant_id = $1 and subject_ref like $2", [merchantId, `profile:${input.key}%`]);
+  const value = input.value?.trim();
+  if (!value) return null;
+  const def = PROFILE[input.key];
+  const ref = input.key === "what" ? "profile:what" : `profile:${input.key}:${value}`;
+  return addFact(db, merchantId, { text: def.text(value), subjectRef: ref, status: "active", source: "merchant" });
 }

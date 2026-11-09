@@ -84,6 +84,23 @@
     setup: { title: 'Setup', render: renderSetup }
   };
 
+  /* Sidebar folders: PayPal, Your Pyp, Reports. Open ones are remembered in this browser. */
+  var FOLDERS_KEY = 'pyp.nav.open';
+  function openFolders() { try { return JSON.parse(localStorage.getItem(FOLDERS_KEY) || '["paypal"]'); } catch (e) { return ['paypal']; } }
+  function setFolder(g, open) {
+    var b = g.querySelector('.nav-folder');
+    b.setAttribute('aria-expanded', String(open));
+    g.querySelector('.nav-sub').hidden = !open;
+    g.classList.toggle('open', open);
+    var ids = openFolders().filter(function (x) { return x !== g.getAttribute('data-group'); });
+    if (open) ids.push(g.getAttribute('data-group'));
+    try { localStorage.setItem(FOLDERS_KEY, JSON.stringify(ids)); } catch (e) { /* blocked */ }
+  }
+  document.querySelectorAll('.nav-group').forEach(function (g) {
+    if (openFolders().indexOf(g.getAttribute('data-group')) >= 0) setFolder(g, true);
+    g.querySelector('.nav-folder').addEventListener('click', function () { setFolder(g, !g.classList.contains('open')); });
+  });
+
   function route() {
     var name = (location.hash.replace(/^#\/?/, '') || 'inbox').split('?')[0];
     if (!PAGES[name]) name = 'inbox';
@@ -93,6 +110,12 @@
     document.querySelectorAll('[data-nav]').forEach(function (a) {
       if (a.getAttribute('data-nav') === name) a.setAttribute('aria-current', 'page');
       else a.removeAttribute('aria-current');
+    });
+    // The folder holding this page opens, and is marked as holding it.
+    document.querySelectorAll('.nav-group').forEach(function (g) {
+      var here = !!g.querySelector('[data-nav="' + name + '"]');
+      g.classList.toggle('has-current', here);
+      if (here) setFolder(g, true);
     });
     title.textContent = PAGES[name].title;
     document.title = PAGES[name].title + ' · Pyp';
@@ -255,13 +278,24 @@
         (f.id ? '<button class="btn btn-ghost btn-sm" type="button" data-cancel>Cancel</button>' : '') +
         '</form>';
     }
-    // Business facts sorted under a heading by their words (display only; Pyp reads them all).
-    var TOPICS = [
-      { id: 'pay', title: 'How you get paid', re: /\b(net ?\d+|terms?|due|late fees?|fees?|deposits?|pays?|paid|payment|invoic\w*|refunds?|discounts?|prices?|rates?|charge\w*|upfront)\b/i },
-      { id: 'tone', title: 'How you talk to clients', re: /\b(tone|gentle|firm|friendly|polite|formal|casual|calls?|phone|emails?|texts?|remind\w*|nudge\w*|thank\w*|warm)\b/i },
-      { id: 'other', title: 'Other things to know', re: /./ }
+    // The business profile: quick picks, all optional. Each answer is one fact the server
+    // tags "profile:<key>:<value>"; Pyp reads its words in every case file.
+    var PROFILE = [
+      { key: 'what', label: 'What you do', text: true, placeholder: 'e.g. Product photography' },
+      { key: 'terms', label: 'Usual terms', options: [['receipt', 'On receipt'], ['net_15', 'Net 15'], ['net_30', 'Net 30'], ['net_60', 'Net 60']] },
+      { key: 'tone', label: 'Reminder tone', options: [['gentle', 'Gentle'], ['balanced', 'Balanced'], ['firm', 'Firm']] },
+      { key: 'late_fees', label: 'Late fees', options: [['never', 'Never'], ['ask', 'Ask me first']] }
     ];
-    function topicOf(f) { return TOPICS.filter(function (t) { return t.re.test(f.text); })[0].id; }
+    var memTab = 'learned';
+    function isProfile(f) { return (f.subjectRef || '').indexOf('profile:') === 0; }
+    function profileValues() {
+      var out = {};
+      facts.filter(isProfile).forEach(function (f) {
+        var parts = f.subjectRef.split(':');
+        out[parts[1]] = parts[1] === 'what' ? f.text.replace(/^My business: /, '').replace(/\.$/, '') : parts[2];
+      });
+      return out;
+    }
 
     function chip(f) {
       if (editingId === f.id) return '<div class="mem-editing">' + form(f) + '</div>';
@@ -272,42 +306,88 @@
         '<button type="button" class="mem-x" data-forget aria-label="Forget: ' + esc(f.text) + '">×</button></span>';
     }
 
+    function line(f) {
+      if (editingId === f.id) return '<li class="mem-line">' + form(f) + '</li>';
+      var when = new Date(f.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      return '<li class="mem-line" data-fact="' + esc(f.id) + '"><span class="mem-dot" aria-hidden="true"></span>' +
+        '<div class="mem-line-main"><p>' + esc(f.text) + '</p><span class="mem-line-meta">' + (f.source === 'chat' ? 'Learned in chat' : 'You added this') + ' · ' + esc(when) + '</span></div>' +
+        '<div class="row-actions">' + (f.status === 'proposed' ? '<button class="btn btn-sm" type="button" data-confirm>Keep</button>' : '') +
+        '<button class="btn btn-ghost btn-sm" type="button" data-edit>Edit</button><button class="btn btn-danger btn-sm" type="button" data-forget>Forget</button></div></li>';
+    }
+
     function draw() {
       var name = (document.querySelector('[data-me-name]') || {}).textContent || 'your business';
-      var business = facts.filter(function (f) { return !f.clientEmail; });
+      var profile = profileValues();
+      var learned = facts.filter(function (f) { return !f.clientEmail && !isProfile(f); });
       var byClient = {};
       facts.filter(function (f) { return f.clientEmail; }).forEach(function (f) {
         var k = f.clientEmail.toLowerCase();
         (byClient[k] = byClient[k] || { email: f.clientEmail, facts: [] }).facts.push(f);
       });
       var clientCards = Object.keys(byClient).map(function (k) { return byClient[k]; });
-      var gist = business.filter(function (f) { return f.status === 'active'; }).slice(0, 3).map(function (f) { return f.text.replace(/[.!]+$/, ''); }).join(' · ');
 
-      var sections = TOPICS.map(function (t) {
-        var mine = business.filter(function (f) { return topicOf(f) === t.id; });
-        if (!mine.length) return '';
-        return '<div class="mem-topic"><h3>' + t.title + '</h3><div class="mem-chips">' + mine.map(chip).join('') + '</div></div>';
+      // The gist: the profile in a line, else the newest things Pyp learned.
+      var gist = PROFILE.map(function (p) {
+        var v = profile[p.key];
+        if (!v) return null;
+        if (p.text) return v;
+        var label = p.options.filter(function (o) { return o[0] === v; })[0][1];
+        return p.key === 'tone' ? label + ' reminders' : p.key === 'late_fees' ? (v === 'never' ? 'No late fees' : 'Late fees: ask first') : label;
+      }).filter(Boolean);
+      if (!gist.length) gist = learned.slice(0, 2).map(function (f) { return f.text.replace(/[.!]+$/, ''); });
+
+      var profileRows = PROFILE.map(function (p) {
+        var v = profile[p.key] || '';
+        var control = p.text
+          ? '<input class="mem-what" data-profile-text="' + p.key + '" maxlength="120" value="' + esc(v) + '" placeholder="' + esc(p.placeholder) + '">'
+          : '<div class="inbox-seg mem-seg" role="group" aria-label="' + esc(p.label) + '">' + p.options.map(function (o) {
+            return '<button type="button" data-profile="' + p.key + '" data-value="' + o[0] + '" aria-pressed="' + (v === o[0]) + '">' + esc(o[1]) + '</button>';
+          }).join('') + '</div>';
+        return '<div class="mem-row"><span class="mem-row-label">' + esc(p.label) + '</span>' + control + '</div>';
       }).join('');
+
+      var tabBody = memTab === 'clients'
+        ? (clientCards.length ? '<div class="mem-clients">' + clientCards.map(function (c) {
+          return '<div class="mem-client"><div class="mem-client-head"><span class="mem-avatar" aria-hidden="true">' + esc(clientName(c.email).charAt(0).toUpperCase()) + '</span><b>' + esc(clientName(c.email)) + '</b></div>' +
+            '<div class="mem-chips">' + c.facts.map(chip).join('') + '</div></div>';
+        }).join('') + '</div>' : '<div class="empty">Nothing about clients yet. Mention it in chat: “John prefers a call before reminders.”</div>')
+        : (learned.length ? '<ul class="mem-lines">' + learned.map(line).join('') + '</ul>' : '<div class="empty">Nothing yet. Pyp picks things up as you chat, or say “remember that…”.</div>');
 
       view.innerHTML =
         '<section class="panel mem-hero"><div class="mem-hero-icon" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24"><path d="M12 4a6 6 0 0 0-6 6c0 2.2 1.2 3.6 2.4 4.6.6.5.9 1.2.9 2V18h5.4v-1.4c0-.8.3-1.5.9-2 1.2-1 2.4-2.4 2.4-4.6a6 6 0 0 0-6-6z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M10 21h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>' +
-        '<div><h2>Pyp knows ' + facts.length + ' thing' + (facts.length === 1 ? '' : 's') + ' about ' + esc(name) + '</h2>' +
-        (gist ? '<p class="mem-gist">“' + esc(gist) + '”</p>' : '') +
-        '<p class="mem-how">Pyp learns as you chat: mention how you work, or say “remember that…”. It’s only for Pyp’s judgment, never sent to clients and never above the safety checks. Tap anything to fix it.</p></div></section>' +
+        '<div><h2>' + esc(name) + '</h2>' +
+        (gist.length ? '<p class="mem-gist">' + gist.map(esc).join(' · ') + '</p>' : '<p class="mem-gist muted">Pyp is still getting to know you.</p>') +
+        '<p class="mem-how">Pyp reads this before it decides anything. It’s all optional, never sent to clients, and never above the safety checks.</p></div></section>' +
 
-        '<section class="panel"><h2>Your business</h2>' +
-        (sections || '<div class="empty">Nothing yet. Your usual terms, your tone, what you never do.</div>') + '</section>' +
+        '<section class="panel"><div class="mem-head"><h2>Your business profile</h2><span class="chip chip-muted">All optional</span></div>' +
+        '<div class="mem-profile">' + profileRows + '</div></section>' +
 
-        '<section class="panel"><h2>Your clients</h2>' +
-        (clientCards.length ? '<div class="mem-clients">' + clientCards.map(function (c) {
-          return '<div class="mem-client"><div class="mem-client-head"><span class="mem-avatar" aria-hidden="true">' + esc(clientName(c.email).charAt(0).toUpperCase()) + '</span><b>' + esc(clientName(c.email)) + '</b></div>' +
-            '<div class="mem-chips">' + c.facts.map(chip).join('') + '</div></div>';
-        }).join('') + '</div>' : '<div class="empty">Nothing yet. Who pays late, who prefers a call, who’s always net 15.</div>') + '</section>' +
-
-        '<section class="panel mem-tell"><h2>Tell Pyp something</h2>' + (editingId ? '' : form(null)) + '</section>';
-      var focus = view.querySelector('.mem-editing input');
+        '<section class="panel"><div class="mem-tabs" role="tablist">' +
+        '<button type="button" role="tab" data-memtab="learned" aria-selected="' + (memTab === 'learned') + '">Learned in chat <span class="n">' + learned.length + '</span></button>' +
+        '<button type="button" role="tab" data-memtab="clients" aria-selected="' + (memTab === 'clients') + '">Clients <span class="n">' + clientCards.length + '</span></button></div>' +
+        '<div class="mem-tabbody">' + tabBody + '</div>' +
+        '<div class="mem-tell"><span class="mem-row-label">Tell Pyp something</span>' + (editingId ? '' : form(null)) + '</div></section>';
+      var focus = view.querySelector('.mem-editing input, .mem-line input');
       if (focus) focus.focus();
     }
+
+    // Quick picks save at once; tapping the chosen one again clears it.
+    function onProfile(e) {
+      var b = e.target.closest('[data-profile], [data-memtab]');
+      if (!b || !facts) return;
+      if (b.hasAttribute('data-memtab')) { memTab = b.getAttribute('data-memtab'); editingId = null; draw(); return; }
+      var key = b.getAttribute('data-profile');
+      var value = b.getAttribute('aria-pressed') === 'true' ? null : b.getAttribute('data-value');
+      b.closest('.mem-seg').querySelectorAll('button').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b && value !== null)); });
+      transport.setProfile(key, value).then(function () { toast(value ? 'Saved. Pyp will use it.' : 'Cleared.'); return load(); }, function (err) { toast(err.message); load(); });
+    }
+    function onProfileText(e) {
+      if (!e.target.matches('[data-profile-text]')) return;
+      transport.setProfile(e.target.getAttribute('data-profile-text'), e.target.value.trim() || null).then(function () { toast('Saved.'); return load(); }, function (err) { toast(err.message); });
+    }
+    view.addEventListener('click', onProfile);
+    view.addEventListener('change', onProfileText);
+    cleanup.push(function () { view.removeEventListener('click', onProfile); view.removeEventListener('change', onProfileText); });
     function onSubmit(e) {
       if (!e.target.matches('[data-fact-form]')) return;
       e.preventDefault();

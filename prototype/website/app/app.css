@@ -358,3 +358,51 @@ tr:hover td { background: #F7F9FD; }
 .mem-client-head { display: flex; align-items: center; gap: 10px; }
 .mem-avatar { width: 32px; height: 32px; border-radius: 10px; background: #0B1F4D; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; }
 .mem-tell .fact-form { margin-top: 8px; }
+
+/* Sidebar folders, in PayPal blues */
+.side nav { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #D3DBE8 transparent; }
+.navlist { flex: 1; }
+.nav-folder { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 0 12px; border: 0; border-radius: 12px; background: transparent; color: #003087; font-family: inherit; font-size: 16px; font-weight: 800; cursor: pointer; text-align: left; }
+.nav-folder:hover { background: #EEF4FF; }
+.nav-folder span { flex: 1; }
+.nav-chev { color: #0070E0; transition: transform 160ms; }
+.nav-group.open .nav-chev { transform: rotate(90deg); }
+.nav-group.has-current:not(.open) .nav-folder { background: #E6EFFF; color: #1747B8; }
+.nav-sub { list-style: none; margin: 2px 0 6px 21px; padding: 0 0 0 10px; border-left: 2px solid #C7DBFF; display: flex; flex-direction: column; gap: 2px; }
+.nav-sub a { min-height: 38px; font-size: 15px; }
+.nav-sub a svg { width: 18px; height: 18px; }
+.nav-bottom { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line); }
+@media (prefers-reduced-motion: reduce) { .nav-chev { transition: none; } }
+@media (max-width: 860px) {
+  .side nav { display: block; overflow: visible; }
+  .navlist { flex: none; }
+  .nav-folder { display: none; }
+  .nav-sub, .nav-sub[hidden] { display: contents; }
+  .nav-sub li { display: block; }
+  .nav-bottom { margin-top: 0; padding-top: 0; border-top: 0; }
+}
+
+/* About my business: profile with quick picks, then tabs */
+.mem-hero h2 { font-size: 24px; }
+.mem-gist.muted { color: var(--muted); }
+.mem-head { display: flex; align-items: center; gap: 10px; }
+.mem-profile { display: flex; flex-direction: column; margin-top: 10px; }
+.mem-row { display: grid; grid-template-columns: 160px 1fr; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.mem-row:first-child { border-top: 0; }
+.mem-row-label { font-size: 13px; font-weight: 800; color: var(--muted); }
+.mem-what { height: 40px; max-width: 420px; width: 100%; border: 1.5px solid #D3DBE8; border-radius: 10px; padding: 0 12px; font-family: inherit; font-size: 15px; font-weight: 700; color: var(--ink); }
+.mem-seg { justify-self: start; flex-wrap: wrap; }
+.mem-seg button[aria-pressed="true"] { color: #1747B8; }
+.mem-tabs { display: flex; gap: 4px; border-bottom: 1.5px solid var(--line); margin: -4px 0 12px; }
+.mem-tabs button { display: inline-flex; align-items: center; gap: 8px; border: 0; background: none; padding: 10px 14px; margin-bottom: -1.5px; border-bottom: 3px solid transparent; font-family: inherit; font-size: 15px; font-weight: 800; color: var(--muted); cursor: pointer; }
+.mem-tabs button[aria-selected="true"] { color: #003087; border-bottom-color: #0070E0; }
+.mem-tabs .n { font-size: 12px; background: #E3E9F4; border-radius: 999px; padding: 1px 7px; }
+.mem-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.mem-line { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 4px; border-bottom: 1px solid var(--line); }
+.mem-line .fact-form { flex: 1 1 100%; margin: 0; }
+.mem-dot { width: 10px; height: 10px; border-radius: 50%; background: #0070E0; flex-shrink: 0; }
+.mem-line-main { flex: 1 1 260px; min-width: 0; }
+.mem-line-main p { margin: 0; font-weight: 700; }
+.mem-line-meta { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+.mem-tell { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--line); }
+@media (max-width: 720px) { .mem-row { grid-template-columns: 1fr; gap: 6px; } }
