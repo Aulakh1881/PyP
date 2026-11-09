@@ -255,25 +255,58 @@
         (f.id ? '<button class="btn btn-ghost btn-sm" type="button" data-cancel>Cancel</button>' : '') +
         '</form>';
     }
-    function row(f) {
-      if (editingId === f.id) return '<li class="fact">' + form(f) + '</li>';
-      var about = f.clientEmail ? '<span class="chip chip-info">' + esc(clientName(f.clientEmail)) + '</span>' : f.subjectRef ? '<span class="chip chip-muted">' + esc(f.subjectRef.replace(':', ' ')) + '</span>' : '';
-      return '<li class="fact" data-fact="' + esc(f.id) + '"><div class="fact-main"><p>' + esc(f.text) + '</p><div class="fact-meta">' + about +
-        (f.source === 'chat' ? '<span class="chip chip-muted">learned in chat</span>' : '') + '</div></div>' +
-        '<div class="row-actions">' + (f.status === 'proposed' ? '<button class="btn btn-sm" type="button" data-confirm>Keep</button>' : '') +
-        '<button class="btn btn-ghost btn-sm" type="button" data-edit>Edit</button><button class="btn btn-danger btn-sm" type="button" data-forget>Forget</button></div></li>';
+    // Business facts sorted under a heading by their words (display only; Pyp reads them all).
+    var TOPICS = [
+      { id: 'pay', title: 'How you get paid', re: /\b(net ?\d+|terms?|due|late fees?|fees?|deposits?|pays?|paid|payment|invoic\w*|refunds?|discounts?|prices?|rates?|charge\w*|upfront)\b/i },
+      { id: 'tone', title: 'How you talk to clients', re: /\b(tone|gentle|firm|friendly|polite|formal|casual|calls?|phone|emails?|texts?|remind\w*|nudge\w*|thank\w*|warm)\b/i },
+      { id: 'other', title: 'Other things to know', re: /./ }
+    ];
+    function topicOf(f) { return TOPICS.filter(function (t) { return t.re.test(f.text); })[0].id; }
+
+    function chip(f) {
+      if (editingId === f.id) return '<div class="mem-editing">' + form(f) + '</div>';
+      var unsure = f.status === 'proposed';
+      return '<span class="mem-chip' + (unsure ? ' unsure' : '') + '" data-fact="' + esc(f.id) + '">' +
+        '<button type="button" class="mem-chip-text" data-edit title="Edit">' + esc(f.text) + '</button>' +
+        (unsure ? '<button type="button" class="mem-keep" data-confirm>Keep</button>' : '') +
+        '<button type="button" class="mem-x" data-forget aria-label="Forget: ' + esc(f.text) + '">×</button></span>';
     }
+
     function draw() {
-      var proposed = facts.filter(function (f) { return f.status === 'proposed'; });
-      var business = facts.filter(function (f) { return f.status === 'active' && !f.clientEmail; });
-      var aboutClients = facts.filter(function (f) { return f.status === 'active' && f.clientEmail; });
+      var name = (document.querySelector('[data-me-name]') || {}).textContent || 'your business';
+      var business = facts.filter(function (f) { return !f.clientEmail; });
+      var byClient = {};
+      facts.filter(function (f) { return f.clientEmail; }).forEach(function (f) {
+        var k = f.clientEmail.toLowerCase();
+        (byClient[k] = byClient[k] || { email: f.clientEmail, facts: [] }).facts.push(f);
+      });
+      var clientCards = Object.keys(byClient).map(function (k) { return byClient[k]; });
+      var gist = business.filter(function (f) { return f.status === 'active'; }).slice(0, 3).map(function (f) { return f.text.replace(/[.!]+$/, ''); }).join(' · ');
+
+      var sections = TOPICS.map(function (t) {
+        var mine = business.filter(function (f) { return topicOf(f) === t.id; });
+        if (!mine.length) return '';
+        return '<div class="mem-topic"><h3>' + t.title + '</h3><div class="mem-chips">' + mine.map(chip).join('') + '</div></div>';
+      }).join('');
+
       view.innerHTML =
-        '<section class="panel"><h2>What Pyp knows about you</h2>' +
-        '<p>Pyp learns as you chat. Mention how you work (“Maria is always net 15”) or just say “remember that…”, and Pyp keeps it in mind for every decision. It’s only for Pyp: never sent to your clients, and never above the safety checks. Fix or forget anything here.</p>' +
-        form(null) + '</section>' +
-        (proposed.length ? '<section class="panel memory-proposed"><h2>Pyp wasn’t sure about these</h2><p>Keep the ones that are right.</p><ul class="facts">' + proposed.map(row).join('') + '</ul></section>' : '') +
-        '<section class="panel"><h2>Your business</h2>' + (business.length ? '<ul class="facts">' + business.map(row).join('') + '</ul>' : '<div class="empty">Nothing yet. How do you like to work? Your usual terms, your tone, what you never do.</div>') + '</section>' +
-        '<section class="panel"><h2>About your clients</h2>' + (aboutClients.length ? '<ul class="facts">' + aboutClients.map(row).join('') + '</ul>' : '<div class="empty">Nothing yet. Who pays late, who prefers a call, who’s always net 15.</div>') + '</section>';
+        '<section class="panel mem-hero"><div class="mem-hero-icon" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24"><path d="M12 4a6 6 0 0 0-6 6c0 2.2 1.2 3.6 2.4 4.6.6.5.9 1.2.9 2V18h5.4v-1.4c0-.8.3-1.5.9-2 1.2-1 2.4-2.4 2.4-4.6a6 6 0 0 0-6-6z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M10 21h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>' +
+        '<div><h2>Pyp knows ' + facts.length + ' thing' + (facts.length === 1 ? '' : 's') + ' about ' + esc(name) + '</h2>' +
+        (gist ? '<p class="mem-gist">“' + esc(gist) + '”</p>' : '') +
+        '<p class="mem-how">Pyp learns as you chat: mention how you work, or say “remember that…”. It’s only for Pyp’s judgment, never sent to clients and never above the safety checks. Tap anything to fix it.</p></div></section>' +
+
+        '<section class="panel"><h2>Your business</h2>' +
+        (sections || '<div class="empty">Nothing yet. Your usual terms, your tone, what you never do.</div>') + '</section>' +
+
+        '<section class="panel"><h2>Your clients</h2>' +
+        (clientCards.length ? '<div class="mem-clients">' + clientCards.map(function (c) {
+          return '<div class="mem-client"><div class="mem-client-head"><span class="mem-avatar" aria-hidden="true">' + esc(clientName(c.email).charAt(0).toUpperCase()) + '</span><b>' + esc(clientName(c.email)) + '</b></div>' +
+            '<div class="mem-chips">' + c.facts.map(chip).join('') + '</div></div>';
+        }).join('') + '</div>' : '<div class="empty">Nothing yet. Who pays late, who prefers a call, who’s always net 15.</div>') + '</section>' +
+
+        '<section class="panel mem-tell"><h2>Tell Pyp something</h2>' + (editingId ? '' : form(null)) + '</section>';
+      var focus = view.querySelector('.mem-editing input');
+      if (focus) focus.focus();
     }
     function onSubmit(e) {
       if (!e.target.matches('[data-fact-form]')) return;
@@ -291,13 +324,14 @@
     function onClick(e) {
       var b = e.target.closest('button');
       if (!b || !facts) return;
-      var li = b.closest('[data-fact]');
-      var f = li && facts.filter(function (x) { return x.id === li.getAttribute('data-fact'); })[0];
+      var li = b.closest('[data-fact]') || (b.closest('.mem-editing') && b.closest('.mem-editing').querySelector('[data-fact-form]'));
+      var fid = li && (li.getAttribute('data-fact') || li.getAttribute('data-id'));
+      var f = fid && facts.filter(function (x) { return x.id === fid; })[0];
       if (b.hasAttribute('data-cancel')) { editingId = null; draw(); }
       else if (f && b.hasAttribute('data-edit')) { editingId = f.id; draw(); }
       else if (f && b.hasAttribute('data-confirm')) {
         b.disabled = true;
-        transport.saveFact({ text: f.text, clientEmail: f.clientEmail, confirm: true }, f.id).then(function () { toast('Confirmed. Pyp will use it.'); load(); }, function (err) { b.disabled = false; toast(err.message); });
+        transport.saveFact({ text: f.text, clientEmail: f.clientEmail, confirm: true }, f.id).then(function () { toast('Kept. Pyp will use it.'); load(); }, function (err) { b.disabled = false; toast(err.message); });
       } else if (f && b.hasAttribute('data-forget')) {
         b.disabled = true;
         transport.deleteFact(f.id).then(function () { toast('Forgotten.'); load(); }, function (err) { b.disabled = false; toast(err.message); });

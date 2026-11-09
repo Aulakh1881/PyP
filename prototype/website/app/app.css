@@ -334,3 +334,27 @@ tr:hover td { background: #F7F9FD; }
 .fact-meta { display: flex; gap: 6px; margin-top: 4px; }
 .fact-meta:empty { display: none; }
 .memory-proposed { border: 1.5px solid #EED796; background: #FFFBF2; }
+
+/* About my business: a profile Pyp keeps about you */
+.mem-hero { display: flex; gap: 16px; align-items: flex-start; background: linear-gradient(135deg, #F3F7FF, #fff 60%); }
+.mem-hero-icon { flex-shrink: 0; width: 52px; height: 52px; border-radius: 16px; background: #E6EFFF; color: #1747B8; display: flex; align-items: center; justify-content: center; }
+.mem-hero h2 { font-size: 22px; }
+.mem-gist { margin: 6px 0 0; font-size: 17px; font-weight: 800; color: #1747B8; }
+.mem-how { margin: 8px 0 0; font-size: 14px; color: var(--muted); font-weight: 600; }
+.mem-topic { margin-top: 14px; }
+.mem-topic h3 { font-size: 12px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+.mem-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.mem-chip { display: inline-flex; align-items: center; max-width: 100%; border: 1.5px solid #D3DBE8; border-radius: 999px; background: #fff; overflow: hidden; }
+.mem-chip:hover { border-color: #9FB2D4; }
+.mem-chip.unsure { border-style: dashed; background: #FFFBF2; border-color: #EED796; }
+.mem-chip-text { border: 0; background: none; padding: 8px 4px 8px 14px; font: 700 14px inherit; font-family: inherit; color: var(--ink); cursor: pointer; text-align: left; }
+.mem-keep { border: 0; background: #FFF0D6; color: #8A4B00; font: 800 12px inherit; font-family: inherit; padding: 4px 10px; border-radius: 999px; cursor: pointer; margin-left: 4px; }
+.mem-x { border: 0; background: none; color: var(--muted); font-size: 18px; line-height: 1; padding: 6px 12px 6px 8px; cursor: pointer; }
+.mem-x:hover { color: #A3261B; }
+.mem-editing { flex: 1 1 100%; }
+.mem-editing .fact-form { margin: 0; }
+.mem-clients { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 12px; margin-top: 12px; }
+.mem-client { border: 1px solid var(--line); border-radius: 16px; padding: 14px; background: #fff; display: flex; flex-direction: column; gap: 10px; }
+.mem-client-head { display: flex; align-items: center; gap: 10px; }
+.mem-avatar { width: 32px; height: 32px; border-radius: 10px; background: #0B1F4D; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; }
+.mem-tell .fact-form { margin-top: 8px; }
