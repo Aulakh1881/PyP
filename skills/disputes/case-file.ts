@@ -21,7 +21,7 @@ export const URGENT_HOURS = 72;
 /** Messages put in a case file, newest kept. */
 export const MAX_MESSAGES = 10;
 
-export const MAX_INSTRUCTION_CHARS = 1000;
+export const MAX_INSTRUCTION_CHARS = 2000;
 
 export interface DisputeFacts {
   dispute: Dispute;

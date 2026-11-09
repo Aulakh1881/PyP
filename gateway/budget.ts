@@ -3,7 +3,7 @@
 // or the ledger can't be reached, no model call happens.
 
 import type { AgentClient, CompletionRequest, GatewayEvent } from "@/engine/types";
-import { CLAUDE_MODELS, estimateUsd } from "./models";
+import { CLAUDE_MODELS, estimateUsd, IMAGE_TOKENS, PDF_PAGE_TOKENS } from "./models";
 
 export interface SpendLedger {
   /** Reserve `usd` against today's cap; throws BudgetExceeded if it doesn't fit. Returns a reservation id. */
@@ -74,7 +74,8 @@ export function withBudget(
   return {
     name: `${inner.name}+budget`,
     async *complete(req: CompletionRequest): AsyncIterable<GatewayEvent> {
-      const estimate = estimateUsd(modelForTier(req.tier), req.system.length + req.turn.length, req.maxOutputTokens);
+      const fileTokens = (req.attachments ?? []).reduce((n, a) => n + (a.kind === "pdf" ? (a.pages ?? 1) * PDF_PAGE_TOKENS : IMAGE_TOKENS), 0);
+      const estimate = estimateUsd(modelForTier(req.tier), req.system.length + req.turn.length, req.maxOutputTokens, fileTokens);
       const reservation = await ledger.reserve(estimate, capUsd, req.purpose); // throws = fail closed
       let actual: number | null = null;
       try {

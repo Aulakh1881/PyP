@@ -671,7 +671,63 @@
             '<li><span>3</span><div><strong>Response deadline</strong><small>' + esc(localDate(item.responseDueDate) || 'Date unavailable') + '</small></div></li>' +
             '</ol><p class="note">These milestones are read-only. Pyp has not submitted evidence.</p></div>');
           review.querySelector('[data-close-review]').addEventListener('click', function () { review.innerHTML = ''; });
+          if (transport.uploadDocument) mountProof(review.querySelector('.dispute-review'), item);
           review.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        // Proof for this dispute: a receipt, shipping label or courier screenshot. Pyp reads it,
+        // and what it shows becomes a note its evidence can cite. Nothing goes to PayPal from here.
+        function mountProof(panel, item) {
+          var subject = 'dispute:' + item.id;
+          panel.insertAdjacentHTML('beforeend',
+            '<div class="proof"><h4>Proof for Pyp</h4><p class="note">Add a shipping receipt, tracking screenshot or delivery photo (PDF or image, up to 8 MB). Pyp reads it and uses it when it drafts your response. Nothing is sent to PayPal until you approve.</p>' +
+            '<div class="proof-list" data-proof-list><div class="loading">Loading…</div></div>' +
+            '<div class="proof-actions"><label class="btn btn-ghost btn-sm">Attach proof<input class="sr-label" type="file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,.pdf" data-proof-file></label>' +
+            '<button type="button" class="btn btn-sm" data-proof-draft hidden>Ask Pyp to draft my response</button></div></div>');
+          var list = panel.querySelector('[data-proof-list]');
+          var draftBtn = panel.querySelector('[data-proof-draft]');
+          function draw(docs) {
+            var usable = docs.filter(function (d) { return d.status === 'read'; });
+            draftBtn.hidden = !usable.length;
+            list.innerHTML = docs.length ? '<ul>' + docs.map(function (d) {
+              var what = d.status === 'read' ? (d.line || d.summary || 'Read.') : (d.reason || 'Pyp couldn’t use this file.');
+              return '<li class="proof-item' + (d.status === 'read' ? '' : ' is-bad') + '"><div><b>' + esc(d.name) + '</b>' + (d.kind ? ' <span class="chip chip-info">' + esc(d.kind) + '</span>' : '') +
+                '<p>' + esc(what) + '</p></div><button type="button" class="btn btn-ghost btn-sm" data-proof-remove="' + esc(d.id) + '" aria-label="Remove ' + esc(d.name) + '">Remove</button></li>';
+            }).join('') + '</ul>' : '<p class="note">No proof attached yet.</p>';
+          }
+          function load() {
+            return transport.documents(subject).then(function (r) { if (list.isConnected) draw(r.documents || []); }, function (e) { list.innerHTML = '<p class="setup-error">' + esc(e.message) + '</p>'; });
+          }
+          panel.addEventListener('change', function (e) {
+            if (!e.target.matches('[data-proof-file]')) return;
+            var file = e.target.files && e.target.files[0];
+            e.target.value = '';
+            if (!file) return;
+            list.insertAdjacentHTML('afterbegin', '<div class="loading">Pyp is reading ' + esc(file.name) + '…</div>');
+            transport.uploadDocument(file, subject).then(function (r) {
+              toast(r.document.status === 'read' ? 'Pyp read ' + r.document.name + '.' : (r.document.reason || 'Pyp couldn’t use that file.'));
+              return load();
+            }, function (err) { toast(err.message); return load(); });
+          });
+          panel.addEventListener('click', function (e) {
+            var rm = e.target.closest('[data-proof-remove]');
+            if (rm) {
+              rm.disabled = true;
+              transport.deleteDocument(rm.getAttribute('data-proof-remove')).then(load, function (err) { rm.disabled = false; toast(err.message); });
+              return;
+            }
+            if (e.target.closest('[data-proof-draft]')) {
+              draftBtn.disabled = true;
+              draftBtn.textContent = 'Pyp is drafting…';
+              // The same path as typing it in chat: Pyp proposes, and the card waits for your OK.
+              transport.chat({ text: 'Draft my response to dispute ' + item.id + ' using the proof I attached to it.' }).then(function (r) {
+                toast(r.text || 'Done. Check your Inbox.');
+              }, function (err) { toast(err.message); }).then(function () {
+                if (draftBtn.isConnected) { draftBtn.disabled = false; draftBtn.textContent = 'Ask Pyp to draft my response'; }
+              });
+            }
+          });
+          load();
         }
         results.querySelectorAll('[data-review-dispute]').forEach(function (button) {
           button.addEventListener('click', function () {

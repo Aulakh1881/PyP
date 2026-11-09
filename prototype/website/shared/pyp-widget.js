@@ -224,7 +224,7 @@
       '<div class="foot">' +
       '<div class="menu" role="menu" aria-label="Add to message" hidden>' +
       '<button class="mi" role="menuitem" data-shot>' + ICON.shot + 'Screenshot this page</button>' +
-      '<label class="mi" role="menuitem" tabindex="0">' + ICON.upload + 'Upload photos or files<input class="sr" type="file" data-file accept="image/*,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx"></label>' +
+      '<label class="mi" role="menuitem" tabindex="0">' + ICON.upload + 'Upload photos or files<input class="sr" type="file" data-file accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,.pdf"></label>' +
       '</div>' +
       '<div class="chip" hidden><div class="th" data-th></div><div style="flex:1;min-width:0"><div class="nm" data-nm></div><div class="rd">Ready to send</div></div><button class="x" data-unattach aria-label="Remove attachment">' + ICON.close + '</button></div>' +
       '<form class="inrow" data-form><button type="button" class="plus" data-plus aria-label="Add a screenshot, photo or file" aria-expanded="false" aria-haspopup="menu">' + ICON.plus + '</button>' +
@@ -501,7 +501,8 @@
       addTyping(true);
       var reply;
       try {
-        var r = await Promise.all([transport.chat({ text: text, attachment: att ? { kind: att.kind, name: att.name } : null }), wait(700)]);
+        // The file itself rides along (live mode uploads it for Pyp to read; the demo only uses the name).
+        var r = await Promise.all([transport.chat({ text: text, attachment: att ? { kind: att.kind, name: att.name, file: att.file || null, url: att.url || null } : null }), wait(700)]);
         reply = r[0].text;
       } catch (err) {
         reply = 'Sorry, I couldn’t reach my brain just now. Try again in a moment.';
@@ -574,7 +575,7 @@
       closeMenu();
       if (!file) return;
       var isImage = /^image\//.test(file.type);
-      setAttach({ kind: isImage ? 'image' : 'file', name: file.name, url: isImage ? URL.createObjectURL(file) : null });
+      setAttach({ kind: isImage ? 'image' : 'file', name: file.name, url: isImage ? URL.createObjectURL(file) : null, file: file });
       input.focus();
     });
 

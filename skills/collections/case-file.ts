@@ -78,7 +78,7 @@ export const DEFAULT_TERMS = "net_30";
 export const MAX_CLIENTS = 40;
 
 /** Longest chat sentence we put in a case file. */
-export const MAX_REQUEST_CHARS = 1000;
+export const MAX_REQUEST_CHARS = 2000;
 
 /** Does the merchant's text (not a "You asked:" line quoting Pyp) ask to cancel? */
 export function asksToCancel(instruction?: string): boolean {

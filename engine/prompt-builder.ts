@@ -20,7 +20,7 @@ export const GUARDRAILS = `<guardrails>
 <response-format>One JSON object matching the provided schema. Nothing else.</response-format>`;
 
 /** Longest merchant instruction put in a prompt (Appendix G: "200 KB message → truncated with notice"). */
-export const MAX_INSTRUCTION_CHARS = 1000;
+export const MAX_INSTRUCTION_CHARS = 2000;
 
 /** Cut text to `max` characters, saying so, so the model knows it didn't see everything. */
 export function truncate(text: string, max: number): string {

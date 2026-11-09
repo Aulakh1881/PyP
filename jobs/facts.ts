@@ -13,7 +13,7 @@ export interface Fact {
   clientEmail: string | null;
   subjectRef: string | null;
   status: "active" | "proposed";
-  source: "merchant" | "chat";
+  source: "merchant" | "chat" | "document";
   createdAt: string;
 }
 

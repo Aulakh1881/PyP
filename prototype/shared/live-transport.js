@@ -108,6 +108,28 @@
       return { ok: res.ok, status: res.status, body: body };
     }
 
+    // A file to /api/documents: multipart, so no JSON Content-Type header.
+    async function uploadDocument(file, subject) {
+      var form = new FormData();
+      form.append('file', file, file.name || 'file');
+      if (subject) form.append('subject', subject);
+      var res = await doFetch(base + '/api/documents', { method: 'POST', body: form, credentials: 'include', cache: 'no-store' });
+      var body = await res.json().catch(function () { return {}; });
+      if (res.status === 401) throw new Error('You’re signed out of Pyp.');
+      if (!body.document) throw new Error(body.error || 'Pyp couldn’t take that file (' + res.status + ').');
+      return body;
+    }
+    // The chat's attachment: a chosen file, or a screenshot (a data: URL) turned into a PNG file.
+    async function uploadForChat(att) {
+      var file = att.file;
+      if (!file && att.url && /^data:image\//.test(att.url)) {
+        var blob = await (await fetch(att.url)).blob();
+        file = new File([blob], 'screenshot.png', { type: blob.type || 'image/png' });
+      }
+      if (!file) throw new Error('I couldn’t get that file. Try attaching it again.');
+      return uploadDocument(file, null);
+    }
+
     async function read(path, what) {
       var r = await api(path);
       if (!r.ok) throw new Error(r.body.error || what + ' is unavailable.');
@@ -375,11 +397,21 @@
       },
       chat: async function (msg) {
         var text = ((msg && msg.text) || '').trim();
-        if (msg && msg.attachment) return { text: 'I can’t read files or screenshots yet. Type what you need and I’ll look in PayPal.' };
+        var documentIds = [];
+        var att = msg && msg.attachment;
+        if (att) {
+          // The extension's requests go through its background worker, which can't carry a file.
+          if (options.fetch) return { text: 'Attach files in the Pyp dashboard for now: open it from the extension, then use + in the chat there.' };
+          var up = await uploadForChat(att).catch(function (e) { return { error: e.message }; });
+          if (up.error) return { text: up.error };
+          if (up.document.status !== 'read') return { text: up.document.reason || 'I couldn’t use that file.' };
+          documentIds.push(up.document.id);
+          if (!text) text = 'Here’s a file. Tell me what it is, and do what it calls for.';
+        }
         if (!text) return { text: 'Type what you need, like “Invoice PyP Test $300 for the logo, net 30”.' };
         var r;
         try {
-          r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ message: text.slice(0, 1000), history: chatHistory.slice(-8) }) });
+          r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ message: text.slice(0, 1000), history: chatHistory.slice(-8), documentIds: documentIds }) });
         } catch (e) {
           return { text: loadError || 'I couldn’t reach the Pyp server. Is it running?' };
         }
@@ -553,6 +585,14 @@
         await refresh().catch(function () { emit(); });
         if (!r.ok) throw new Error(r.body.message || r.body.error || 'The workflow didn’t run (' + r.status + ').');
         return r.body;
+      },
+      // Files Pyp reads (/api/documents): on a dispute or invoice, what a file shows becomes a note
+      // Pyp can cite there. Uploading never sends anything anywhere.
+      documents: function (subject) { return read('/api/documents' + (subject ? '?subject=' + encodeURIComponent(subject) : ''), 'Your files'); },
+      uploadDocument: function (file, subject) { return uploadDocument(file, subject); },
+      deleteDocument: async function (id) {
+        var r = await api('/api/documents/' + encodeURIComponent(id), { method: 'DELETE' });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn’t remove that file (' + r.status + ').');
       },
       // The merchant's custom skills (/api/skills): Pyp's judgment, their way. Run now
       // makes cards like any run; Try it and drafting save nothing and send nothing.
