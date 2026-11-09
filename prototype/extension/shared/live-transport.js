@@ -122,8 +122,8 @@
     function toItem(card) {
       var f = card.front || {};
       var skill = skillOf(card);
-      var kind = skill === 'disputes' ? 'dispute' : skill === 'refunds' ? 'refund' : skill === 'insights' ? 'insight' : skill === 'collections' ? 'invoice' : 'other';
-      var label = kind === 'dispute' ? 'Disputes' : kind === 'refund' ? 'Refunds' : kind === 'insight' ? 'Weekly brief' : kind === 'invoice' ? 'Invoices' : 'Pyp';
+      var kind = skill === 'disputes' ? 'dispute' : skill === 'refunds' ? 'refund' : skill === 'insights' ? 'insight' : skill === 'collections' ? 'invoice' : skill === 'workflows' ? 'workflow' : 'other';
+      var label = kind === 'dispute' ? 'Disputes' : kind === 'refund' ? 'Refunds' : kind === 'insight' ? 'Weekly brief' : kind === 'invoice' ? 'Invoices' : kind === 'workflow' ? 'Workflow' : 'Pyp';
       var sending = card.state === 'executing';
       var state = card.state === 'awaiting_approval' ? 'open' : card.state === 'scheduled' || sending ? 'auto' : card.state === 'executed' ? 'done' : 'closed';
       var amount = f.amount ? money(f.amount.value, f.amount.currency) : '';
@@ -148,6 +148,10 @@
         // A brief only reads: show what it says and code's numbers, not "sent through PayPal".
         badge = { text: 'Brief', tone: 'green' };
         box = { tone: 'green', eyebrow: 'This week', title: f.body || f.title, sub: notes[card.id] || (f.lines || []).map(function (l) { return l.description + ': ' + l.amount; }).join(' · ') };
+      } else if (state === 'done' && f.notice) {
+        // A heads-up from a workflow: nothing was sent anywhere.
+        badge = { text: 'Heads-up', tone: 'blue' };
+        box = { tone: 'blue', eyebrow: 'Heads-up', title: f.body || f.title, sub: f.reason || '' };
       } else if (state === 'done' && /^You answered/.test(f.reason || '')) {
         // A question you answered: nothing went to PayPal.
         badge = { text: 'Answered', tone: 'green' };
@@ -471,6 +475,39 @@
         return read('/api/paypal/transactions?' + p.toString(), 'PayPal transaction data');
       },
       order: function (id) { return read('/api/paypal/orders/' + encodeURIComponent(id), 'PayPal order data'); },
+      // What Pyp knows about the business (/api/facts): case-file notes, never sent to clients.
+      facts: function () { return read('/api/facts', 'About my business'); },
+      saveFact: async function (f, id) {
+        var r = await api('/api/facts' + (id ? '/' + encodeURIComponent(id) : ''), { method: id ? 'PATCH' : 'POST', body: JSON.stringify(f) });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn\u2019t save that (' + r.status + ').');
+        return r.body.fact;
+      },
+      deleteFact: async function (id) {
+        var r = await api('/api/facts/' + encodeURIComponent(id), { method: 'DELETE' });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn\u2019t forget that (' + r.status + ').');
+      },
+      // The merchant's workflows (/api/workflows). A workflow only shapes how Pyp proposes.
+      workflows: async function () {
+        var r = await api('/api/workflows');
+        if (!r.ok && !r.body.catalog) throw new Error(r.body.error || 'Your workflows are unavailable (' + r.status + ').');
+        return { workflows: r.body.workflows || [], catalog: r.body.catalog, error: r.ok ? null : r.body.error };
+      },
+      saveWorkflow: async function (w, id) {
+        var r = await api('/api/workflows' + (id ? '/' + encodeURIComponent(id) : ''), { method: id ? 'PUT' : 'POST', body: JSON.stringify(w) });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn’t save that workflow (' + r.status + ').');
+        return r.body;
+      },
+      deleteWorkflow: async function (id) {
+        var r = await api('/api/workflows/' + encodeURIComponent(id), { method: 'DELETE' });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn’t delete that workflow (' + r.status + ').');
+      },
+      runWorkflow: async function (id) {
+        var r = await api('/api/workflows/' + encodeURIComponent(id) + '/run', { method: 'POST' });
+        lastJson = '';
+        await refresh().catch(function () { emit(); });
+        if (!r.ok) throw new Error(r.body.message || r.body.error || 'The workflow didn’t run (' + r.status + ').');
+        return r.body;
+      },
       // Pyp's own client list (/api/clients). Saving a client never touches PayPal.
       clients: function () { return read('/api/clients', 'Your clients'); },
       saveClient: async function (c, id) {

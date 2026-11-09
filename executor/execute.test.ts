@@ -21,7 +21,7 @@ const NOW = new Date("2026-10-31T16:00:00Z");
 const SENTENCE = "Invoice Jordan Kim $300 for the logo, net 30";
 
 /** The receptionist's answer (engine/chat.ts): chat goes to a new invoice. */
-const ROUTE_NEW_INVOICE = { route: "new_invoice", subjectRef: null, reply: "Drafting that invoice now.", continues: false, newClient: null };
+const ROUTE_NEW_INVOICE = { route: "new_invoice", subjectRef: null, reply: "Drafting that invoice now.", continues: false, newClient: null, remember: null };
 
 function invoiceAnswer() {
   return {

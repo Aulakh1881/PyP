@@ -76,6 +76,8 @@
     invoices: { title: 'Invoices', render: renderInvoices },
     disputes: { title: 'Disputes', render: renderDisputes },
     clients: { title: 'Clients', render: renderClients },
+    business: { title: 'About my business', render: renderMemory },
+    workflows: { title: 'Workflows', render: function () { window.PypWorkflows.render(view, transport, { toast: toast, cleanup: cleanup }); } },
     inbox: { title: 'Inbox', render: renderInbox },
     activity: { title: 'Activity', render: renderActivity },
     brief: { title: 'Weekly brief', render: renderBrief },
@@ -204,6 +206,142 @@
       loadTransactions();
     });
     loadTransactions();
+  }
+
+  /* ---------------- Pyp's memory ---------------- */
+  // What Pyp knows about the business: facts the merchant added, and facts Pyp
+  // noticed in chat waiting to be confirmed. They reach case files as notes for
+  // Pyp's judgment, never sent to clients and never above code's checks.
+  function renderMemory() {
+    if (!transport.facts) {
+      view.innerHTML = '<section class="panel"><h2>About my business</h2><p>Sign in to the live dashboard to see what Pyp knows.</p></section>';
+      return;
+    }
+    var facts = null;
+    var clients = [];
+    var editingId = null;
+
+    function load() {
+      Promise.all([transport.facts(), transport.clients ? transport.clients().catch(function () { return { saved: [], fromPayPal: [] }; }) : { saved: [], fromPayPal: [] }]).then(function (r) {
+        facts = r[0].facts || [];
+        var seen = {};
+        clients = (r[1].saved || []).concat(r[1].fromPayPal || []).filter(function (c) {
+          var k = c.email.toLowerCase();
+          if (seen[k]) return false;
+          seen[k] = true;
+          return true;
+        });
+        draw();
+      }, function (e) {
+        view.innerHTML = '<section class="panel"><h2>About my business</h2><p class="setup-error">' + esc(e.message) + '</p></section>';
+      });
+    }
+
+    function clientName(email) {
+      var c = clients.filter(function (x) { return x.email.toLowerCase() === String(email).toLowerCase(); })[0];
+      return c ? (c.businessName || c.name || c.email) : email;
+    }
+    function clientSelect(selected) {
+      return '<select name="clientEmail"><option value="">Your whole business</option>' +
+        clients.map(function (c) { return '<option value="' + esc(c.email) + '"' + (selected && selected.toLowerCase() === c.email.toLowerCase() ? ' selected' : '') + '>' + esc(c.businessName || c.name || c.email) + '</option>'; }).join('') +
+        '</select>';
+    }
+    function form(f) {
+      f = f || {};
+      return '<form class="fact-form" data-fact-form' + (f.id ? ' data-id="' + esc(f.id) + '"' : '') + '>' +
+        '<label class="fact-text"><span class="sr-label">The fact</span><input name="text" maxlength="300" required value="' + esc(f.text || '') + '" placeholder="e.g. Acme always pays on the 15th"></label>' +
+        '<label class="fact-about"><span class="sr-label">About</span>' + clientSelect(f.clientEmail) + '</label>' +
+        '<button class="btn btn-sm" type="submit">' + (f.id ? 'Save' : 'Remember this') + '</button>' +
+        (f.id ? '<button class="btn btn-ghost btn-sm" type="button" data-cancel>Cancel</button>' : '') +
+        '</form>';
+    }
+    // Business facts sorted under a heading by their words (display only; Pyp reads them all).
+    var TOPICS = [
+      { id: 'pay', title: 'How you get paid', re: /\b(net ?\d+|terms?|due|late fees?|fees?|deposits?|pays?|paid|payment|invoic\w*|refunds?|discounts?|prices?|rates?|charge\w*|upfront)\b/i },
+      { id: 'tone', title: 'How you talk to clients', re: /\b(tone|gentle|firm|friendly|polite|formal|casual|calls?|phone|emails?|texts?|remind\w*|nudge\w*|thank\w*|warm)\b/i },
+      { id: 'other', title: 'Other things to know', re: /./ }
+    ];
+    function topicOf(f) { return TOPICS.filter(function (t) { return t.re.test(f.text); })[0].id; }
+
+    function chip(f) {
+      if (editingId === f.id) return '<div class="mem-editing">' + form(f) + '</div>';
+      var unsure = f.status === 'proposed';
+      return '<span class="mem-chip' + (unsure ? ' unsure' : '') + '" data-fact="' + esc(f.id) + '">' +
+        '<button type="button" class="mem-chip-text" data-edit title="Edit">' + esc(f.text) + '</button>' +
+        (unsure ? '<button type="button" class="mem-keep" data-confirm>Keep</button>' : '') +
+        '<button type="button" class="mem-x" data-forget aria-label="Forget: ' + esc(f.text) + '">×</button></span>';
+    }
+
+    function draw() {
+      var name = (document.querySelector('[data-me-name]') || {}).textContent || 'your business';
+      var business = facts.filter(function (f) { return !f.clientEmail; });
+      var byClient = {};
+      facts.filter(function (f) { return f.clientEmail; }).forEach(function (f) {
+        var k = f.clientEmail.toLowerCase();
+        (byClient[k] = byClient[k] || { email: f.clientEmail, facts: [] }).facts.push(f);
+      });
+      var clientCards = Object.keys(byClient).map(function (k) { return byClient[k]; });
+      var gist = business.filter(function (f) { return f.status === 'active'; }).slice(0, 3).map(function (f) { return f.text.replace(/[.!]+$/, ''); }).join(' · ');
+
+      var sections = TOPICS.map(function (t) {
+        var mine = business.filter(function (f) { return topicOf(f) === t.id; });
+        if (!mine.length) return '';
+        return '<div class="mem-topic"><h3>' + t.title + '</h3><div class="mem-chips">' + mine.map(chip).join('') + '</div></div>';
+      }).join('');
+
+      view.innerHTML =
+        '<section class="panel mem-hero"><div class="mem-hero-icon" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24"><path d="M12 4a6 6 0 0 0-6 6c0 2.2 1.2 3.6 2.4 4.6.6.5.9 1.2.9 2V18h5.4v-1.4c0-.8.3-1.5.9-2 1.2-1 2.4-2.4 2.4-4.6a6 6 0 0 0-6-6z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M10 21h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>' +
+        '<div><h2>Pyp knows ' + facts.length + ' thing' + (facts.length === 1 ? '' : 's') + ' about ' + esc(name) + '</h2>' +
+        (gist ? '<p class="mem-gist">“' + esc(gist) + '”</p>' : '') +
+        '<p class="mem-how">Pyp learns as you chat: mention how you work, or say “remember that…”. It’s only for Pyp’s judgment, never sent to clients and never above the safety checks. Tap anything to fix it.</p></div></section>' +
+
+        '<section class="panel"><h2>Your business</h2>' +
+        (sections || '<div class="empty">Nothing yet. Your usual terms, your tone, what you never do.</div>') + '</section>' +
+
+        '<section class="panel"><h2>Your clients</h2>' +
+        (clientCards.length ? '<div class="mem-clients">' + clientCards.map(function (c) {
+          return '<div class="mem-client"><div class="mem-client-head"><span class="mem-avatar" aria-hidden="true">' + esc(clientName(c.email).charAt(0).toUpperCase()) + '</span><b>' + esc(clientName(c.email)) + '</b></div>' +
+            '<div class="mem-chips">' + c.facts.map(chip).join('') + '</div></div>';
+        }).join('') + '</div>' : '<div class="empty">Nothing yet. Who pays late, who prefers a call, who’s always net 15.</div>') + '</section>' +
+
+        '<section class="panel mem-tell"><h2>Tell Pyp something</h2>' + (editingId ? '' : form(null)) + '</section>';
+      var focus = view.querySelector('.mem-editing input');
+      if (focus) focus.focus();
+    }
+    function onSubmit(e) {
+      if (!e.target.matches('[data-fact-form]')) return;
+      e.preventDefault();
+      var fd = new FormData(e.target);
+      var id = e.target.getAttribute('data-id');
+      var body = { text: String(fd.get('text') || ''), clientEmail: String(fd.get('clientEmail') || '') || null };
+      var btn = e.target.querySelector('[type=submit]');
+      btn.disabled = true;
+      transport.saveFact(body, id).then(function () {
+        toast(id ? 'Saved.' : 'Pyp will keep that in mind.');
+        editingId = null; load();
+      }, function (err) { btn.disabled = false; toast(err.message); });
+    }
+    function onClick(e) {
+      var b = e.target.closest('button');
+      if (!b || !facts) return;
+      var li = b.closest('[data-fact]') || (b.closest('.mem-editing') && b.closest('.mem-editing').querySelector('[data-fact-form]'));
+      var fid = li && (li.getAttribute('data-fact') || li.getAttribute('data-id'));
+      var f = fid && facts.filter(function (x) { return x.id === fid; })[0];
+      if (b.hasAttribute('data-cancel')) { editingId = null; draw(); }
+      else if (f && b.hasAttribute('data-edit')) { editingId = f.id; draw(); }
+      else if (f && b.hasAttribute('data-confirm')) {
+        b.disabled = true;
+        transport.saveFact({ text: f.text, clientEmail: f.clientEmail, confirm: true }, f.id).then(function () { toast('Kept. Pyp will use it.'); load(); }, function (err) { b.disabled = false; toast(err.message); });
+      } else if (f && b.hasAttribute('data-forget')) {
+        b.disabled = true;
+        transport.deleteFact(f.id).then(function () { toast('Forgotten.'); load(); }, function (err) { b.disabled = false; toast(err.message); });
+      }
+    }
+    view.addEventListener('submit', onSubmit);
+    view.addEventListener('click', onClick);
+    cleanup.push(function () { view.removeEventListener('submit', onSubmit); view.removeEventListener('click', onClick); });
+    view.innerHTML = '<section class="panel"><h2>What Pyp knows about you</h2><div class="loading">Loading…</div></section>';
+    load();
   }
 
   /* ---------------- Clients ---------------- */

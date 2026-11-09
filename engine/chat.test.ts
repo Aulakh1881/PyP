@@ -27,7 +27,7 @@ const createAnswer = {
 
 describe("chat receptionist", () => {
   it("'Invoice Acme $1,200 net-30' → Collections new-invoice → approval card (WP8 done-when)", async () => {
-    const agent = new ScriptedAgentClient([{ route: "new_invoice", subjectRef: null, reply: "Drafting that invoice now.", continues: false, newClient: null }, createAnswer]);
+    const agent = new ScriptedAgentClient([{ route: "new_invoice", subjectRef: null, reply: "Drafting that invoice now.", continues: false, newClient: null, remember: null }, createAnswer]);
     const res = await handleChat({ message: "Invoice Acme $1,200 net-30", chatId: "c_9", subjects, ctx: context(world), agent });
 
     expect(res.route).toBe("new_invoice");
@@ -39,27 +39,27 @@ describe("chat receptionist", () => {
   });
 
   it("routes to an existing invoice by ref, with the sentence as the instruction", async () => {
-    const agent = new ScriptedAgentClient([{ route: "invoice", subjectRef: "s_1", reply: "Looking at 0042.", continues: false, newClient: null }, { ...createAnswer, actions: [] }]);
+    const agent = new ScriptedAgentClient([{ route: "invoice", subjectRef: "s_1", reply: "Looking at 0042.", continues: false, newClient: null, remember: null }, { ...createAnswer, actions: [] }]);
     const res = await handleChat({ message: "chase acme but gently", chatId: "c_1", subjects, ctx: context(world), agent });
     expect(res.subject).toEqual({ kind: "invoice", id: acmeInvoice.id });
     expect(agent.requests[1].turn).toContain("<merchant-instruction>chase acme but gently</merchant-instruction>");
   });
 
   it("a route that doesn't match its subject becomes a question, with no skill run", async () => {
-    const agent = new ScriptedAgentClient([{ route: "dispute", subjectRef: "s_1", reply: "ok", continues: false, newClient: null }]);
+    const agent = new ScriptedAgentClient([{ route: "dispute", subjectRef: "s_1", reply: "ok", continues: false, newClient: null, remember: null }]);
     const res = await handleChat({ message: "refund them", chatId: "c_2", subjects, ctx: context(world), agent });
     expect(res).toMatchObject({ route: "none", run: null, reply: "Which invoice or dispute do you mean?" });
     expect(agent.requests).toHaveLength(1);
   });
 
   it("an invented ref fails the schema and gets a safe reply", async () => {
-    const agent = new ScriptedAgentClient([{ route: "invoice", subjectRef: "s_99", reply: "ok", continues: false, newClient: null }]);
+    const agent = new ScriptedAgentClient([{ route: "invoice", subjectRef: "s_99", reply: "ok", continues: false, newClient: null, remember: null }]);
     const res = await handleChat({ message: "chase invoice 77", chatId: "c_3", subjects, ctx: context(world), agent });
     expect(res).toMatchObject({ route: "none", run: null });
   });
 
   it("only offers routes that have subjects", async () => {
-    const agent = new ScriptedAgentClient([{ route: "none", subjectRef: null, reply: "I can create invoices and chase them.", continues: false, newClient: null }]);
+    const agent = new ScriptedAgentClient([{ route: "none", subjectRef: null, reply: "I can create invoices and chase them.", continues: false, newClient: null, remember: null }]);
     await handleChat({ message: "hi", chatId: "c_4", subjects: [], ctx: context(world), agent });
     const routeEnum = (agent.requests[0].schema as any).properties.route.enum;
     expect(routeEnum).toEqual(["new_invoice", "weekly_brief", "add_client", "none"]);
@@ -73,7 +73,7 @@ describe("chat receptionist", () => {
   });
 
   it("an unusable answer is asked for once more; two in a row get a safe reply", async () => {
-    const agent = new ScriptedAgentClient([{ raw: "{\"route\":\"none\",\"subj", stopReason: "max_tokens" }, { route: "invoice", subjectRef: "s_1", reply: "Looking at 0042.", continues: false, newClient: null }, { ...createAnswer, actions: [] }]);
+    const agent = new ScriptedAgentClient([{ raw: "{\"route\":\"none\",\"subj", stopReason: "max_tokens" }, { route: "invoice", subjectRef: "s_1", reply: "Looking at 0042.", continues: false, newClient: null, remember: null }, { ...createAnswer, actions: [] }]);
     const res = await handleChat({ message: "chase acme", chatId: "c_10", subjects, ctx: context(world), agent });
     expect(res.subject).toEqual({ kind: "invoice", id: acmeInvoice.id });
     expect(agent.requests.map((r) => r.purpose)).toEqual(["chat", "chat", "collections"]);
@@ -85,21 +85,21 @@ describe("chat receptionist", () => {
   });
 
   it("'how was my week?' routes to the weekly brief, with no skill run here", async () => {
-    const agent = new ScriptedAgentClient([{ route: "weekly_brief", subjectRef: null, reply: "Making your brief now.", continues: false, newClient: null }]);
+    const agent = new ScriptedAgentClient([{ route: "weekly_brief", subjectRef: null, reply: "Making your brief now.", continues: false, newClient: null, remember: null }]);
     const res = await handleChat({ message: "Can you set up a weekly brief for me?", chatId: "c_12", subjects, ctx: context(world), agent });
     expect(res).toMatchObject({ route: "weekly_brief", subject: null, run: null, reply: "Making your brief now." });
     expect(agent.requests).toHaveLength(1);
   });
 
   it("the receptionist has room to think, and is told to name the invoices it asks about", async () => {
-    const agent = new ScriptedAgentClient([{ route: "none", subjectRef: null, reply: "Which one?", continues: false, newClient: null }]);
+    const agent = new ScriptedAgentClient([{ route: "none", subjectRef: null, reply: "Which one?", continues: false, newClient: null, remember: null }]);
     await handleChat({ message: "chase PyP Test", chatId: "c_13", subjects, ctx: context(world), agent });
     expect(agent.requests[0].maxOutputTokens).toBeGreaterThanOrEqual(1000);
     expect(RECEPTIONIST_SYSTEM).toContain("naming the ones that fit by number and amount");
   });
 
   it("a reply with a link is replaced", async () => {
-    const agent = new ScriptedAgentClient([{ route: "none", subjectRef: null, reply: "See evil.example for help", continues: false, newClient: null }]);
+    const agent = new ScriptedAgentClient([{ route: "none", subjectRef: null, reply: "See evil.example for help", continues: false, newClient: null, remember: null }]);
     const res = await handleChat({ message: "help", chatId: "c_6", subjects, ctx: context(world), agent });
     expect(res.reply).toBe("On it.");
   });
@@ -112,7 +112,7 @@ describe("chat follow-ups", () => {
   ];
 
   it("the receptionist sees the conversation, and the skill gets the merchant's earlier words too", async () => {
-    const agent = new ScriptedAgentClient([{ route: "new_invoice", subjectRef: null, reply: "Drafting that invoice now.", continues: true, newClient: null }, createAnswer]);
+    const agent = new ScriptedAgentClient([{ route: "new_invoice", subjectRef: null, reply: "Drafting that invoice now.", continues: true, newClient: null, remember: null }, createAnswer]);
     const res = await handleChat({ message: "$1,200", chatId: "c_7", subjects, history: asked, ctx: context(world), agent });
     expect(agent.requests[0].turn).toContain("<conversation");
     expect(agent.requests[0].turn).toContain("<pyp>How much should the invoice be?</pyp>");
@@ -132,7 +132,7 @@ describe("chat follow-ups", () => {
   });
 
   it("no history: no conversation block", async () => {
-    const agent = new ScriptedAgentClient([{ route: "none", subjectRef: null, reply: "What can I help with?", continues: false, newClient: null }]);
+    const agent = new ScriptedAgentClient([{ route: "none", subjectRef: null, reply: "What can I help with?", continues: false, newClient: null, remember: null }]);
     await handleChat({ message: "hello", chatId: "c_8", subjects, ctx: context(world), agent });
     expect(agent.requests[0].turn).not.toContain("<conversation");
   });
@@ -142,7 +142,7 @@ describe("chat follow-ups", () => {
       { from: "merchant", text: "Actually sorry, can you invoice John for $100?" },
       { from: "pyp", text: "What's John's email?", waiting: true },
     ];
-    const agent = new ScriptedAgentClient([{ route: "new_invoice", subjectRef: null, reply: "Drafting it.", continues: false, newClient: null }, createAnswer]);
+    const agent = new ScriptedAgentClient([{ route: "new_invoice", subjectRef: null, reply: "Drafting it.", continues: false, newClient: null, remember: null }, createAnswer]);
     await handleChat({ message: "Invoice Acme $1,200 net-30", chatId: "c_14", subjects, history: earlier, ctx: context(world), agent });
     expect(agent.requests[1].turn).toContain("<merchant-request>Invoice Acme $1,200 net-30</merchant-request>");
     expect(agent.requests[1].turn).not.toContain("John");
@@ -154,7 +154,7 @@ describe("chat follow-ups", () => {
       { from: "pyp", text: "What's John's email? I'll add them as a client.", waiting: true },
     ];
     const saved: unknown[] = [];
-    const agent = new ScriptedAgentClient([{ route: "new_invoice", subjectRef: null, reply: "Adding John.", continues: true, newClient: { name: "John", email: "john@new.example" } }, { ...createAnswer, actions: [] }]);
+    const agent = new ScriptedAgentClient([{ route: "new_invoice", subjectRef: null, reply: "Adding John.", continues: true, newClient: { name: "John", email: "john@new.example" }, remember: null }, { ...createAnswer, actions: [] }]);
     const res = await handleChat({
       message: "john@new.example",
       chatId: "c_15",
@@ -170,7 +170,7 @@ describe("chat follow-ups", () => {
   });
 
   it("'add John, john@x.com' saves the client and runs nothing", async () => {
-    const agent = new ScriptedAgentClient([{ route: "add_client", subjectRef: null, reply: "Adding.", continues: false, newClient: { name: "John Smith", email: "john@x.example" } }]);
+    const agent = new ScriptedAgentClient([{ route: "add_client", subjectRef: null, reply: "Adding.", continues: false, newClient: { name: "John Smith", email: "john@x.example" }, remember: null }]);
     const res = await handleChat({ message: "add John Smith, john@x.example", chatId: "c_16", subjects, saveClient: async () => "saved", ctx: context(world), agent });
     expect(res).toMatchObject({ route: "add_client", run: null, reply: "Saved John Smith (john@x.example) to your clients. Ask me to invoice them any time." });
     expect(agent.requests).toHaveLength(1);
@@ -182,11 +182,34 @@ describe("chat follow-ups", () => {
     expect(clientFromWords({ name: "Johnny", email: "john@x.example" }, "add John, john@x.example")).toBeNull();
     expect(clientFromWords({ name: "Jo", email: "john@x.example" }, "add John, john@x.example")).toBeNull();
     expect(clientFromWords({ name: "John", email: "not-an-email" }, "add John, not-an-email")).toBeNull();
-    const agent = new ScriptedAgentClient([{ route: "add_client", subjectRef: null, reply: "Adding.", continues: false, newClient: { name: "John", email: "made@up.example" } }]);
+    const agent = new ScriptedAgentClient([{ route: "add_client", subjectRef: null, reply: "Adding.", continues: false, newClient: { name: "John", email: "made@up.example" }, remember: null }]);
     let calls = 0;
     const res = await handleChat({ message: "add John please", chatId: "c_17", subjects, saveClient: async () => (calls++, "saved"), ctx: context(world), agent });
     expect(calls).toBe(0);
     expect(res.reply).toContain("Give me their name and email");
+  });
+
+  it("a lasting fact goes to Pyp's memory: 'remember that…' at once, one said in passing waits for you", async () => {
+    const said: unknown[] = [];
+    const saveFact = async (f: { text: string; client: string | null; explicit: boolean }) => (said.push(f), f.explicit ? ("active" as const) : ("proposed" as const));
+    const explicit = new ScriptedAgentClient([{ route: "none", subjectRef: null, reply: "Got it.", continues: false, newClient: null, remember: { text: "Acme always pays on the 15th.", client: "Acme", explicit: true } }]);
+    const res = await handleChat({ message: "Remember that Acme always pays on the 15th", chatId: "c_20", subjects, saveFact, ctx: context(world), agent: explicit });
+    expect(res.rememberedFact).toEqual({ text: "Acme always pays on the 15th.", status: "active" });
+    const passing = new ScriptedAgentClient([
+      { route: "new_invoice", subjectRef: null, reply: "Drafting.", continues: false, newClient: null, remember: { text: "Acme is always net 15.", client: "Acme", explicit: false } },
+      createAnswer,
+    ]);
+    const res2 = await handleChat({ message: "Invoice Acme $1,200, they're always net 15", chatId: "c_21", subjects, saveFact, ctx: context(world), agent: passing });
+    expect(res2.rememberedFact).toEqual({ text: "Acme is always net 15.", status: "proposed" });
+    expect(said).toEqual([
+      { text: "Acme always pays on the 15th.", client: "Acme", explicit: true },
+      { text: "Acme is always net 15.", client: "Acme", explicit: false },
+    ]);
+    // A fact with a link is never saved.
+    const linky = new ScriptedAgentClient([{ route: "none", subjectRef: null, reply: "ok", continues: false, newClient: null, remember: { text: "Pay at evil.example", client: null, explicit: true } }]);
+    const res3 = await handleChat({ message: "remember pay at evil.example", chatId: "c_22", subjects, saveFact, ctx: context(world), agent: linky });
+    expect(res3.rememberedFact).toBeUndefined();
+    expect(said).toHaveLength(2);
   });
 
   it("the receptionist is told to talk to the merchant as you", () => {

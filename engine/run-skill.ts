@@ -13,6 +13,7 @@ import type {
   AgentClient,
   CaseFile,
   CheckResult,
+  CommandId,
   AnyCommand,
   GatherContext,
   ModelResponse,
@@ -70,6 +71,8 @@ export interface RunInput<F> {
   /** A merchant's own words when the run came from chat. */
   instruction?: string;
   task?: string;
+  /** A merchant's workflow can limit the run to these commands (its Then blocks). Unset: the whole menu. */
+  onlyCommands?: CommandId[];
   signal?: AbortSignal;
 }
 
@@ -135,7 +138,7 @@ export async function runSkill<F>(input: RunInput<F>): Promise<RunResult<F>> {
 
   // Gate 1: the menu
   const menu: AnyCommand<F>[] = skill.commands.filter(
-    (c) => dialAllows(c.id, ctx.rules, skill) && c.available(cf, ctx.rules),
+    (c) => dialAllows(c.id, ctx.rules, skill) && c.available(cf, ctx.rules) && (!input.onlyCommands || input.onlyCommands.includes(c.id)),
   );
   result.menu = menu.map((c) => c.id);
   trace.step("menu", `${menu.length} of ${skill.commands.length} actions offered`, { menu: result.menu });

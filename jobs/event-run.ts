@@ -7,6 +7,7 @@ import type { Pool } from "pg";
 import { handleEvent } from "@/engine/router";
 import type { AgentClient, PayPalReads, SubjectRef } from "@/engine/types";
 import { applyStandDown, engineDb, loadMerchant, markEvent, saveRun } from "./store";
+import { runPaidWorkflows } from "./workflows";
 
 export interface PayPalEvent {
   id: string;
@@ -60,6 +61,11 @@ export async function processEvent(deps: EventRunDeps, merchantId: string, event
 
     if (res.kind === "unrouted") return finish({ status: "ignored", reason: res.reason });
     if (res.kind === "handled") {
+      // "When an invoice is paid" workflows leave a heads-up (no model call).
+      if (event.event_type === "INVOICING.INVOICE.PAID" && subject.kind === "invoice") {
+        const inv = await deps.read.getInvoice(subject.id).catch(() => null);
+        if (inv) await runPaidWorkflows(deps.pool, merchantId, inv, ctx).catch(() => undefined);
+      }
       if (res.outcome.kind === "ignore") return finish({ status: "ignored", reason: res.outcome.reason });
       const obsoleted = await applyStandDown(deps.pool, {
         merchantId,
