@@ -62,8 +62,8 @@ describe("questions answered in chat", () => {
 describe("the memory line in chat", () => {
   it("says it once, and quotes a noted fact cleanly", () => {
     expect(memoryLine({ text: "x", status: "active" }, "Got it. I'll remember that PyP Test pays on the 15th.")).toBe("");
-    expect(memoryLine({ text: "x", status: "active" }, "Got it.")).toBe(" I'll remember that.");
-    expect(memoryLine({ text: "Maria is always net 15.", status: "proposed" }, "Drafting.")).toBe(" I noted “Maria is always net 15”. Confirm it in Pyp's memory and I'll use it from now on.");
+    expect(memoryLine({ text: "Maria is always net 15.", status: "active" }, "Drafting.")).toBe(" I'll remember: Maria is always net 15.");
+    expect(memoryLine({ text: "x", status: "active" }, "Got it. I'll keep in mind that John prefers a call.")).toBe("");
     expect(memoryLine(undefined, "Hi")).toBe("");
   });
 });

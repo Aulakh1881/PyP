@@ -66,9 +66,10 @@ export async function runChatMessage(
       const named = clientsNamed(f.client, clients);
       if (named.length === 1) clientEmail = clients.find((c) => c.id === named[0])!.email;
     }
-    const status = f.explicit ? ("active" as const) : ("proposed" as const);
-    await addFact(deps.pool, merchantId, { text: f.text, clientEmail, status, source: "chat" });
-    return status;
+    // Remembered at once, said directly or in passing: it's only a note for Pyp's judgment,
+    // and the merchant sees, edits or forgets it on About my business.
+    await addFact(deps.pool, merchantId, { text: f.text, clientEmail, status: "active", source: "chat" });
+    return "active" as const;
   };
   const chat = await handleChat({ message, chatId: randomUUID(), subjects, history, saveClient, saveFact, ctx, agent: deps.agent, signal });
   const fact = chat.rememberedFact;
@@ -144,7 +145,7 @@ export function nothingMade(reasons: string[], summary?: string): string {
 
 /** The chat line after a fact was saved: once, without repeating Pyp's own "I'll remember". */
 export function memoryLine(fact: { text: string; status: "active" | "proposed" } | undefined, reply: string): string {
-  if (!fact) return "";
-  if (fact.status === "active") return reply.toLowerCase().includes("remember") ? "" : " I'll remember that.";
-  return ` I noted “${fact.text.trim().replace(/[.!]+$/, "")}”. Confirm it in Pyp's memory and I'll use it from now on.`;
+  // Pyp often says it already ("I'll keep in mind…"): then don't say it twice.
+  if (!fact || /remember|keep in mind|noted|make a note/i.test(reply)) return "";
+  return ` I'll remember: ${fact.text.trim().replace(/[.!]+$/, "")}.`;
 }

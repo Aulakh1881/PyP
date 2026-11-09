@@ -476,7 +476,7 @@
       },
       order: function (id) { return read('/api/paypal/orders/' + encodeURIComponent(id), 'PayPal order data'); },
       // What Pyp knows about the business (/api/facts): case-file notes, never sent to clients.
-      facts: function () { return read('/api/facts', 'Pyp\u2019s memory'); },
+      facts: function () { return read('/api/facts', 'About my business'); },
       saveFact: async function (f, id) {
         var r = await api('/api/facts' + (id ? '/' + encodeURIComponent(id) : ''), { method: id ? 'PATCH' : 'POST', body: JSON.stringify(f) });
         if (!r.ok) throw new Error(r.body.error || 'Couldn\u2019t save that (' + r.status + ').');

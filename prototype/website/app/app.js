@@ -76,7 +76,7 @@
     invoices: { title: 'Invoices', render: renderInvoices },
     disputes: { title: 'Disputes', render: renderDisputes },
     clients: { title: 'Clients', render: renderClients },
-    memory: { title: 'Pyp\u2019s memory', render: renderMemory },
+    business: { title: 'About my business', render: renderMemory },
     workflows: { title: 'Workflows', render: function () { window.PypWorkflows.render(view, transport, { toast: toast, cleanup: cleanup }); } },
     inbox: { title: 'Inbox', render: renderInbox },
     activity: { title: 'Activity', render: renderActivity },
@@ -214,7 +214,7 @@
   // Pyp's judgment, never sent to clients and never above code's checks.
   function renderMemory() {
     if (!transport.facts) {
-      view.innerHTML = '<section class="panel"><h2>Pyp’s memory</h2><p>Sign in to the live dashboard to see what Pyp knows.</p></section>';
+      view.innerHTML = '<section class="panel"><h2>About my business</h2><p>Sign in to the live dashboard to see what Pyp knows.</p></section>';
       return;
     }
     var facts = null;
@@ -233,7 +233,7 @@
         });
         draw();
       }, function (e) {
-        view.innerHTML = '<section class="panel"><h2>Pyp’s memory</h2><p class="setup-error">' + esc(e.message) + '</p></section>';
+        view.innerHTML = '<section class="panel"><h2>About my business</h2><p class="setup-error">' + esc(e.message) + '</p></section>';
       });
     }
 
@@ -259,8 +259,8 @@
       if (editingId === f.id) return '<li class="fact">' + form(f) + '</li>';
       var about = f.clientEmail ? '<span class="chip chip-info">' + esc(clientName(f.clientEmail)) + '</span>' : f.subjectRef ? '<span class="chip chip-muted">' + esc(f.subjectRef.replace(':', ' ')) + '</span>' : '';
       return '<li class="fact" data-fact="' + esc(f.id) + '"><div class="fact-main"><p>' + esc(f.text) + '</p><div class="fact-meta">' + about +
-        (f.source === 'chat' ? '<span class="chip chip-muted">from chat</span>' : '') + '</div></div>' +
-        '<div class="row-actions">' + (f.status === 'proposed' ? '<button class="btn btn-sm" type="button" data-confirm>Confirm</button>' : '') +
+        (f.source === 'chat' ? '<span class="chip chip-muted">learned in chat</span>' : '') + '</div></div>' +
+        '<div class="row-actions">' + (f.status === 'proposed' ? '<button class="btn btn-sm" type="button" data-confirm>Keep</button>' : '') +
         '<button class="btn btn-ghost btn-sm" type="button" data-edit>Edit</button><button class="btn btn-danger btn-sm" type="button" data-forget>Forget</button></div></li>';
     }
     function draw() {
@@ -268,10 +268,10 @@
       var business = facts.filter(function (f) { return f.status === 'active' && !f.clientEmail; });
       var aboutClients = facts.filter(function (f) { return f.status === 'active' && f.clientEmail; });
       view.innerHTML =
-        '<section class="panel"><h2>What Pyp knows about your business</h2>' +
-        '<p>Pyp reads these before it decides anything, like notes in the margin of each case. They’re for Pyp’s judgment only: never sent to your clients, and never above the safety checks. Tell Pyp in the chat too: “remember that Acme always pays on the 15th.”</p>' +
+        '<section class="panel"><h2>What Pyp knows about you</h2>' +
+        '<p>Pyp learns as you chat. Mention how you work (“Maria is always net 15”) or just say “remember that…”, and Pyp keeps it in mind for every decision. It’s only for Pyp: never sent to your clients, and never above the safety checks. Fix or forget anything here.</p>' +
         form(null) + '</section>' +
-        (proposed.length ? '<section class="panel memory-proposed"><h2>Pyp noticed these in chat</h2><p>Confirm the ones that are right and Pyp will use them. Forget the rest.</p><ul class="facts">' + proposed.map(row).join('') + '</ul></section>' : '') +
+        (proposed.length ? '<section class="panel memory-proposed"><h2>Pyp wasn’t sure about these</h2><p>Keep the ones that are right.</p><ul class="facts">' + proposed.map(row).join('') + '</ul></section>' : '') +
         '<section class="panel"><h2>Your business</h2>' + (business.length ? '<ul class="facts">' + business.map(row).join('') + '</ul>' : '<div class="empty">Nothing yet. How do you like to work? Your usual terms, your tone, what you never do.</div>') + '</section>' +
         '<section class="panel"><h2>About your clients</h2>' + (aboutClients.length ? '<ul class="facts">' + aboutClients.map(row).join('') + '</ul>' : '<div class="empty">Nothing yet. Who pays late, who prefers a call, who’s always net 15.</div>') + '</section>';
     }
@@ -284,7 +284,7 @@
       var btn = e.target.querySelector('[type=submit]');
       btn.disabled = true;
       transport.saveFact(body, id).then(function () {
-        toast(id ? 'Saved.' : 'Pyp will remember that.');
+        toast(id ? 'Saved.' : 'Pyp will keep that in mind.');
         editingId = null; load();
       }, function (err) { btn.disabled = false; toast(err.message); });
     }
@@ -306,7 +306,7 @@
     view.addEventListener('submit', onSubmit);
     view.addEventListener('click', onClick);
     cleanup.push(function () { view.removeEventListener('submit', onSubmit); view.removeEventListener('click', onClick); });
-    view.innerHTML = '<section class="panel"><h2>What Pyp knows about your business</h2><div class="loading">Loading…</div></section>';
+    view.innerHTML = '<section class="panel"><h2>What Pyp knows about you</h2><div class="loading">Loading…</div></section>';
     load();
   }
 
