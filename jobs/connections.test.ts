@@ -7,6 +7,8 @@ import {
   listConnections,
   newSlackCode,
   postNewCards,
+  pinnedFetch,
+  privateAddress,
   saveConnection,
   setConnectionEnabled,
   signWebhook,
@@ -55,10 +57,17 @@ describe("connections: URLs, messages and signatures", () => {
       "https://[::ffff:a9fe:a9fe]/x",
       "https://[fd00::1]/x",
       "https://[fec0::1]/x",
+      "https://198.18.0.1/x",
+      "https://192.0.0.170/x",
+      "https://[64:ff9b::169.254.169.254]/x",
+      "https://[::127.0.0.1]/x",
+      "https://[::ffff:0:7f00:1]/x",
+      "https://[2002:a9fe:a9fe::1]/x",
     ]) {
       expect(urlProblem("webhook", bad), bad).toMatch(/public/);
     }
     expect(urlProblem("webhook", "https://fdic.gov/hook")).toBeNull(); // a real name that starts with "fd"
+    expect(urlProblem("webhook", "https://n8n.example.com:8080/x")).toMatch(/standard https port/);
     expect(urlProblem("discord", "https://canary.discord.com/api/webhooks/1/abc")).toBeNull();
   });
 
@@ -85,6 +94,13 @@ describe("connections: URLs, messages and signatures", () => {
     expect(verifySlackRequest("other", ts, body, sig, NOW)).toBe(false);
     expect(verifySlackRequest(secret, ts, body, sig, new Date(NOW.getTime() + 6 * 60_000))).toBe(false); // a replay
     expect(verifySlackRequest(secret, null, body, sig, NOW)).toBe(false);
+  });
+
+  it("public IPv6 and IPv4 stay allowed; the real sender refuses a name that resolves privately", async () => {
+    expect(privateAddress("2606:4700::1111")).toBe(false);
+    expect(privateAddress("8.8.8.8")).toBe(false);
+    expect(privateAddress("::ffff:8.8.8.8")).toBe(false);
+    await expect(pinnedFetch("https://localhost/x", { method: "POST", headers: {}, body: "{}" })).rejects.toThrow(/not a public address/);
   });
 
   it("signs what goes to any app", () => {
@@ -143,7 +159,7 @@ describe.skipIf(!TEST_DB_URL)("connections (Postgres)", () => {
     await newCard("Remind Acme");
     const { sent, fetcher } = recorder();
     const done = await postNewCards({ pool, fetcher, link: () => "https://pyp", resolve: privateDns }); // re-pointed since
-    expect(done[0]).toMatchObject({ ok: false, status: "Failed: the address isn't public" });
+    expect(done[0]).toMatchObject({ ok: false, status: expect.stringMatching(/^Failed: the app didn't accept it/) });
     expect(sent).toHaveLength(0);
   });
 

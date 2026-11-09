@@ -11,7 +11,9 @@
 // signing secret (lib/slack.ts).
 
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { lookup as lookupCb, type LookupAddress, type LookupOptions } from "node:dns";
 import { lookup } from "node:dns/promises";
+import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import type { Pool } from "pg";
 
@@ -76,6 +78,7 @@ export function urlProblem(kind: ConnectionKind, raw: string): string | null {
       ? null
       : "Use a channel webhook URL from Discord (Channel settings → Integrations → Webhooks).";
   }
+  if (u.port && u.port !== "443") return "Use the standard https port (no :port in the address).";
   const host = u.hostname.toLowerCase().replace(/\.$/, "").replace(/^\[|\]$/g, "");
   const internalName = host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal") || host.endsWith(".local") || !host.includes(".") && !isIP(host);
   return internalName || (isIP(host) && privateAddress(host)) ? PUBLIC_ONLY : null;
@@ -87,20 +90,90 @@ const PUBLIC_ONLY = "Use a public https address (your n8n, Zapier or Make webhoo
 export function privateAddress(ip: string): boolean {
   const v = ip.toLowerCase();
   if (isIP(v) === 4) {
-    const [a, b] = v.split(".").map(Number);
-    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
+    const [a, b, c] = v.split(".").map(Number);
+    return (
+      a === 0 || a === 10 || a === 127 || a >= 224 || // this network, private, loopback, multicast/reserved/broadcast
+      (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) ||
+      (a === 100 && b >= 64 && b <= 127) || // carrier-grade NAT (and some clouds' metadata)
+      (a === 198 && (b === 18 || b === 19)) || // benchmarking
+      (a === 192 && b === 0 && (c === 0 || c === 2)) || (a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113) // special, documentation
+    );
   }
   if (isIP(v) === 6) {
-    if (v === "::" || v === "::1") return true;
-    const mapped = /^::ffff:(?:(\d+\.\d+\.\d+\.\d+)|([0-9a-f]{1,4}):([0-9a-f]{1,4}))$/.exec(v);
-    if (mapped) {
-      const v4 = mapped[1] ?? [parseInt(mapped[2], 16) >> 8, parseInt(mapped[2], 16) & 255, parseInt(mapped[3], 16) >> 8, parseInt(mapped[3], 16) & 255].join(".");
-      return privateAddress(v4);
-    }
-    return /^(fc|fd|fe[89ab]|fe[c-f]|ff)/.test(v); // unique-local, link-local, site-local, multicast
+    const g = expand6(v);
+    if (!g) return true;
+    if (g.every((x) => x === 0) || (g.slice(0, 7).every((x) => x === 0) && g[7] === 1)) return true; // :: and ::1
+    const v4 = (hi: number, lo: number) => [hi >> 8, hi & 255, lo >> 8, lo & 255].join(".");
+    // Forms that carry an IPv4 address: mapped ::ffff:a.b.c.d, compatible ::a.b.c.d, SIIT ::ffff:0:a.b.c.d, NAT64 64:ff9b::a.b.c.d.
+    if (g.slice(0, 5).every((x) => x === 0) && (g[5] === 0xffff || g[5] === 0)) return privateAddress(v4(g[6], g[7]));
+    if (g.slice(0, 4).every((x) => x === 0) && g[4] === 0xffff && g[5] === 0) return privateAddress(v4(g[6], g[7]));
+    if (g[0] === 0x64 && g[1] === 0xff9b) return privateAddress(v4(g[6], g[7]));
+    if (g[0] === 0x2002) return privateAddress(v4(g[1], g[2])); // 6to4
+    const top = g[0] >> 8;
+    return top === 0xff || (g[0] & 0xfe00) === 0xfc00 || (g[0] & 0xffc0) === 0xfe80 || (g[0] & 0xffc0) === 0xfec0; // multicast, unique-local, link-local, site-local
   }
   return true;
 }
+
+/** An IPv6 address as its eight 16-bit groups (an IPv4 tail is folded in), or null. */
+function expand6(v: string): number[] | null {
+  let s = v.replace(/%.*$/, "");
+  const tail = /(\d+\.\d+\.\d+\.\d+)$/.exec(s);
+  if (tail) {
+    const p = tail[1].split(".").map(Number);
+    s = s.slice(0, -tail[1].length) + `${((p[0] << 8) | p[1]).toString(16)}:${((p[2] << 8) | p[3]).toString(16)}`;
+  }
+  const [head, rest] = s.split("::");
+  const a = head ? head.split(":") : [];
+  const b = rest !== undefined ? (rest ? rest.split(":") : []) : null;
+  const groups = b === null ? a : [...a, ...Array(8 - a.length - b.length).fill("0"), ...b];
+  if (groups.length !== 8) return null;
+  return groups.map((x) => parseInt(x || "0", 16));
+}
+
+/**
+ * The DNS lookup every outbound post uses: it refuses a name that resolves to any
+ * private address, and the connection uses the very addresses it checked, so a
+ * name can't pass the check and then point somewhere else (DNS rebinding).
+ */
+export function safeLookup(hostname: string, options: LookupOptions, callback: (err: NodeJS.ErrnoException | null, address: string | LookupAddress[], family?: number) => void): void {
+  lookupCb(hostname, { ...options, all: true }, (err, addresses) => {
+    if (err) return callback(err, []);
+    const list = addresses as LookupAddress[];
+    if (!list.length || list.some((a) => privateAddress(a.address))) return callback(Object.assign(new Error("not a public address"), { code: "EPRIVATE" }), []);
+    if (options.all) return callback(null, list);
+    callback(null, list[0].address, list[0].family);
+  });
+}
+
+/**
+ * The real sender: https only, no redirects, at most 2 KB of reply read, and every
+ * address checked by safeLookup at connect time.
+ */
+export const pinnedFetch: Fetcher = (url, init) =>
+  new Promise((resolve, reject) => {
+    const u = new URL(url);
+    if (u.protocol !== "https:") return reject(new Error("https only"));
+    const req = httpsRequest(
+      u,
+      { method: init.method, headers: { ...init.headers, "Content-Length": String(Buffer.byteLength(init.body)) }, lookup: safeLookup, signal: init.signal },
+      (res) => {
+        const chunks: Buffer[] = [];
+        let size = 0;
+        res.on("data", (c: Buffer) => {
+          if (size < 2048) chunks.push(c);
+          size += c.length;
+        });
+        res.on("end", () => {
+          const status = res.statusCode ?? 0;
+          resolve({ ok: status >= 200 && status < 300, status, text: async () => Buffer.concat(chunks).toString("utf8").slice(0, 2048) });
+        });
+        res.on("error", reject);
+      },
+    );
+    req.on("error", reject);
+    req.end(init.body);
+  });
 
 /**
  * "Any app": the name must resolve only to public addresses, checked when it's
@@ -110,7 +183,7 @@ export async function resolvesPublic(raw: string, resolve: (host: string) => Pro
   const host = new URL(raw).hostname.replace(/^\[|\]$/g, "");
   if (isIP(host)) return !privateAddress(host);
   try {
-    const addrs = await resolve(host);
+    const addrs = await Promise.race([resolve(host), new Promise<never>((_, no) => setTimeout(() => no(new Error("DNS timeout")), 3_000))]);
     return addrs.length > 0 && addrs.every((a) => !privateAddress(a.address));
   } catch {
     return false;
@@ -252,6 +325,8 @@ export function signWebhook(secret: string, timestamp: string, body: string): st
 export type Fetcher = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 
 /** Sends one card to one connection. Never throws: says what happened. */
+const ANY_APP_FAILED = "Failed: the app didn't accept it (check the URL, and that it answers 2xx within 5 s)";
+
 /** Seconds a post may take: a slow app never holds up the worker. */
 export const POST_TIMEOUT_MS = 5_000;
 
@@ -263,7 +338,7 @@ export async function postCard(
   now: Date,
   resolve?: (host: string) => Promise<{ address: string }[]>,
 ): Promise<{ ok: boolean; status: string }> {
-  if (c.kind === "webhook" && !(await resolvesPublic(c.url, resolve))) return { ok: false, status: "Failed: the address isn't public" };
+  if (c.kind === "webhook" && !(await resolvesPublic(c.url, resolve))) return { ok: false, status: ANY_APP_FAILED };
   const payload = c.kind === "slack" ? slackMessage(card, link) : c.kind === "discord" ? discordMessage(card, link) : webhookEvent(card, link);
   const body = JSON.stringify(payload);
   const headers: Record<string, string> = { "Content-Type": "application/json", "User-Agent": "Pyp-Connections/1" };
@@ -275,10 +350,13 @@ export async function postCard(
   try {
     const res = await fetcher(c.url, { method: "POST", headers, body, signal: AbortSignal.timeout(POST_TIMEOUT_MS) });
     if (res.ok) return { ok: true, status: "Sent" };
-    // Slack and Discord explain errors in a word ("no_service"); another app's reply body is never kept.
-    const why = c.kind === "webhook" ? "" : (await res.text().catch(() => "")).slice(0, 80);
-    return { ok: false, status: `Failed (${res.status}${why ? `: ${why}` : ""})` };
+    // Any app: one message whatever went wrong, so the list can't be used to probe a network.
+    if (c.kind === "webhook") return { ok: false, status: ANY_APP_FAILED };
+    // Slack and Discord explain errors in a word ("no_service").
+    const why = (await res.text().catch(() => "")).slice(0, 80);
+    return { ok: false, status: `Failed (${res.status}${why ? `: ${slackText(why)}` : ""})` };
   } catch (err) {
+    if (c.kind === "webhook") return { ok: false, status: ANY_APP_FAILED };
     const timedOut = (err as Error).name === "TimeoutError" || (err as Error).name === "AbortError";
     return { ok: false, status: timedOut ? "Failed: no answer in 5 s" : "Failed: couldn't reach it" };
   }
@@ -318,7 +396,7 @@ export async function sendTest(db: Db, fetcher: Fetcher, merchantId: string, kin
   const c = (await listConnections(db, merchantId)).find((x) => x.kind === kind);
   if (!c) return null;
   const out = await postCard(fetcher, c, TEST_CARD(now), link, now);
-  await markSent(db, c.id, out.ok ? "Test sent" : out.status, now, true);
+  await markSent(db, c.id, out.ok ? "Test sent" : out.status, now, out.ok);
   return out;
 }
 
@@ -374,7 +452,15 @@ export async function postNewCards(deps: {
     }
     return done;
   });
-  return (await Promise.all(perConnection.map((p) => p.catch(() => [] as Done[])))).flat();
+  const settled = await Promise.all(
+    perConnection.map((p) =>
+      p.catch((err: Error) => {
+        console.error(`[pyp connections] a connection failed: ${err.message}`);
+        return [] as Done[];
+      }),
+    ),
+  );
+  return settled.flat();
 }
 
 // ---------- Slack: /pyp ----------
@@ -452,7 +538,7 @@ export async function handleSlash(deps: SlashDeps, cmd: SlashCommand): Promise<{
     try {
       const res = await deps.pool.query(
         `update slack_links set team_id = $2, team_name = $3, slack_user_id = $4, slack_user_name = $5, linked_at = $6,
-                connect_code = null, connect_code_expires_at = null, updated_at = now()
+                connect_code = null, connect_code_expires_at = null, dm_channel = null, updated_at = now()
           where connect_code = $1 and connect_code_expires_at > $6
           returning (select name from merchants m where m.id = slack_links.merchant_id) as merchant_name`,
         [code, cmd.teamId, cmd.teamDomain, cmd.userId, cmd.userName, deps.now],

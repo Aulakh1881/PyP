@@ -3,7 +3,7 @@
 import type { ChatTurn } from "@/engine/chat";
 import { answerCard } from "@/jobs/answer-run";
 import { runChatMessage } from "@/jobs/chat-run";
-import { postNewCards, type Fetcher } from "@/jobs/connections";
+import { pinnedFetch, postNewCards, type Fetcher } from "@/jobs/connections";
 import { syncSlackDms, type SlackApi } from "@/jobs/slack-bot";
 import { dismiss, undo } from "@/jobs/store";
 import { approveCard } from "@/executor/from-env";
@@ -15,7 +15,8 @@ import { runCustomSkillNow, runSweepNow } from "@/lib/sweeps";
 import { PayPalReadClient } from "@/paypal/engine-reads";
 import { sharedPayPalHttp } from "@/paypal/http";
 
-export const fetcher: Fetcher = (url, init) => fetch(url, { ...init, redirect: "error" });
+/** Every post to another app: https, no redirects, and only to the public addresses it checked. */
+export const fetcher: Fetcher = pinnedFetch;
 
 /** Where a message's "Open in Pyp" goes: the Inbox of the dashboard (PYP_PUBLIC_DASHBOARD_URL once deployed). */
 export function inboxLink(): string {

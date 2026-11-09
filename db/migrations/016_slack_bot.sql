@@ -31,14 +31,16 @@ create table if not exists slack_messages (
 create index if not exists slack_messages_merchant_idx on slack_messages (merchant_id, updated_at);
 
 -- A conversation with Pyp in Slack: the last lines of a thread, so a follow-up
--- ("actually make it $500") is read with what came before.
+-- ("actually make it $500") is read with what came before. Kept per merchant, so
+-- a workspace linked to someone else later never sees it.
 create table if not exists slack_threads (
+  merchant_id uuid not null references merchants(id) on delete cascade,
   team_id text not null,
   channel text not null,
   thread_ts text not null,
   history jsonb not null default '[]',
   updated_at timestamptz not null default now(),
-  primary key (team_id, channel, thread_ts)
+  primary key (merchant_id, team_id, channel, thread_ts)
 );
 
 -- Slack resends an event it thinks we missed; each is handled once.

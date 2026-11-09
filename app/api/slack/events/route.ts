@@ -53,7 +53,10 @@ export async function POST(request: Request) {
       ts: String(e.ts ?? ""),
       threadTs: e.thread_ts as string | undefined,
     },
-  );
+  ).catch((err: Error) => {
+    console.error(`[pyp slack] event not handled: ${err.message}`);
+    return null;
+  });
   if (work) {
     after(() =>
       work().catch((err: Error) => {

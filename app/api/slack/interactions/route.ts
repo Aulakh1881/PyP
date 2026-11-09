@@ -8,7 +8,7 @@
 
 import { after } from "next/server";
 import { verifySlackRequest } from "@/jobs/connections";
-import { handleAction, syncSlackDms } from "@/jobs/slack-bot";
+import { handleAction, linkedMerchant, syncSlackDms } from "@/jobs/slack-bot";
 import { inboxLink, slackActions, slackApi } from "@/lib/connections";
 
 export const maxDuration = 300;
@@ -30,7 +30,8 @@ export async function POST(request: Request) {
 
   const action = ((payload.actions as Record<string, unknown>[] | undefined) ?? [])[0];
   const slack = slackApi();
-  if (!action || !slack) return new Response(null, { status: 200 });
+  // "Review in Pyp" is a plain link: Slack still reports the click, but there's nothing to do.
+  if (!action || !slack || action.action_id === "pyp_open") return new Response(null, { status: 200 });
   const team = (payload.team as { id?: string } | undefined)?.id ?? "";
   const user = (payload.user as { id?: string } | undefined)?.id ?? "";
   const channel = (payload.channel as { id?: string } | undefined)?.id;
@@ -45,8 +46,9 @@ export async function POST(request: Request) {
       },
     );
     if (said && channel && ts) await slack("chat.postMessage", { channel, thread_ts: ts, text: said }).catch(() => undefined);
-    // Update the DM now rather than on the next tick.
-    await syncSlackDms({ pool: deps.pool, slack, link: inboxLink }).catch(() => undefined);
+    // Update this person's DMs now rather than on the next tick.
+    const who = await linkedMerchant(deps.pool, team, user).catch(() => null);
+    if (who && "merchantId" in who) await syncSlackDms({ pool: deps.pool, slack, link: inboxLink, merchantIds: [who.merchantId] }).catch(() => undefined);
   });
   return new Response(null, { status: 200 });
 }

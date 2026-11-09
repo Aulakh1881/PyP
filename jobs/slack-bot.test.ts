@@ -98,6 +98,30 @@ describe.skipIf(!TEST_DB_URL)("Slack bot (Postgres)", () => {
     expect(await syncSlackDms(deps)).toMatchObject({ updated: 0 });
   });
 
+  it("a DM that Slack refuses goes back in the queue; a deleted DM stops being updated", async () => {
+    await link();
+    const id = await newCard("Remind Acme");
+    let fail = true;
+    const { calls, slack: ok } = fakeSlack();
+    const flaky: SlackApi = async (method, body) => {
+      if (fail && method === "chat.postMessage") throw new Error("Slack chat.postMessage: ratelimited");
+      return ok(method, body);
+    };
+    const deps = { pool, slack: flaky, link: () => "https://pyp" };
+    expect((await syncSlackDms(deps)).posted).toBe(0);
+    fail = false;
+    expect((await syncSlackDms(deps)).posted).toBe(1); // retried on the next tick
+
+    await pool.query("update cards set state = 'rejected' where id = $1", [id]);
+    const gone: SlackApi = async (method, body) => {
+      if (method === "chat.update") throw new Error("Slack chat.update: message_not_found");
+      return ok(method, body);
+    };
+    expect((await syncSlackDms({ ...deps, slack: gone })).failed).toHaveLength(1);
+    expect((await syncSlackDms({ ...deps, slack: gone })).failed).toHaveLength(0); // not tried again
+    expect(calls.filter((c) => c.method === "chat.postMessage")).toHaveLength(1);
+  });
+
   it("buttons: only the linked person; Approve only for low-risk actions, checked on the server", async () => {
     await link();
     const reminder = await newCard("Remind Acme");
@@ -141,9 +165,11 @@ describe.skipIf(!TEST_DB_URL)("Slack bot (Postgres)", () => {
       { from: "pyp", text: "Drafted: invoice Acme $450", waiting: false, cardIds: ["c1"] },
     ]);
 
-    // An @mention in a channel: the mention comes out of the text.
+    // An @mention in a channel: the mention comes out of the text, and only the asker sees the answer.
     await (await handleMessageEvent(deps, { ...dm, eventId: "Ev3", type: "app_mention", channelType: "channel", channel: "C1", ts: "2.1", text: "<@UBOT> remind Acme" }))!();
     expect(seen[2].text).toBe("remind Acme");
+    expect(calls.at(-1)).toMatchObject({ method: "chat.postEphemeral", body: { channel: "C1", user: "U1" } });
+    expect(await handleMessageEvent(deps, { ...dm, eventId: "" })).toBeNull();
 
     // Someone else, Pyp's own messages, and channel chatter are ignored or refused.
     expect(await handleMessageEvent(deps, { ...dm, eventId: "Ev4", botId: "B1" })).toBeNull();
