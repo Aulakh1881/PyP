@@ -148,7 +148,7 @@
       }).join('');
       view.innerHTML =
         '<section class="panel"><div class="activity-head"><div><h2>Your workflows</h2>' +
-        '<p>Your own rules for how Pyp handles things: <b>when</b> something happens in PayPal, <b>check</b> it, then tell Pyp <b>what to do</b>. Pyp still asks before anything goes out, unless you set that action to Auto in Setup.</p>' +
+        '<p>Your own rules for how Pyp handles things: <b>when</b> something happens in PayPal, <b>check</b> it, then tell Pyp <b>what to do</b>. Pyp still asks before anything goes out, unless you set that action to Auto in Settings.</p>' +
         '<p class="note">Workflows are your rules: you decide, Pyp follows. <a href="#/skills">My skills</a> are Pyp’s judgment, your way.</p></div>' +
         '<div class="activity-actions"><button class="btn" type="button" data-new>+ New workflow</button></div></div>' +
         (data.error ? '<p class="setup-error">' + esc(data.error) + '</p>' : '') +

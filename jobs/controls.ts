@@ -94,7 +94,7 @@ export async function updateControls(
     await client.query("begin");
     if (change.killSwitch !== undefined && change.killSwitch !== current.killSwitch) {
       await client.query("update merchants set kill_switch = $2 where id = $1", [merchantId, change.killSwitch]);
-      log.push(change.killSwitch ? "Kill switch on: Pyp is paused and sends nothing" : "Kill switch off: Pyp is running again");
+      log.push(change.killSwitch ? "Pyp paused: nothing goes to PayPal" : "Pyp is running again");
     }
     if (change.undoSeconds !== undefined && change.undoSeconds !== current.undoSeconds) {
       await client.query("update merchants set undo_window_s = $2 where id = $1", [merchantId, change.undoSeconds]);

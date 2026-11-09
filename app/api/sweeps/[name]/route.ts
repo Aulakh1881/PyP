@@ -16,6 +16,6 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/sweeps/[na
   if (!SWEEP_NAMES.includes(name as SweepName)) return Response.json({ error: `Unknown sweep: ${name}` }, { status: 404 });
   const outcome = await runSweepNow(session.merchantId, name as SweepName);
   if (outcome.status === "busy") return Response.json({ ...outcome, message: "A sweep is already running; try again in a minute" }, { status: 409 });
-  if (outcome.status === "paused") return Response.json({ ...outcome, message: "Pyp is paused (kill switch on)" }, { status: 409 });
+  if (outcome.status === "paused") return Response.json({ ...outcome, message: "Pyp is paused. Turn it back on in Settings." }, { status: 409 });
   return Response.json(outcome);
 }

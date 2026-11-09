@@ -172,7 +172,7 @@
           '<header class="pypx-head"><div class="pypx-hello"><h2>' + esc(data.greeting) + '</h2>' +
           (transport.isDemo ? '<span class="pypx-demo">DEMO DATA</span>' : '') + '</div>' +
           '<p class="pypx-sum">' + esc(data.summary) + ' <b>' + (open ? open + ' need' + (open === 1 ? 's' : '') + ' a look.' : 'You’re all caught up.') + '</b></p></header>') +
-        (transport.isPaused && transport.isPaused() ? '<p class="pypx-paused" role="status">' + (transport.isDemo ? 'Pyp is paused. Nothing will be sent to PayPal until you resume it in Setup.' : 'Pyp is paused (kill switch). Nothing goes to PayPal until you turn it off in Setup.') + '</p>' : '') +
+        (transport.isPaused && transport.isPaused() ? '<p class="pypx-paused" role="status">' + (transport.isDemo ? 'Pyp is paused. Nothing will be sent to PayPal until you resume it in Settings.' : 'Pyp is paused. Nothing goes to PayPal until you turn it back on in Settings.') + '</p>' : '') +
         (function () {
           var shown = filter ? data.items.filter(filter) : data.items;
           if (!shown.length) return '<p class="pypx-empty">' + esc(options.emptyText || 'Nothing here right now.') + '</p>';

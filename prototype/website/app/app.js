@@ -1,6 +1,6 @@
 // Pyp dashboard (UI preview on demo data).
 // Pages: Overview, Transactions, Invoices, Disputes, Inbox, Activity (AG Grid,
-// see activity-grid.js), Weekly brief, Setup.
+// see activity-grid.js), Weekly brief, Settings.
 // All data comes from one demo transport saved in localStorage, shared with the
 // landing page and with other open tabs. To use the real API, replace `transport`.
 (function () {
@@ -81,7 +81,7 @@
     inbox: { title: 'Inbox', render: renderInbox },
     activity: { title: 'Activity', render: renderActivity },
     brief: { title: 'Weekly brief', render: renderBrief },
-    setup: { title: 'Setup', render: renderSetup }
+    settings: { title: 'Settings', render: renderSetup }
   };
 
   /* Sidebar folders: PayPal, Your Pyp, Reports. Open ones are remembered in this browser. */
@@ -103,6 +103,7 @@
 
   function route() {
     var name = (location.hash.replace(/^#\/?/, '') || 'inbox').split('?')[0];
+    if (name === 'setup') name = 'settings'; // the page's old name, in old links and bookmarks
     if (!PAGES[name]) name = 'inbox';
     cleanup.forEach(function (fn) { fn(); });
     cleanup = [];
@@ -987,7 +988,7 @@
     });
   }
 
-  /* ---------------- Setup ---------------- */
+  /* ---------------- Settings ---------------- */
   var SKILLS = [
     { id: 'collections', name: 'Collections', desc: 'Create invoices, send reminders, follow up on late payments.', modes: ['off', 'ask', 'auto'] },
     { id: 'disputes', name: 'Disputes', desc: 'Gather facts and draft evidence when a buyer opens a dispute.', modes: ['off', 'ask', 'auto'], noAuto: 'Evidence is never Auto. You always review it.' },
@@ -1011,12 +1012,13 @@
       c.commands.forEach(function (x) { if (skills.indexOf(x.skill) < 0) skills.push(x.skill); });
       var undoChoices = UNDO_CHOICES.some(function (o) { return o[0] === c.undoSeconds; }) ? UNDO_CHOICES : UNDO_CHOICES.concat([[c.undoSeconds, c.undoSeconds + ' seconds']]);
       view.innerHTML =
-        '<section class="panel"><h2 id="pause-t">Pause Pyp (kill switch)</h2><div class="pauserow"><p>' +
+        settingsJump('Saved on the Pyp server, so they apply everywhere: this dashboard, the Chrome extension and Pyp’s daily work.') +
+        '<section class="panel" id="set-pause"><h2 id="pause-t">Pause Pyp</h2><div class="pauserow"><p>' +
         (c.killSwitch ? '<b>Pyp is paused.</b> ' : '') +
         'Stops every write to PayPal at once: Approve, Auto actions waiting out their undo window, and the daily checks. Pyp keeps reading and drafting, and nothing is lost: turn it off and Approve works again.</p>' +
         '<button type="button" class="bigswitch" role="switch" aria-checked="' + c.killSwitch + '" aria-labelledby="pause-t" data-pause><span></span></button></div></section>' +
 
-        '<section class="panel"><h2>What your Pyp can do</h2><p>For each action: Off, Ask me first, or Auto (it runs after the undo window unless you tap Undo). Actions that move money or answer a request you typed always ask.</p>' +
+        '<section class="panel" id="set-permissions"><h2>Permissions</h2><p>What Pyp may do for each action: Off, Ask me first, or Auto (it runs after the undo window unless you tap Undo). Actions that move money or answer a request you typed always ask.</p>' +
         '<div class="skills">' + skills.map(function (sk) {
           return '<h3 class="skillhead">' + esc(SKILL_NAMES[sk] || sk) + '</h3>' + c.commands.filter(function (x) { return x.skill === sk; }).map(function (x) {
             return '<div class="skill"><div><h3 id="cmd-' + esc(x.id.replace('.', '-')) + '">' + esc(x.label) + '</h3>' + (x.canAuto ? '' : '<p>Always asks you first.</p>') + '</div>' +
@@ -1027,21 +1029,21 @@
           }).join('');
         }).join('') + '</div></section>' +
 
-        '<section class="panel"><h2>Undo window</h2><p>How long an Auto action waits before it goes to PayPal, so you can tap Undo.</p><div class="limits">' +
+        '<section class="panel" id="set-undo"><h2>Undo window</h2><p>How long an Auto action waits before it goes to PayPal, so you can tap Undo.</p><div class="limits">' +
         '<label>Undo window for Auto actions<select data-undo>' + undoChoices.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === c.undoSeconds ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
         '</div></section>' +
 
-        '<section class="panel"><h2>Check now</h2><p>Pyp checks these every morning from 8:00 your time. Run one now: anything that needs you shows up in your Inbox.</p>' +
+        '<section class="panel" id="set-checks"><h2>Daily checks</h2><p>Pyp checks these every morning from 8:00 your time. Run one now: anything that needs you shows up in your Inbox.</p>' +
         '<p class="sweeps"><button type="button" class="btn btn-ghost" data-sweep="overdue-invoices">Check overdue invoices</button> ' +
         '<button type="button" class="btn btn-ghost" data-sweep="dispute-deadlines">Check dispute deadlines</button> ' +
-        '<button type="button" class="btn btn-ghost" data-sweep="weekly-brief">Weekly brief now</button></p></section>' +
-
-        '<section class="panel"><h2>Live data</h2><p>Cards, the activity log and PayPal data on this page are live from your sandbox. These controls are saved on the Pyp server and apply everywhere: this page, the Chrome extension and the worker.</p></section>';
+        '<button type="button" class="btn btn-ghost" data-sweep="weekly-brief">Weekly brief now</button></p></section>';
+      dropJumps();
     }
 
     function onClick(e) {
       var b = e.target.closest('button');
       if (!b || b.disabled) return;
+      if (b.hasAttribute('data-jump')) return jumpTo(b.getAttribute('data-jump'));
       if (b.hasAttribute('data-pause')) {
         var on = b.getAttribute('aria-checked') !== 'true';
         b.disabled = true;
@@ -1076,13 +1078,36 @@
     cleanup.push(function () { view.removeEventListener('click', onClick); view.removeEventListener('change', onChange); });
   }
 
+  /**
+   * The jump bar at the top of Settings: everything stays on one page, and these
+   * scroll to a section. A button shows only when its section (an element with
+   * that id) is on the page; dropJumps() removes the rest after each draw.
+   */
+  var SETTINGS_SECTIONS = [['set-pause', 'Pause Pyp'], ['set-permissions', 'Permissions'], ['set-limits', 'Limits'], ['set-undo', 'Undo window'], ['set-checks', 'Daily checks'], ['set-extension', 'Chrome extension'], ['set-connections', 'Connections']];
+  function settingsJump(note) {
+    return '<nav class="settings-jump" aria-label="Settings sections"><p>' + note + '</p><div>' +
+      SETTINGS_SECTIONS.map(function (s) { return '<button type="button" class="btn btn-ghost btn-sm" data-jump="' + s[0] + '">' + s[1] + '</button>'; }).join('') + '</div></nav>';
+  }
+  function dropJumps() {
+    view.querySelectorAll('[data-jump]').forEach(function (j) { if (!document.getElementById(j.getAttribute('data-jump'))) j.remove(); });
+  }
+  /** Scroll to a section and move focus to its heading (keyboard and screen readers follow). */
+  function jumpTo(id) {
+    var to = document.getElementById(id);
+    if (!to) return;
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    to.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+    var h = to.querySelector('h2');
+    if (h) { h.setAttribute('tabindex', '-1'); h.focus({ preventScroll: true }); }
+  }
+
   function renderSetup() {
     if (!transport.isDemo) return renderSetupLive();
     var s = transport.getSettings();
     var paused = transport.isPaused();
     view.innerHTML =
-      '<section class="panel"><h2>What your Pyp can do</h2><p>Pick, skill by skill, whether Pyp is off, asks you first, or acts on its own within your limits. ' +
-      (transport.isDemo ? 'Changes apply from Pyp’s next run.' : 'For now these are saved in this browser only; the engine still asks you before every write.') + '</p>' +
+      settingsJump('Demo settings, saved in this browser.') +
+      '<section class="panel" id="set-permissions"><h2>Permissions</h2><p>Pick, skill by skill, whether Pyp is off, asks you first, or acts on its own within your limits. Changes apply from Pyp’s next run.</p>' +
       '<div class="skills">' + SKILLS.map(function (k) {
         var cur = s.skills[k.id];
         return '<div class="skill"><div><h3 id="sk-' + k.id + '">' + k.name + '</h3><p>' + k.desc + (k.noAuto ? ' ' + k.noAuto : '') + '</p></div>' +
@@ -1094,25 +1119,23 @@
           '</div>';
       }).join('') + '</div></section>' +
 
-      '<section class="panel"><h2>Limits</h2><p>Hard caps that apply even when a skill is on Auto.</p><div class="limits">' +
+      '<section class="panel" id="set-limits"><h2>Limits</h2><p>Hard caps that apply even when a skill is on Auto.</p><div class="limits">' +
       '<label>Reminders per day<select data-perday>' + [1, 2, 3, 5].map(function (n) { return '<option' + (n === s.remindersPerDay ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label>' +
       '<label>Undo window for Auto actions<select data-undo>' + [[30, '30 seconds'], [60, '1 minute'], [300, '5 minutes'], [900, '15 minutes']].map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === s.undoSeconds ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
       '</div></section>' +
 
-      '<section class="panel"><h2 id="pause-t">Pause Pyp</h2><div class="pauserow"><p>' + (transport.isDemo
-        ? 'Stops everything at once. Pyp keeps watching and drafting, but nothing is sent to PayPal, and Auto timers freeze, until you turn this off.'
-        : 'Turns off Approve in this browser until you turn this off. It doesn’t stop the server yet: other tabs and Auto actions still run.') + '</p>' +
+      '<section class="panel" id="set-pause"><h2 id="pause-t">Pause Pyp</h2><div class="pauserow"><p>' +
+      'Stops everything at once. Pyp keeps watching and drafting, but nothing is sent to PayPal, and Auto timers freeze, until you turn this off.</p>' +
       '<button type="button" class="bigswitch" role="switch" aria-checked="' + paused + '" aria-labelledby="pause-t" data-pause><span></span></button></div></section>' +
 
-      '<section class="panel"><h2>Connect the Chrome extension</h2><p>The extension puts Pyp in the corner of paypal.com. Paste this code into the extension when it asks.</p>' +
+      '<section class="panel" id="set-extension"><h2>Connect the Chrome extension</h2><p>The extension puts Pyp in the corner of paypal.com. Paste this code into the extension when it asks.</p>' +
       '<div class="code"><span data-code>PYP-7F3A-K29Q</span><button type="button" class="btn btn-ghost" data-copy>Copy</button></div>' +
       '<ol class="olist"><li>Install the extension (see the website’s “Get the extension” steps).</li><li>Click the Pyp icon in Chrome’s toolbar, then the settings button.</li><li>Paste the code under “Connection code” and press Connect.</li></ol>' +
       '<p class="note">UI preview: the code is a placeholder until the real API exists.</p></section>' +
 
-      (transport.isDemo
-        ? '<section class="panel"><h2>Demo data</h2><p>Put every card, the activity log and these settings back to how they started.</p>' +
-          '<p style="margin-top:12px"><button type="button" class="btn btn-danger" data-reset>Reset demo data</button></p></section>'
-        : '<section class="panel"><h2>Live data</h2><p>Cards, the activity log and PayPal data on this page are live from your sandbox. These settings are saved in this browser for now; the engine still asks you before every write.</p></section>');
+      '<section class="panel"><h2>Demo data</h2><p>Put every card, the activity log and these settings back to how they started.</p>' +
+      '<p style="margin-top:12px"><button type="button" class="btn btn-danger" data-reset>Reset demo data</button></p></section>';
+    dropJumps();
 
     view.addEventListener('click', onSetupClick);
     cleanup.push(function () { view.removeEventListener('click', onSetupClick); });
@@ -1135,6 +1158,7 @@
   function onSetupClick(e) {
     var b = e.target.closest('button');
     if (!b) return;
+    if (b.hasAttribute('data-jump')) return jumpTo(b.getAttribute('data-jump'));
     if (b.hasAttribute('data-skill') && !b.disabled) {
       var skill = b.getAttribute('data-skill');
       var mode = b.getAttribute('data-mode');

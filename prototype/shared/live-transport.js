@@ -618,7 +618,7 @@
       isPaused: function () { return !!(controls && controls.killSwitch); },
       setPaused: async function (on) {
         var r = await api('/api/kill-switch', { method: 'POST', body: JSON.stringify({ on: !!on }) });
-        if (!r.ok) throw new Error(r.body.error || 'Couldn’t change the kill switch (' + r.status + ').');
+        if (!r.ok) throw new Error(r.body.error || 'Couldn’t pause or resume Pyp (' + r.status + ').');
         controls = r.body;
         lastJson = '';
         await refresh().catch(function () { emit(); });
