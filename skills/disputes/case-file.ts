@@ -3,6 +3,7 @@
 // only its enums plus the raw messages wrapped as untrusted data. Code works
 // out the deadline, the offer amounts and every id the model may cite.
 
+import { merchantWords } from "@/engine/document-reader";
 import { formatMoney } from "@/engine/format";
 import type { BuyerFacts, CaseFile, CaseFileOptions, Dispute, GatherContext, SubjectRef } from "@/engine/types";
 import { block, tag, textTag, untrusted } from "@/engine/xml";
@@ -21,7 +22,7 @@ export const URGENT_HOURS = 72;
 /** Messages put in a case file, newest kept. */
 export const MAX_MESSAGES = 10;
 
-export const MAX_INSTRUCTION_CHARS = 1000;
+export const MAX_INSTRUCTION_CHARS = 2000;
 
 export interface DisputeFacts {
   dispute: Dispute;
@@ -94,7 +95,8 @@ export async function buildDisputeCaseFile(
   };
   const request = instruction?.trim() ? truncate(instruction.trim(), MAX_INSTRUCTION_CHARS) : null;
   // Amounts in a custom skill's playbook ("disputes under $100") are a rule, not an offer to make.
-  const parsed = request && !opts.standing ? parseAmounts(request, dispute.currency) : { amounts: [], problems: [] };
+  // Offer amounts come from the merchant's own words, never from a file's.
+  const parsed = request && !opts.standing ? parseAmounts(merchantWords(request), dispute.currency) : { amounts: [], problems: [] };
   const amounts = [full, ...parsed.amounts.filter((a) => a.value !== full.value)];
 
   const tracking = dispute.tracking.map((t, i) => ({ ...t, id: `trk_${i + 1}` }));

@@ -508,6 +508,16 @@ tr:hover td { background: #F7F9FD; }
   #view [id^="set-"] { scroll-margin-top: 12px; }
 }
 
+/* Proof for a dispute (Disputes → Review): files Pyp reads and cites. */
+.proof { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--line); }
+.proof h4 { margin: 0 0 4px; }
+.proof ul { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.proof-item { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.proof-item p { margin: 4px 0 0; font-size: 13.5px; color: var(--muted); font-weight: 600; word-break: break-word; }
+.proof-item.is-bad { background: #FFF6F4; border-color: #F1C3BD; }
+.proof-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.proof-actions label { cursor: pointer; position: relative; }
+
 /* Settings → Connections (connections.js). */
 .cx-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
 .cx-item { padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }

@@ -37,9 +37,13 @@ export function costUsd(model: string, u: Omit<Usage, "costUsd">): number {
   );
 }
 
+/** Tokens a file costs to read, generously: an image up to ~1,600; a PDF page, its text plus an image of the page. */
+export const IMAGE_TOKENS = 2_000;
+export const PDF_PAGE_TOKENS = 3_500;
+
 /** A deliberately high estimate for reserving budget before a call: every input token uncached, every output token used. */
-export function estimateUsd(model: string, inputChars: number, maxOutputTokens: number): number {
+export function estimateUsd(model: string, inputChars: number, maxOutputTokens: number, attachmentTokens = 0): number {
   const p = priceFor(model);
-  const inputTokens = Math.ceil(inputChars / 3);
+  const inputTokens = Math.ceil(inputChars / 3) + attachmentTokens;
   return (inputTokens * Math.max(p.input, p.cacheWrite) + maxOutputTokens * p.output) / 1_000_000;
 }

@@ -385,11 +385,23 @@ export interface TraceStep {
 
 export type JSONSchema = Record<string, unknown>;
 
+/** A file the model reads with the turn: an image or a PDF, base64 (engine/document-reader.ts). */
+export interface Attachment {
+  kind: "image" | "pdf";
+  mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "application/pdf";
+  /** Base64, no line breaks. */
+  data: string;
+  /** For the spend estimate: a PDF's page count (images count as one). */
+  pages?: number;
+}
+
 export interface CompletionRequest {
   /** The cached part. Must not contain timestamps or run ids. */
   system: string;
   /** The per-run part: case file, menu, task. */
   turn: string;
+  /** Files the model reads before the turn (Claude only). */
+  attachments?: Attachment[];
   /** The response schema in the subset the Claude API accepts. */
   schema: JSONSchema;
   /** The same schema with length and size limits, for providers that enforce them. */

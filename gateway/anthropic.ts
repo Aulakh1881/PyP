@@ -3,7 +3,7 @@
 // to match it. Stall timers abort a call that stops streaming (design §7.7).
 
 import Anthropic from "@anthropic-ai/sdk";
-import type { AgentClient, CompletionRequest, GatewayEvent, StopReason } from "@/engine/types";
+import type { AgentClient, Attachment, CompletionRequest, GatewayEvent, StopReason } from "@/engine/types";
 import { CLAUDE_MODELS, costUsd } from "./models";
 
 export interface StallTimers {
@@ -43,7 +43,8 @@ export class AnthropicAgentClient implements AgentClient {
           max_tokens: req.maxOutputTokens,
           // The system prompt is identical across runs of a skill, so mark it for caching.
           system: [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }],
-          messages: [{ role: "user", content: req.turn }],
+          // Files go before the text, as the API recommends.
+          messages: [{ role: "user", content: req.attachments?.length ? [...req.attachments.map(attachmentBlock), { type: "text" as const, text: req.turn }] : req.turn }],
           output_config: {
             format: { type: "json_schema", schema: req.schema },
             ...(req.effort ? { effort: req.effort } : {}),
@@ -89,6 +90,11 @@ export class AnthropicAgentClient implements AgentClient {
       req.signal?.removeEventListener("abort", onOuterAbort);
     }
   }
+}
+
+function attachmentBlock(a: Attachment): Anthropic.Beta.BetaContentBlockParam {
+  if (a.kind === "pdf") return { type: "document", source: { type: "base64", media_type: "application/pdf", data: a.data } };
+  return { type: "image", source: { type: "base64", media_type: a.mediaType as "image/png" | "image/jpeg" | "image/gif" | "image/webp", data: a.data } };
 }
 
 function mapStop(reason: string | null): StopReason {

@@ -5,6 +5,7 @@ import type { CompletionRequest } from "@/engine/types";
 import { AnthropicAgentClient } from "./anthropic";
 import { BudgetExceeded, MemoryLedger, withBudget } from "./budget";
 import { createAgentClient } from "./index";
+import { estimateUsd, IMAGE_TOKENS, PDF_PAGE_TOKENS } from "./models";
 import { OllamaAgentClient } from "./ollama";
 import { ScriptedAgentClient } from "./scripted";
 
@@ -110,9 +111,39 @@ describe("Anthropic adapter", () => {
     expect(capture.params).not.toHaveProperty("fallbacks");
   });
 
+  it("sends attached files before the text, as image and PDF blocks", async () => {
+    const capture: { params?: any } = {};
+    await collect(
+      new AnthropicAgentClient(fakeClient(capture, message)).complete({
+        ...req,
+        attachments: [
+          { kind: "image", mediaType: "image/png", data: "aW1n" },
+          { kind: "pdf", mediaType: "application/pdf", data: "cGRm", pages: 2 },
+        ],
+      }),
+    );
+    expect(capture.params.messages).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: "image/png", data: "aW1n" } },
+          { type: "document", source: { type: "base64", media_type: "application/pdf", data: "cGRm" } },
+          { type: "text", text: "turn" },
+        ],
+      },
+    ]);
+  });
+
   it("reports refusals so the run can stop", async () => {
     const done = await collect(new AnthropicAgentClient(fakeClient({}, { ...message, stop_reason: "refusal", content: [] })).complete(req));
     expect(done.stopReason).toBe("refusal");
+  });
+});
+
+describe("spend estimate with files", () => {
+  it("counts each image and each PDF page before the call", () => {
+    const base = estimateUsd("claude-sonnet-5-5", 300, 1000);
+    expect(estimateUsd("claude-sonnet-5-5", 300, 1000, IMAGE_TOKENS + 3 * PDF_PAGE_TOKENS)).toBeCloseTo(base + ((IMAGE_TOKENS + 3 * PDF_PAGE_TOKENS) * 2.5) / 1_000_000, 9);
   });
 });
 

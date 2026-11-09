@@ -33,6 +33,8 @@ export class OllamaAgentClient implements AgentClient {
   }
 
   async *complete(req: CompletionRequest): AsyncIterable<GatewayEvent> {
+    // Pyp's local model reads text only; reading a file needs Claude.
+    if (req.attachments?.length) throw new Error("Reading files needs Claude (ANTHROPIC_API_KEY)");
     const res = await this.fetchImpl(`${this.baseUrl}/api/chat`, {
       method: "POST",
       headers: { "content-type": "application/json" },

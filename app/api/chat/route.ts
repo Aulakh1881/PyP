@@ -8,25 +8,35 @@ import { serverAgent } from "@/lib/agent";
 import { requireMerchant } from "@/lib/session";
 import { getPool } from "@/jobs/db";
 import { runChatMessage } from "@/jobs/chat-run";
+import { chatContext, getDocuments, MAX_CHAT_FILES } from "@/jobs/documents";
 import { runSweepNow } from "@/lib/sweeps";
 import { sharedPayPalHttp } from "@/paypal/http";
 import { PayPalReadClient } from "@/paypal/engine-reads";
 
 const Turn = z.object({
   from: z.enum(["merchant", "pyp"]),
-  text: z.string().max(1000),
+  // A merchant line may carry the files block it was sent with (so follow-ups keep the file).
+  text: z.string().max(2200),
   waiting: z.boolean().optional(),
   // Cards this Pyp line made; a question among them is closed when the merchant answers in chat.
   cardIds: z.array(z.string().uuid()).max(5).optional(),
 });
 // history: the last few lines of this chat, oldest first, so follow-ups make sense (engine/chat.ts).
-const Body = z.object({ message: z.string().trim().min(1).max(1000), history: z.array(Turn).max(20).optional() });
+// documentIds: files attached to this message (POST /api/documents first); what Pyp read in them rides along.
+const Body = z.object({
+  message: z.string().trim().min(1).max(1000),
+  history: z.array(Turn).max(20).optional(),
+  documentIds: z.array(z.string().uuid()).max(MAX_CHAT_FILES).optional(),
+});
 
 export async function POST(request: Request) {
   const session = await requireMerchant();
   if (session instanceof Response) return session;
   const body = Body.safeParse(await request.json().catch(() => null));
   if (!body.success) return Response.json({ error: "Send { message } with 1 to 1000 characters (and at most 20 lines of history)" }, { status: 400 });
+
+  const docs = await getDocuments(getPool(), session.merchantId, body.data.documentIds ?? []).catch(() => []);
+  const files = chatContext(docs);
 
   const read = new PayPalReadClient(sharedPayPalHttp());
   const outcome = await runChatMessage(
@@ -41,6 +51,8 @@ export async function POST(request: Request) {
     body.data.message,
     request.signal,
     body.data.history ?? [],
+    files,
   );
-  return Response.json(outcome);
+  // files: the block the browser keeps with this message in its history, so a follow-up keeps the file.
+  return Response.json({ ...outcome, files });
 }

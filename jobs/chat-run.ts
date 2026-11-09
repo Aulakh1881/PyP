@@ -49,6 +49,8 @@ export async function runChatMessage(
   message: string,
   signal?: AbortSignal,
   history: ChatTurn[] = [],
+  /** What attached files say (a files block); data, kept apart from the merchant's words. */
+  files?: string,
 ): Promise<ChatRunOutcome> {
   const { merchant, rules } = await loadMerchant(deps.pool, merchantId);
   const ctx = { merchant, rules, read: deps.read, db: engineDb(deps.pool, merchantId), now: deps.now ?? (() => new Date()) };
@@ -71,7 +73,7 @@ export async function runChatMessage(
     await addFact(deps.pool, merchantId, { text: f.text, clientEmail, status: "active", source: "chat" });
     return "active" as const;
   };
-  const chat = await handleChat({ message, chatId: randomUUID(), subjects, history, saveClient, saveFact, ctx, agent: deps.agent, signal });
+  const chat = await handleChat({ message, files, chatId: randomUUID(), subjects, history, saveClient, saveFact, ctx, agent: deps.agent, signal });
   const fact = chat.rememberedFact;
   const factLine = memoryLine(fact, chat.reply);
   const savedLine = chat.savedClient?.status === "saved" && chat.route !== "add_client" ? `Saved ${chat.savedClient.name} to your clients. ` : "";
