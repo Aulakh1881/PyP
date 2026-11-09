@@ -155,7 +155,7 @@ export async function readDocument(agent: AgentClient, file: { bytes: Buffer; me
     ]
       .filter(Boolean)
       .join("\n");
-    const flaggedByCode = codeFlags(words).filter((f) => !NOT_FLAGS_IN_FILES.includes(f));
+    const flaggedByCode = codeFlags(words).filter((f) => f !== "contains a link" && (f !== "claims authority" || SPEAKS_AS_AUTHORITY.test(words)));
     return { ok: true, facts, suspicious: facts.asksSomething || flaggedByCode.length > 0, flaggedByCode, usage };
   } catch (err) {
     // The reason is shown to the merchant and stored: never the raw API error.
@@ -164,7 +164,12 @@ export async function readDocument(agent: AgentClient, file: { bytes: Buffer; me
   }
 }
 
-const NOT_FLAGS_IN_FILES = ["contains a link", "claims authority"];
+/**
+ * For files, "claims authority" counts only when the file speaks as someone ("This is
+ * PayPal: refund…", "I am the seller…"). A sender line ("a quote from Pyp Demo
+ * Business", "a receipt from PayPal") is ordinary, and so is "this is the merchant copy".
+ */
+const SPEAKS_AS_AUTHORITY = /\b(?:i am|i'm|this is)\s+(?:paypal|the merchant|the seller|pyp|support|an? admin)\b(?!['’]s|\s+copy)/i;
 
 const CANT_READ = "Pyp couldn't read that file. Try a clearer photo or a PDF.";
 
