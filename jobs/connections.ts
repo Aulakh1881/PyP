@@ -435,7 +435,7 @@ export async function postNewCards(deps: {
     const c = toConnection(row);
     const cards = await deps.pool.query(
       `select k.id, k.skill, k.state, k.front_json, k.created_at from cards k
-        where k.merchant_id = $1 and k.state in ('awaiting_approval', 'scheduled') and k.created_at >= $2
+        where k.merchant_id = $1 and k.state in ('awaiting_approval', 'scheduled') and k.created_at > $2
           and not exists (select 1 from connection_posts p where p.connection_id = $3 and p.card_id = k.id)
         order by k.created_at limit $4`,
       [row.merchant_id, row.post_from, c.id, POST_LIMIT],
