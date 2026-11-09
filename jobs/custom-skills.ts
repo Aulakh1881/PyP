@@ -156,7 +156,7 @@ export async function runSkillLocked(deps: SweepDeps, merchantId: string, s: Sto
   const out: SkillRunOutcome = { status: "ok", at: now().toISOString(), found: 0, matched: 0, skipped: 0, ran: 0, cardIds: [], failed: [], notes: [] };
   if (opts.dryRun) out.previews = [];
   const { merchant, rules } = await loadMerchant(deps.pool, merchantId);
-  if (rules.killSwitch) return { ...out, status: "paused", message: "Pyp is paused (kill switch on)" };
+  if (rules.killSwitch) return { ...out, status: "paused", message: "Pyp is paused. Turn it back on in Settings." };
   const plan = skillPlan(s.name, s.spec);
   const watch = watchDef(s.spec.watch);
   if (!plan || !watch) return { ...out, status: "waiting", message: "Finish this skill before running it" };

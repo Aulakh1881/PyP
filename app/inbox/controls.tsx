@@ -103,7 +103,7 @@ export function ControlsPanel({ onCardsChanged }: { onCardsChanged: () => Promis
           <p className="hint">{c.killSwitch ? "Nothing goes to PayPal until you resume." : "Every action follows your rules below."}</p>
         </div>
         <button className={c.killSwitch ? "btn" : "btn btn-danger"} onClick={toggleKill} disabled={busy !== null} aria-pressed={c.killSwitch}>
-          {busy === "kill" ? "…" : c.killSwitch ? "Resume Pyp" : "Pause Pyp (kill switch)"}
+          {busy === "kill" ? "…" : c.killSwitch ? "Resume Pyp" : "Pause Pyp"}
         </button>
       </div>
 

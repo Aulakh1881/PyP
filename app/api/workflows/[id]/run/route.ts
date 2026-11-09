@@ -17,6 +17,6 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/workflows/
   const out = await runWorkflowNow(session.merchantId, id);
   if (!out) return Response.json({ error: "No such workflow" }, { status: 404 });
   if (out.status === "busy") return Response.json({ ...out, message: "Pyp is already running a check; try again in a minute" }, { status: 409 });
-  if (out.status === "paused") return Response.json({ ...out, message: "Pyp is paused (kill switch on)" }, { status: 409 });
+  if (out.status === "paused") return Response.json({ ...out, message: "Pyp is paused. Turn it back on in Settings." }, { status: 409 });
   return Response.json(out);
 }
