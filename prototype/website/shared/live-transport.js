@@ -554,6 +554,37 @@
         if (!r.ok) throw new Error(r.body.message || r.body.error || 'The workflow didn’t run (' + r.status + ').');
         return r.body;
       },
+      // Setup → Connections (/api/connections, /api/slack/link): Slack, Discord and any app.
+      // The server keeps the URLs and secrets; these only see them masked.
+      connections: function () { return read('/api/connections', 'Your connections'); },
+      saveConnection: async function (kind, url) {
+        var r = await api('/api/connections/' + encodeURIComponent(kind), { method: 'PUT', body: JSON.stringify({ url: url }) });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn’t save that (' + r.status + ').');
+        return r.body;
+      },
+      setConnection: async function (kind, enabled) {
+        var r = await api('/api/connections/' + encodeURIComponent(kind), { method: 'PATCH', body: JSON.stringify({ enabled: enabled }) });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn’t change that (' + r.status + ').');
+        return r.body;
+      },
+      deleteConnection: async function (kind) {
+        var r = await api('/api/connections/' + encodeURIComponent(kind), { method: 'DELETE' });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn’t remove that (' + r.status + ').');
+      },
+      testConnection: async function (kind) {
+        var r = await api('/api/connections/' + encodeURIComponent(kind) + '/test', { method: 'POST' });
+        if (!r.ok) throw new Error(r.body.error || 'The test didn’t send (' + r.status + ').');
+        return r.body;
+      },
+      slackCode: async function () {
+        var r = await api('/api/slack/link', { method: 'POST' });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn’t make a code (' + r.status + ').');
+        return r.body;
+      },
+      slackUnlink: async function () {
+        var r = await api('/api/slack/link', { method: 'DELETE' });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn’t unlink Slack (' + r.status + ').');
+      },
       // The merchant's custom skills (/api/skills): Pyp's judgment, their way. Run now
       // makes cards like any run; Try it and drafting save nothing and send nothing.
       skills: async function () {

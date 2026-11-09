@@ -1036,8 +1036,12 @@
         '<section class="panel" id="set-checks"><h2>Daily checks</h2><p>Pyp checks these every morning from 8:00 your time. Run one now: anything that needs you shows up in your Inbox.</p>' +
         '<p class="sweeps"><button type="button" class="btn btn-ghost" data-sweep="overdue-invoices">Check overdue invoices</button> ' +
         '<button type="button" class="btn btn-ghost" data-sweep="dispute-deadlines">Check dispute deadlines</button> ' +
-        '<button type="button" class="btn btn-ghost" data-sweep="weekly-brief">Weekly brief now</button></p></section>';
+        '<button type="button" class="btn btn-ghost" data-sweep="weekly-brief">Weekly brief now</button></p></section>' +
+
+        '<section class="panel" id="set-connections" data-connections></section>';
       dropJumps();
+      var cx = view.querySelector('[data-connections]');
+      if (cx && window.PypConnections) window.PypConnections.mount(cx, transport, { toast: toast });
     }
 
     function onClick(e) {
