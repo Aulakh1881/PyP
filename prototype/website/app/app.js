@@ -1036,7 +1036,11 @@
         '<button type="button" class="btn btn-ghost" data-sweep="dispute-deadlines">Check dispute deadlines</button> ' +
         '<button type="button" class="btn btn-ghost" data-sweep="weekly-brief">Weekly brief now</button></p></section>' +
 
+        '<section class="panel" data-connections></section>' +
+
         '<section class="panel"><h2>Live data</h2><p>Cards, the activity log and PayPal data on this page are live from your sandbox. These controls are saved on the Pyp server and apply everywhere: this page, the Chrome extension and the worker.</p></section>';
+      var cx = view.querySelector('[data-connections]');
+      if (cx && window.PypConnections) window.PypConnections.mount(cx, transport, { toast: toast });
     }
 
     function onClick(e) {
