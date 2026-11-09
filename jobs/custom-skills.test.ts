@@ -143,6 +143,25 @@ describe.skipIf(!TEST_DB_URL)("custom skills (Postgres)", () => {
     expect(s.lastOutcome).toMatchObject({ status: "error", message: "PayPal 503" });
   });
 
+  it("a failing skill backs off (15, 30… minutes), and never overwrites a schedule the merchant just changed", async () => {
+    const { skill } = (await saveSkill(pool, DEMO_MERCHANT, { name: "Big ones", enabled: true, spec: bigOnes }, { now: NOW, timeZone: LA }))!;
+    const at1 = new Date("2026-10-28T16:01:00Z");
+    const broken = (onRead?: () => Promise<void>): SweepReads => ({ ...reads([]), overdueInvoices: async () => { await onRead?.(); throw new Error("PayPal 503"); } });
+    await runDueSkills({ pool, read: broken(), agent: new ScriptedAgentClient([]), now: () => at1 });
+    const at2 = new Date("2026-10-28T16:16:00Z");
+    await runDueSkills({ pool, read: broken(), agent: new ScriptedAgentClient([]), now: () => at2 });
+    let s = (await listSkills(pool, DEMO_MERCHANT))[0];
+    expect(s.lastOutcome).toMatchObject({ status: "error", failures: 2 });
+    expect(s.nextRunAt).toBe("2026-10-28T16:46:00.000Z"); // 30 minutes after the second failure
+
+    // The merchant moves it to manual while a run is in flight; the failed run's retry must not undo that.
+    const at3 = new Date("2026-10-28T16:46:00Z");
+    const edit = () => saveSkill(pool, DEMO_MERCHANT, { name: "Big ones", enabled: true, spec: { ...bigOnes, schedule: { kind: "manual" } } }, { id: skill.id, now: at3, timeZone: LA }).then(() => {});
+    await runDueSkills({ pool, read: broken(edit), agent: new ScriptedAgentClient([]), now: () => at3 });
+    s = (await listSkills(pool, DEMO_MERCHANT))[0];
+    expect(s.nextRunAt).toBeNull();
+  });
+
   it("claims a due skill whatever the timestamp's precision (set by SQL now())", async () => {
     await saveSkill(pool, DEMO_MERCHANT, { name: "Big ones", enabled: true, spec: bigOnes }, { now: NOW, timeZone: LA });
     await pool.query("update custom_skills set next_run_at = now() - interval '1 minute'");

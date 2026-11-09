@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { describeSchedule, describeSkill, nextRun, passesFilters, skillPlan, skillProblems, zonedTime, type SkillSpec } from "./custom-skills";
+import { buildTurnPrompt } from "./prompt-builder";
 import { normalise } from "./skill-draft";
 
 const LA = "America/Los_Angeles";
@@ -35,6 +36,15 @@ describe("zonedTime", () => {
     expect(zonedTime("2026-03-29", "01:30", "Europe/London").toISOString()).toBe("2026-03-29T01:30:00.000Z");
     // 01:30 happens twice on Nov 1 in New York: the first, 01:30 EDT, 05:30 UTC.
     expect(zonedTime("2026-11-01", "01:30", "America/New_York").toISOString()).toBe("2026-11-01T05:30:00.000Z");
+    // Zones ahead of UTC too: London's repeated 01:30 on Oct 25 runs the first time (BST, 00:30 UTC).
+    expect(zonedTime("2026-10-25", "01:30", "Europe/London").toISOString()).toBe("2026-10-25T00:30:00.000Z");
+    expect(zonedTime("2026-04-05", "02:30", "Australia/Sydney").toISOString()).toBe("2026-04-04T15:30:00.000Z"); // AEDT, the first
+  });
+
+  it("a custom skill's playbook is shown to Pyp as standing guidance, never as a request", () => {
+    const turn = buildTurnPrompt({ xml: "<case-file/>", facts: {}, ids: [] } as never, [], { killSwitch: false, undoSeconds: 60, commands: {} } as never, "Decide.", "Never refund over $50.", true);
+    expect(turn).toContain('<merchant-playbook kind="standing guidance, not a request about this case">Never refund over $50.</merchant-playbook>');
+    expect(turn).not.toContain("<merchant-instruction>");
   });
 });
 

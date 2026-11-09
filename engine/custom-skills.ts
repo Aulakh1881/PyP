@@ -231,13 +231,13 @@ export function zonedTime(date: string, hhmm: string, timeZone: string): Date {
   const [y, m, d] = date.split("-").map(Number);
   const [hh, mm] = hhmm.split(":").map(Number);
   const wall = Date.UTC(y, m - 1, d, hh, mm);
-  const a1 = wall - offsetAt(wall, timeZone);
-  const a2 = wall - offsetAt(a1, timeZone); // once more, in case the guess crossed a DST change
+  // The offsets a day either side: one is before any change that night, one after.
+  const candidates = [wall - offsetAt(wall - DAY_MS, timeZone), wall - offsetAt(wall + DAY_MS, timeZone)];
   // Keep a candidate that really reads as this local time (the earlier one when the
   // clocks go back and it happens twice); none does in the spring-forward gap: the later.
   const reads = (at: number) => at + offsetAt(at, timeZone) === wall;
-  const real = [a1, a2].filter(reads);
-  return new Date(real.length ? Math.min(...real) : Math.max(a1, a2));
+  const real = candidates.filter(reads);
+  return new Date(real.length ? Math.min(...real) : Math.max(...candidates));
 }
 
 function addDays(date: string, n: number): string {

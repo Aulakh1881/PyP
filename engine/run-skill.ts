@@ -153,7 +153,7 @@ export async function runSkill<F>(input: RunInput<F>): Promise<RunResult<F>> {
   const task = input.task ?? skill.task?.(subject) ?? `Decide what to do about ${subject.kind} ${subject.id} now.`;
   let turn: string;
   try {
-    turn = buildTurnPrompt(cf, menu, ctx.rules, task, cf.includesInstruction ? undefined : input.instruction);
+    turn = buildTurnPrompt(cf, menu, ctx.rules, task, cf.includesInstruction ? undefined : input.instruction, input.instructionKind === "standing");
   } catch (err) {
     return failed(`Couldn't build the prompt: ${(err as Error).message}`);
   }

@@ -140,6 +140,8 @@ export interface SkillRunOutcome {
   notes: string[];
   previews?: SkillPreview[];
   message?: string;
+  /** Failed scheduled runs in a row, for the retry backoff. */
+  failures?: number;
 }
 
 const LABEL = (cmd: string) => SKILL_ACTIONS.find((a) => a.command === cmd)?.label ?? (cmd === "merchant.ask" ? "Ask you a question" : cmd);
@@ -278,14 +280,19 @@ export async function runDueSkills(deps: SweepDeps): Promise<{ skillId: string; 
   for (const row of due.rows as Record<string, unknown>[]) {
     const s = toSkill(row);
     const merchantId = String(row.merchant_id);
-    const next = nextRun(s.spec.schedule, now, String(row.timezone), now);
+    // "Every N days" counts from when it was due, so a late run or a retry keeps the rhythm.
+    const dueAt = new Date(row.next_run_at as string);
+    const next = nextRun(s.spec.schedule, now, String(row.timezone), dueAt);
     // Atomic: only one worker moves a due, switched-on skill to its next time.
     const claimed = await deps.pool.query("update custom_skills set next_run_at = $3 where id = $1 and enabled and next_run_at <= $2 returning id", [s.id, now, next]);
     if (!claimed.rows[0]) continue; // another worker has it, or it was switched off
-    // Try again soon, but never later than the next scheduled time; a skill switched off meanwhile stays off.
+    // Try again soon, but never later than the next scheduled time. Only if the row still holds what
+    // the claim wrote: a skill switched off or rescheduled meanwhile keeps the merchant's change.
     const retryIn = async (minutes: number) => {
       const at = new Date(now.getTime() + minutes * 60_000);
-      if (!next || at < next) await deps.pool.query("update custom_skills set next_run_at = $2 where id = $1 and enabled", [s.id, at]);
+      if (!next || at < next) {
+        await deps.pool.query("update custom_skills set next_run_at = $2 where id = $1 and enabled and next_run_at is not distinct from $3", [s.id, at, next]);
+      }
     };
     try {
       const out = await withSweepLock(deps.pool, merchantId, () => runSkillLocked(deps, merchantId, s));
@@ -300,8 +307,11 @@ export async function runDueSkills(deps: SweepDeps): Promise<{ skillId: string; 
       // PayPal or the database failed before any subject ran: say so on the page and try again.
       const message = (err as Error).message;
       const out: SkillRunOutcome = { status: "error", at: now.toISOString(), found: 0, matched: 0, skipped: 0, ran: 0, cardIds: [], failed: [message], notes: [], message };
+      // Back off while it keeps failing: 15 min, 30, 60… up to a day (PayPal reads only; no model calls).
+      const failures = s.lastOutcome?.status === "error" ? (s.lastOutcome.failures ?? 1) + 1 : 1;
+      out.failures = failures;
       await recordRun(deps.pool, merchantId, s.id, out).catch(() => {});
-      await retryIn(ERROR_RETRY_MINUTES).catch(() => {});
+      await retryIn(Math.min(ERROR_RETRY_MINUTES * 2 ** (failures - 1), 24 * 60)).catch(() => {});
       done.push({ skillId: s.id, name: s.name, outcome: { status: "error", message } });
     }
   }

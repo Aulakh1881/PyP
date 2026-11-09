@@ -37,6 +37,7 @@ export function buildTurnPrompt<F>(
   rules: MerchantRules,
   task: string,
   instruction?: string,
+  standing = false,
 ): string {
   const commands = menu
     .map((cmd) => {
@@ -48,7 +49,9 @@ export function buildTurnPrompt<F>(
 
   const parts = [cf.xml, `<commands>\n${commands}\n</commands>`];
   // A merchant's own words from chat. Trusted (they are the merchant), but still escaped.
-  if (instruction) parts.push(`<merchant-instruction>${esc(truncate(instruction, MAX_INSTRUCTION_CHARS))}</merchant-instruction>`);
+  // A custom skill's playbook is standing guidance for many cases, not a request about this one.
+  if (instruction && standing) parts.push(`<merchant-playbook kind="standing guidance, not a request about this case">${esc(truncate(instruction, MAX_INSTRUCTION_CHARS))}</merchant-playbook>`);
+  else if (instruction) parts.push(`<merchant-instruction>${esc(truncate(instruction, MAX_INSTRUCTION_CHARS))}</merchant-instruction>`);
   parts.push(`<task>${esc(task)}</task>`);
   return parts.join("\n");
 }

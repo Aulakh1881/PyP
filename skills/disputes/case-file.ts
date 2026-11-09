@@ -176,7 +176,8 @@ export async function buildDisputeCaseFile(
           notes.map((n, i) => textTag("note", { id: noteIds[i] }, n)),
         )
       : "",
-    request ? textTag("merchant-request", {}, request) : "",
+    // A custom skill's playbook covers many disputes; it is never "the merchant asked" about this one.
+    request ? (opts.standing ? textTag("merchant-playbook", { kind: "standing guidance, not a request about this dispute" }, request) : textTag("merchant-request", {}, request)) : "",
     block(
       "offer-amounts",
       { source: "code: the disputed amount, plus any the merchant named" },
