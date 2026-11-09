@@ -554,6 +554,8 @@
     view.innerHTML = '<section class="panel"><h2>PayPal disputes</h2><p>Read-only disputes from your connected sandbox merchant.</p><div data-dispute-results><div class="loading">Loading disputes…</div></div></section>';
     var results = view.querySelector('[data-dispute-results]');
     var DAY = 24 * 60 * 60 * 1000;
+    // Bryntum is served from node_modules by `npm run live` only; the static demo has no timeline.
+    var liveData = !!(window.PYP_CONFIG && window.PYP_CONFIG.live);
     var currentScheduler = null;
     var loadId = 0;
     function destroyScheduler() {
@@ -626,6 +628,8 @@
             '<td><button class="btn btn-ghost dispute-review-btn" type="button" data-review-dispute="' + esc(item.id) + '">Review</button></td></tr>';
         }).join('');
         var totalPages = data.totalPages || 1;
+        // PayPal's disputes list may not report a total, so a full page can still mean more exist.
+        var pageOnly = totalPages > 1 || disputes.length >= pageSize ? ' (this page)' : '';
         var now = Date.now();
         var dueSoon = disputes.filter(function (item) {
           var due = new Date(item.responseDueDate).getTime();
@@ -636,8 +640,8 @@
           return isFinite(due) && due < now && !isClosed(item);
         }).length;
         results.innerHTML =
-          (rows ? '<section class="dispute-schedule"><div class="dispute-schedule-heading"><div><h3>Dispute deadline schedule</h3><p class="note">A read-only timeline of the time remaining to respond.</p></div><span class="schedule-legend"><span class="schedule-dot schedule-dot-green"></span>7+ days <span class="schedule-dot schedule-dot-amber"></span>Due soon <span class="schedule-dot schedule-dot-red"></span>Overdue <span class="schedule-dot schedule-dot-milestone"></span>Milestones</span></div><div class="dispute-scheduler" data-dispute-scheduler><div class="loading">Loading schedule…</div></div></section>' : '') +
-          (rows ? '<div class="dispute-urgency" aria-label="Dispute deadline summary"><div><strong>' + esc(String(data.totalItems || 0)) + '</strong><span>Total disputes</span></div><div class="' + (dueSoon ? 'is-warning' : '') + '"><strong>' + esc(String(dueSoon)) + '</strong><span>Due within 7 days' + (totalPages > 1 ? ' (this page)' : '') + '</span></div><div class="' + (overdue ? 'is-danger' : '') + '"><strong>' + esc(String(overdue)) + '</strong><span>Overdue' + (totalPages > 1 ? ' (this page)' : '') + '</span></div></div>' : '') +
+          (rows && liveData ? '<section class="dispute-schedule"><div class="dispute-schedule-heading"><div><h3>Dispute deadline schedule</h3><p class="note">A read-only timeline of the time remaining to respond.</p></div><span class="schedule-legend"><span class="schedule-dot schedule-dot-green"></span>7+ days <span class="schedule-dot schedule-dot-amber"></span>Due soon <span class="schedule-dot schedule-dot-red"></span>Overdue <span class="schedule-dot schedule-dot-milestone"></span>Milestones</span></div><div class="dispute-scheduler" data-dispute-scheduler><div class="loading">Loading schedule…</div></div></section>' : '') +
+          (rows ? '<div class="dispute-urgency" aria-label="Dispute deadline summary"><div><strong>' + esc(String(data.totalItems || 0)) + '</strong><span>Total disputes</span></div><div class="' + (dueSoon ? 'is-warning' : '') + '"><strong>' + esc(String(dueSoon)) + '</strong><span>Due within 7 days' + pageOnly + '</span></div><div class="' + (overdue ? 'is-danger' : '') + '"><strong>' + esc(String(overdue)) + '</strong><span>Overdue' + pageOnly + '</span></div></div>' : '') +
           '<div class="transaction-summary">' + esc(String(data.totalItems)) + ' dispute' + (data.totalItems === 1 ? '' : 's') + ' found</div>' +
           (rows ? '<div class="tablewrap"><table><thead><tr><th>Dispute ID</th><th>Status</th><th>Reason</th><th>Created</th><th>Response due</th><th>Time remaining</th><th class="num">Amount</th><th>Review</th></tr></thead><tbody>' + rows + '</tbody></table></div>' :
           '') +
@@ -940,7 +944,10 @@
 
   /* ---------------- Weekly brief ---------------- */
   function renderBrief() {
+    var current = true; // the brief reads PayPal three times; don't paint over a page opened meanwhile
+    cleanup.push(function () { current = false; });
     transport.brief().then(function (b) {
+      if (!current) return;
       var trends = b.trends;
       var trendMarkup = '';
       if (trends) {
@@ -967,7 +974,7 @@
           (trends.partial ? '<p class="note">' + esc(trends.partial) + '</p>' : '') + '</section>';
       }
       view.innerHTML =
-        '<section class="panel"><h2>' + esc(b.week) + '</h2><p>Pyp’s look at the last 28 days of your business. Insights only reads; it never changes anything in PayPal.</p>' +
+        '<section class="panel"><h2>' + esc(b.week) + '</h2><p>' + (trends ? 'Pyp’s look at the last 28 days of your business.' : 'Pyp’s weekly look at your business.') + ' Insights only reads; it never changes anything in PayPal.</p>' +
         '<div class="stats">' + b.stats.map(function (s) {
           return '<div class="stat"><span>' + esc(s.label) + '</span><b>' + esc(s.value) + '</b><small>' + esc(s.note) + '</small></div>';
         }).join('') + '</div>' +
