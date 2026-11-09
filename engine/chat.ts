@@ -94,8 +94,19 @@ export function requestWithFollowUps(history: ChatTurn[], message: string): stri
   return [...earlier, message].join("\n");
 }
 
+/** A lasting fact the merchant stated in chat, for Pyp's memory. */
+export interface ChatFact {
+  text: string;
+  /** The client it's about, as the merchant named them; null for the whole business. */
+  client: string | null;
+  /** True when they asked Pyp to remember it: saved at once. Otherwise it waits for them to confirm. */
+  explicit: boolean;
+}
+
 export interface ChatResult {
   route: ChatRoute;
+  /** A fact Pyp saved from this message: active ("remember that…") or waiting for the merchant to confirm. */
+  rememberedFact?: { text: string; status: "active" | "proposed" };
   /** True when this message answered Pyp or added to the same request. */
   continues: boolean;
   /** A client from the merchant's words that code saved (or found already saved) before running. */
@@ -126,6 +137,7 @@ Draft and send invoices; chase, remind about or cancel an open invoice; answer a
 - Use only refs from <subjects>. If two could fit, choose none and ask which, naming the ones that fit by number and amount from <subjects> ("Invoice 0012 for $450.00 or 0011 for $200.00?"), up to four.
 - continues is true when the message answers Pyp's last question or adds to the same request (an amount, terms, which one, an email). It is false when it starts something new: "Actually, invoice Sam $50 instead" is new. With no <conversation>, it is false.
 - newClient: when the merchant gives an email address for someone, in this message or earlier in the same request, newClient is the name they used for that person or business, exactly as they wrote it, and that email. Otherwise null. Never guess an email.
+- remember: when the merchant states a lasting fact about how their business works or about a client ("Acme always pays on the 15th", "I never charge late fees", "Sam prefers email"), write it as one short sentence in their words, the client's name if it's about one, and explicit true only if they asked you to remember it. A one-off request ("invoice Acme $50") is not a fact: null.
 - Keep to what the conversation is doing: if the merchant asked to chase an invoice and now names a client, they mean one of that client's open invoices, not a new invoice.
 - reply is one or two short sentences to the merchant, plain English, no links. For new_invoice, invoice or dispute, say what you're doing ("Drafting that invoice now.").
 - Talk to the merchant directly, as "you", in your own voice as Pyp ("I"). Never write "the merchant", "merchant wants" or "they" for them: write "Which client is this for, and how much?", not "Merchant wants an invoice but no amount was given."
@@ -141,6 +153,8 @@ export async function handleChat(input: {
   subjects: ChatSubject[];
   /** The chat so far, oldest first (the browser keeps it). */
   history?: ChatTurn[];
+  /** Saves a fact for Pyp's memory. Unset = nothing is remembered from chat. */
+  saveFact?: (fact: ChatFact) => Promise<"active" | "proposed">;
   /** Saves a client from the merchant's words (Pyp's list, not PayPal). Unset = clients can't be added from chat. */
   saveClient?: (client: ChatClient) => Promise<"saved" | "exists">;
   ctx: SkillContext;
@@ -157,11 +171,13 @@ export async function handleChat(input: {
     .map((t) => ({ ...t, text: truncate(t.text.trim(), MAX_HISTORY_TURN_CHARS) }))
     .filter((t) => t.text);
   let savedClient: ChatResult["savedClient"];
+  let rememberedFact: ChatResult["rememberedFact"];
   let continues = false;
   const answer = (route: ChatRoute, reply: string, subject: SubjectRef | null = null, run: RunResult | null = null): ChatResult => ({
     route,
     continues,
     ...(savedClient ? { savedClient } : {}),
+    ...(rememberedFact ? { rememberedFact } : {}),
     subject,
     reply,
     run,
@@ -189,6 +205,10 @@ export async function handleChat(input: {
       .object({ name: z.string().max(120), email: z.string().max(254) })
       .nullable()
       .describe("A person or business the merchant gave an email for, in their own words. Null if none."),
+    remember: z
+      .object({ text: z.string().max(300), client: z.string().max(120).nullable(), explicit: z.boolean() })
+      .nullable()
+      .describe("A lasting fact the merchant stated about their business or a client. Null if none."),
   });
 
   const turn = [
@@ -235,6 +255,17 @@ export async function handleChat(input: {
   const reply = hasLink(parsed.reply) ? "On it." : parsed.reply;
   // A new request starts fresh; only a follow-up carries the merchant's earlier words.
   continues = parsed.continues && history.length > 0;
+  // A lasting fact: saved for Pyp's memory (an "explicit" one at once; the rest wait for the merchant).
+  const fact = parsed.remember;
+  if (fact && input.saveFact && fact.text.trim() && !hasLink(fact.text)) {
+    try {
+      const text = fact.text.trim();
+      rememberedFact = { text, status: await input.saveFact({ text, client: fact.client?.trim() || null, explicit: fact.explicit }) };
+      trace.step("decide", `Fact ${rememberedFact.status === "active" ? "remembered" : "noted for you to confirm"}: ${text}`);
+    } catch (err) {
+      trace.step("error", `Couldn't save the fact: ${(err as Error).message}`);
+    }
+  }
   const request = continues ? requestWithFollowUps(history, message) : message;
   // A client is saved only from the merchant's own words: code checks the name and email are there.
   const client = clientFromWords(parsed.newClient, request);

@@ -173,7 +173,12 @@ export interface Transaction {
 export interface EngineDb {
   remindersSent(invoiceId: string): Promise<{ count: number; lastSentAt: string | null }>;
   remindCallsToday(merchantId: string): Promise<number>;
-  merchantNotes(subject: SubjectRef): Promise<string[]>;
+  /**
+   * What the merchant told Pyp (their memory page, or "remember that…" in chat): facts
+   * about the whole business, this subject, and these clients (by email). For Pyp's
+   * judgment only; never quoted to clients.
+   */
+  merchantNotes(subject: SubjectRef, clientEmails?: string[]): Promise<string[]>;
   /**
    * A structured "hold off" the merchant set on a subject ("client replied,
    * paying Friday"). While one is active, code stops reminders; the model

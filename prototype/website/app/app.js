@@ -76,6 +76,8 @@
     invoices: { title: 'Invoices', render: renderInvoices },
     disputes: { title: 'Disputes', render: renderDisputes },
     clients: { title: 'Clients', render: renderClients },
+    memory: { title: 'Pyp\u2019s memory', render: renderMemory },
+    workflows: { title: 'Workflows', render: function () { window.PypWorkflows.render(view, transport, { toast: toast, cleanup: cleanup }); } },
     inbox: { title: 'Inbox', render: renderInbox },
     activity: { title: 'Activity', render: renderActivity },
     brief: { title: 'Weekly brief', render: renderBrief },
@@ -204,6 +206,108 @@
       loadTransactions();
     });
     loadTransactions();
+  }
+
+  /* ---------------- Pyp's memory ---------------- */
+  // What Pyp knows about the business: facts the merchant added, and facts Pyp
+  // noticed in chat waiting to be confirmed. They reach case files as notes for
+  // Pyp's judgment, never sent to clients and never above code's checks.
+  function renderMemory() {
+    if (!transport.facts) {
+      view.innerHTML = '<section class="panel"><h2>Pyp’s memory</h2><p>Sign in to the live dashboard to see what Pyp knows.</p></section>';
+      return;
+    }
+    var facts = null;
+    var clients = [];
+    var editingId = null;
+
+    function load() {
+      Promise.all([transport.facts(), transport.clients ? transport.clients().catch(function () { return { saved: [], fromPayPal: [] }; }) : { saved: [], fromPayPal: [] }]).then(function (r) {
+        facts = r[0].facts || [];
+        var seen = {};
+        clients = (r[1].saved || []).concat(r[1].fromPayPal || []).filter(function (c) {
+          var k = c.email.toLowerCase();
+          if (seen[k]) return false;
+          seen[k] = true;
+          return true;
+        });
+        draw();
+      }, function (e) {
+        view.innerHTML = '<section class="panel"><h2>Pyp’s memory</h2><p class="setup-error">' + esc(e.message) + '</p></section>';
+      });
+    }
+
+    function clientName(email) {
+      var c = clients.filter(function (x) { return x.email.toLowerCase() === String(email).toLowerCase(); })[0];
+      return c ? (c.businessName || c.name || c.email) : email;
+    }
+    function clientSelect(selected) {
+      return '<select name="clientEmail"><option value="">Your whole business</option>' +
+        clients.map(function (c) { return '<option value="' + esc(c.email) + '"' + (selected && selected.toLowerCase() === c.email.toLowerCase() ? ' selected' : '') + '>' + esc(c.businessName || c.name || c.email) + '</option>'; }).join('') +
+        '</select>';
+    }
+    function form(f) {
+      f = f || {};
+      return '<form class="fact-form" data-fact-form' + (f.id ? ' data-id="' + esc(f.id) + '"' : '') + '>' +
+        '<label class="fact-text"><span class="sr-label">The fact</span><input name="text" maxlength="300" required value="' + esc(f.text || '') + '" placeholder="e.g. Acme always pays on the 15th"></label>' +
+        '<label class="fact-about"><span class="sr-label">About</span>' + clientSelect(f.clientEmail) + '</label>' +
+        '<button class="btn btn-sm" type="submit">' + (f.id ? 'Save' : 'Remember this') + '</button>' +
+        (f.id ? '<button class="btn btn-ghost btn-sm" type="button" data-cancel>Cancel</button>' : '') +
+        '</form>';
+    }
+    function row(f) {
+      if (editingId === f.id) return '<li class="fact">' + form(f) + '</li>';
+      var about = f.clientEmail ? '<span class="chip chip-info">' + esc(clientName(f.clientEmail)) + '</span>' : f.subjectRef ? '<span class="chip chip-muted">' + esc(f.subjectRef.replace(':', ' ')) + '</span>' : '';
+      return '<li class="fact" data-fact="' + esc(f.id) + '"><div class="fact-main"><p>' + esc(f.text) + '</p><div class="fact-meta">' + about +
+        (f.source === 'chat' ? '<span class="chip chip-muted">from chat</span>' : '') + '</div></div>' +
+        '<div class="row-actions">' + (f.status === 'proposed' ? '<button class="btn btn-sm" type="button" data-confirm>Confirm</button>' : '') +
+        '<button class="btn btn-ghost btn-sm" type="button" data-edit>Edit</button><button class="btn btn-danger btn-sm" type="button" data-forget>Forget</button></div></li>';
+    }
+    function draw() {
+      var proposed = facts.filter(function (f) { return f.status === 'proposed'; });
+      var business = facts.filter(function (f) { return f.status === 'active' && !f.clientEmail; });
+      var aboutClients = facts.filter(function (f) { return f.status === 'active' && f.clientEmail; });
+      view.innerHTML =
+        '<section class="panel"><h2>What Pyp knows about your business</h2>' +
+        '<p>Pyp reads these before it decides anything, like notes in the margin of each case. They’re for Pyp’s judgment only: never sent to your clients, and never above the safety checks. Tell Pyp in the chat too: “remember that Acme always pays on the 15th.”</p>' +
+        form(null) + '</section>' +
+        (proposed.length ? '<section class="panel memory-proposed"><h2>Pyp noticed these in chat</h2><p>Confirm the ones that are right and Pyp will use them. Forget the rest.</p><ul class="facts">' + proposed.map(row).join('') + '</ul></section>' : '') +
+        '<section class="panel"><h2>Your business</h2>' + (business.length ? '<ul class="facts">' + business.map(row).join('') + '</ul>' : '<div class="empty">Nothing yet. How do you like to work? Your usual terms, your tone, what you never do.</div>') + '</section>' +
+        '<section class="panel"><h2>About your clients</h2>' + (aboutClients.length ? '<ul class="facts">' + aboutClients.map(row).join('') + '</ul>' : '<div class="empty">Nothing yet. Who pays late, who prefers a call, who’s always net 15.</div>') + '</section>';
+    }
+    function onSubmit(e) {
+      if (!e.target.matches('[data-fact-form]')) return;
+      e.preventDefault();
+      var fd = new FormData(e.target);
+      var id = e.target.getAttribute('data-id');
+      var body = { text: String(fd.get('text') || ''), clientEmail: String(fd.get('clientEmail') || '') || null };
+      var btn = e.target.querySelector('[type=submit]');
+      btn.disabled = true;
+      transport.saveFact(body, id).then(function () {
+        toast(id ? 'Saved.' : 'Pyp will remember that.');
+        editingId = null; load();
+      }, function (err) { btn.disabled = false; toast(err.message); });
+    }
+    function onClick(e) {
+      var b = e.target.closest('button');
+      if (!b || !facts) return;
+      var li = b.closest('[data-fact]');
+      var f = li && facts.filter(function (x) { return x.id === li.getAttribute('data-fact'); })[0];
+      if (b.hasAttribute('data-cancel')) { editingId = null; draw(); }
+      else if (f && b.hasAttribute('data-edit')) { editingId = f.id; draw(); }
+      else if (f && b.hasAttribute('data-confirm')) {
+        b.disabled = true;
+        transport.saveFact({ text: f.text, clientEmail: f.clientEmail, confirm: true }, f.id).then(function () { toast('Confirmed. Pyp will use it.'); load(); }, function (err) { b.disabled = false; toast(err.message); });
+      } else if (f && b.hasAttribute('data-forget')) {
+        b.disabled = true;
+        transport.deleteFact(f.id).then(function () { toast('Forgotten.'); load(); }, function (err) { b.disabled = false; toast(err.message); });
+      }
+    }
+    view.addEventListener('submit', onSubmit);
+    view.addEventListener('click', onClick);
+    cleanup.push(function () { view.removeEventListener('submit', onSubmit); view.removeEventListener('click', onClick); });
+    view.innerHTML = '<section class="panel"><h2>What Pyp knows about your business</h2><div class="loading">Loading…</div></section>';
+    load();
   }
 
   /* ---------------- Clients ---------------- */

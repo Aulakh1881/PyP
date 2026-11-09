@@ -55,6 +55,8 @@ export interface NewInvoiceFacts {
   termsNamed: boolean;
   /** What code couldn't read with certainty ("$1,20", "net 7", "€500" for a USD merchant). Any problem means: ask. */
   problems: string[];
+  /** What the merchant told Pyp about their business and the clients named. */
+  notes: string[];
 }
 
 export type CollectionsFacts = OverdueFacts | NewInvoiceFacts;
@@ -144,7 +146,7 @@ async function overdueCaseFile(ctx: SkillContext, subject: SubjectRef, instructi
   const invoice = await ctx.read.getInvoice(subject.id);
   if (!invoice) throw new Error(`Invoice ${subject.id} not found`);
   const sent = await ctx.db.remindersSent(invoice.id);
-  const notes = await ctx.db.merchantNotes(subject);
+  const notes = await ctx.db.merchantNotes(subject, invoice.recipientEmail ? [invoice.recipientEmail] : []);
   const history = await clientHistory(ctx, invoice);
   const rawHold = ctx.db.activeHold ? await ctx.db.activeHold(subject) : null;
   const hold = holdActive(rawHold, now, tz) ? rawHold : null;
@@ -232,6 +234,7 @@ async function newInvoiceCaseFile(ctx: SkillContext, subject: SubjectRef, instru
   const problems = [...amountProblems, ...termProblems];
   const terms = (named.length ? named : ALL_TERMS).map((t) => ({ ...t, dueDate: addDays(issueDate, t.days) }));
   const mentionedClientIds = clientsNamed(request, clients);
+  const notes = await ctx.db.merchantNotes(subject, clients.filter((c) => mentionedClientIds.includes(c.id)).map((c) => c.email));
 
   const facts: NewInvoiceFacts = {
     mode: "new-invoice",
@@ -244,6 +247,7 @@ async function newInvoiceCaseFile(ctx: SkillContext, subject: SubjectRef, instru
     terms,
     termsNamed: named.length > 0,
     problems,
+    notes,
   };
 
   const xml = block("case-file", { skill: "collections", mode: "new-invoice", "generated-at": now.toISOString() }, [
@@ -282,6 +286,7 @@ async function newInvoiceCaseFile(ctx: SkillContext, subject: SubjectRef, instru
     ),
     tag("issue-date", { value: issueDate }),
     problems.length ? block("problems", { source: "code; ask the merchant about these" }, problems.map((x) => textTag("problem", {}, x))) : "",
+    notes.length ? block("merchant-notes", { visibility: "merchant-only" }, notes.map((n) => textTag("note", {}, n))) : "",
   ]);
 
   return {

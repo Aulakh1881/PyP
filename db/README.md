@@ -30,6 +30,8 @@ psql "$DATABASE_URL" -f db/migrations/006_paypal_reporting_cache.sql
 psql "$DATABASE_URL" -f db/migrations/007_paypal_reporting_cache_write_policies.sql
 psql "$DATABASE_URL" -f db/migrations/010_card_cleared.sql
 psql "$DATABASE_URL" -f db/migrations/011_clients.sql
+psql "$DATABASE_URL" -f db/migrations/012_workflows.sql
+psql "$DATABASE_URL" -f db/migrations/013_merchant_facts.sql
 ```
 
 No psql? `node scripts/apply-migration.mjs db/migrations/011_clients.sql` runs one file against `DATABASE_URL` from `.env.local`.
@@ -39,6 +41,10 @@ Migration `004_engine_records.sql` adds what the engine hands over (`resolved_js
 Migration `010_card_cleared.sql` adds `cards.cleared_at`: when the merchant used **Remove from Inbox** on a finished card. It only hides the card from the Inbox; the card and its audit trail stay, and Activity still lists it. The app reads the column in a way that works before the migration is applied (nothing reads as removed), so pulling the code first is safe.
 
 Migration `011_clients.sql` adds `clients`: the merchant's own client list (the dashboard's Clients page, or a name and email given in chat), with nicknames. Collections reads it alongside people from recent PayPal invoices. PayPal has no contacts list, so saving a client never touches PayPal. Before the migration, the app reads no saved clients and the Clients page asks for it.
+
+Migration `012_workflows.sql` adds `workflows`: the merchant's own rules drawn as blocks (When → If → Then, `engine/workflows.ts`). A workflow never acts by itself: code walks the diagram, and its Then becomes an instruction to a skill run limited to the commands it names, so proposals still go through the checks, dials and kill switch.
+
+Migration `013_merchant_facts.sql` adds `merchant_facts`, "Pyp's memory": facts about the business, a client or one invoice or dispute, added on the dashboard or picked up in chat. A fact Pyp only noticed waits as `proposed` until the merchant confirms it. Active facts reach case files as merchant-only notes.
 
 Migration `005_holds_and_events.sql` adds `holds` (a merchant's "hold off" on an invoice or dispute, which stops reminders in code), lets one webhook event make at most one run, and records when and how each event was processed.
 

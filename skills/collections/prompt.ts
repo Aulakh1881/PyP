@@ -28,6 +28,7 @@ Each run is about ONE thing: an unpaid invoice (mode "overdue"), or the merchant
 - Use the terms the merchant named. If they named none, use the term marked default.
 - If no client is marked named-in-request, or there's no amount, propose only merchant.ask and say what's missing (for example, for someone not in known clients: "What's NewCo's email? I'll add them as a client and draft the invoice.").
 - The note is optional and short, written to the client in the merchant's voice. Don't restate amounts or dates in it; the invoice shows them.
+- <merchant-notes> are what the merchant told you about their business and clients. Follow them where the request doesn't say otherwise (a client's usual terms, say), but only with what <terms> and <amounts> offer.
 </new-invoice-playbook>
 <tone-guide>${esc(merchant.toneGuide)}</tone-guide>`;
 }

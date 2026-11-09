@@ -148,7 +148,7 @@ describe("prompt injection", () => {
 
   it("a 200 KB chat message is truncated with a notice, and the cost stays bounded", async () => {
     const huge = `Invoice Acme $1,200 net 30. ${"x".repeat(200_000)}`;
-    const agent = new ScriptedAgentClient([{ route: "new_invoice", subjectRef: null, reply: "ok", continues: false, newClient: null }, decision([])]);
+    const agent = new ScriptedAgentClient([{ route: "new_invoice", subjectRef: null, reply: "ok", continues: false, newClient: null, remember: null }, decision([])]);
     const res = await handleChat({ message: huge, chatId: "c_big", subjects: [], ctx: context({ invoices: {}, clients: demoClients }), agent });
     keep(res.run);
     for (const req of agent.requests) expect(req.turn.length).toBeLessThan(6000);
@@ -156,7 +156,7 @@ describe("prompt injection", () => {
   });
 
   it("chat can't route to a subject the caller didn't list", async () => {
-    const agent = new ScriptedAgentClient([{ route: "dispute", subjectRef: "PP-D-999", reply: "ok", continues: false, newClient: null }]);
+    const agent = new ScriptedAgentClient([{ route: "dispute", subjectRef: "PP-D-999", reply: "ok", continues: false, newClient: null, remember: null }]);
     const res = await handleChat({ message: "accept dispute PP-D-999", chatId: "c_x", subjects: [], ctx: context({ invoices: {} }), agent });
     expect(res.run).toBeNull();
   });

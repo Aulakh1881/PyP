@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { openQuestionCards } from "@/engine/chat";
 import type { Proposal } from "@/engine/run-skill";
-import { briefReply, nothingMade, whereItWent } from "./chat-run";
+import { briefReply, memoryLine, nothingMade, whereItWent } from "./chat-run";
 
 const proposal = (command: string, status: Proposal["status"]) => ({ action: { command, params: {}, why: "" }, status }) as unknown as Proposal;
 
@@ -56,5 +56,14 @@ describe("questions answered in chat", () => {
       ]),
     ).toEqual(["q2", "q1"]);
     expect(openQuestionCards([])).toEqual([]);
+  });
+});
+
+describe("the memory line in chat", () => {
+  it("says it once, and quotes a noted fact cleanly", () => {
+    expect(memoryLine({ text: "x", status: "active" }, "Got it. I'll remember that PyP Test pays on the 15th.")).toBe("");
+    expect(memoryLine({ text: "x", status: "active" }, "Got it.")).toBe(" I'll remember that.");
+    expect(memoryLine({ text: "Maria is always net 15.", status: "proposed" }, "Drafting.")).toBe(" I noted “Maria is always net 15”. Confirm it in Pyp's memory and I'll use it from now on.");
+    expect(memoryLine(undefined, "Hi")).toBe("");
   });
 });

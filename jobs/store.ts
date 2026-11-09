@@ -8,6 +8,7 @@ import { getSkill } from "@/engine/registry";
 import type { RunResult } from "@/engine/run-skill";
 import type { CaseFile, CommandId, CommandRule, EngineDb, Hold, Merchant, MerchantRules, SkillId, SubjectRef } from "@/engine/types";
 import { savedClientsForEngine } from "./clients";
+import { factsFor } from "./facts";
 
 type Db = Pick<Pool, "query">;
 
@@ -62,8 +63,8 @@ export function engineDb(db: Db, merchantId: string, executing?: string): Engine
       );
       return res.rows[0].n;
     },
-    async merchantNotes() {
-      return []; // seeded notes come with client_profiles (db/README.md)
+    merchantNotes(subject, clientEmails) {
+      return factsFor(db, merchantId, subjectRef(subject), clientEmails ?? []);
     },
     savedClients() {
       return savedClientsForEngine(db, merchantId);
@@ -535,6 +536,43 @@ export async function dismiss(db: Db, merchantId: string, cardId: string): Promi
   await setCardState(db, cardId, "rejected");
   await addStep(db, res.rows[0].run_id, res.rows[0].id, "merchant", "You dismissed this", true);
   return true;
+}
+
+/**
+ * A heads-up card from a workflow (an invoice was paid): no model, no proposal,
+ * nothing sent anywhere. Saved as a finished run so its trace and Activity work.
+ */
+export async function saveNotice(
+  pool: Pool,
+  n: { merchantId: string; subject: SubjectRef; trigger: string; title: string; subtitle: string; body: string; reason: string },
+): Promise<string> {
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    const run = await client.query(
+      `insert into runs (merchant_id, skill, subject_ref, trigger, status, usage_json, cost_usd, ended_at)
+       values ($1, 'collections', $2, $3, 'ok', '[]', 0, now()) returning id`,
+      [n.merchantId, subjectRef(n.subject), n.trigger],
+    );
+    const runId: string = run.rows[0].id;
+    await client.query("insert into trace_steps (run_id, at, kind, label) values ($1, now(), 'trigger', $2), ($1, now(), 'decide', $3)", [
+      runId,
+      `${n.trigger} → heads-up`,
+      `${n.reason} No model call; nothing sent.`,
+    ]);
+    const front = { eyebrow: "WORKFLOWS · HEADS-UP", title: n.title, subtitle: n.subtitle, body: n.body, reason: n.reason, notice: true };
+    const card = await client.query(
+      "insert into cards (merchant_id, run_id, skill, state, front_json) values ($1, $2, 'collections', 'executed', $3) returning id",
+      [n.merchantId, runId, JSON.stringify(front)],
+    );
+    await client.query("commit");
+    return card.rows[0].id;
+  } catch (err) {
+    await client.query("rollback").catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /**

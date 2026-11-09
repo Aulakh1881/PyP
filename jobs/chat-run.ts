@@ -11,6 +11,9 @@ import type { AgentClient, PayPalReads } from "@/engine/types";
 import { engineDb, loadMerchant, saveRun } from "./store";
 import type { SweepOutcome } from "./sweep-run";
 import { createClient } from "./clients";
+import { addFact } from "./facts";
+import { knownClients } from "@/skills/collections/case-file";
+import { clientsNamed } from "@/skills/collections/request-parser";
 import { answerQuestionsInChat } from "./store";
 
 export interface ChatRunDeps {
@@ -55,7 +58,21 @@ export async function runChatMessage(
   // A client the merchant gave in chat goes in Pyp's list (never PayPal), source "chat".
   const saveClient = async (c: { name: string; email: string }) =>
     (await createClient(deps.pool, merchantId, { name: c.name, email: c.email }, "chat")) ? ("saved" as const) : ("exists" as const);
-  const chat = await handleChat({ message, chatId: randomUUID(), subjects, history, saveClient, ctx, agent: deps.agent, signal });
+  // A lasting fact goes in Pyp's memory; a client it names is matched like an invoice's.
+  const saveFact = async (f: { text: string; client: string | null; explicit: boolean }) => {
+    let clientEmail: string | null = null;
+    if (f.client) {
+      const clients = await knownClients(ctx).catch(() => []);
+      const named = clientsNamed(f.client, clients);
+      if (named.length === 1) clientEmail = clients.find((c) => c.id === named[0])!.email;
+    }
+    const status = f.explicit ? ("active" as const) : ("proposed" as const);
+    await addFact(deps.pool, merchantId, { text: f.text, clientEmail, status, source: "chat" });
+    return status;
+  };
+  const chat = await handleChat({ message, chatId: randomUUID(), subjects, history, saveClient, saveFact, ctx, agent: deps.agent, signal });
+  const fact = chat.rememberedFact;
+  const factLine = memoryLine(fact, chat.reply);
   const savedLine = chat.savedClient?.status === "saved" && chat.route !== "add_client" ? `Saved ${chat.savedClient.name} to your clients. ` : "";
   // Answered here: the question cards Pyp asked in this chat leave "Needs you".
   if (chat.continues && !(chat.run && chat.run.status !== "ok")) {
@@ -64,7 +81,7 @@ export async function runChatMessage(
   if (chat.route === "weekly_brief") return { runId: null, route: chat.route, status: "ok", ...(await weeklyBrief(deps)) };
   const result = chat.run;
   if (!result || !chat.subject) {
-    return { runId: null, cardIds: [], route: chat.route, status: rules.killSwitch ? "paused" : "ok", reply: savedLine + chat.reply, waiting: chat.route !== "add_client" };
+    return { runId: null, cardIds: [], route: chat.route, status: rules.killSwitch ? "paused" : "ok", reply: savedLine + chat.reply + factLine, waiting: chat.route !== "add_client" };
   }
 
   const skill = chat.subject.kind === "dispute" ? "disputes" : "collections";
@@ -81,7 +98,7 @@ export async function runChatMessage(
         ? `${result.response!.summary} ${whereItWent(carded)}`.trim()
         : nothingMade(invalid.filter((r): r is string => !!r), result.response?.summary);
   const waiting = result.status !== "ok" || !carded.length || carded.every((p) => p.action.command === "merchant.ask");
-  return { runId, cardIds, route: chat.route, status: result.status, reply: savedLine + reply, waiting };
+  return { runId, cardIds, route: chat.route, status: result.status, reply: savedLine + reply + factLine, waiting };
 }
 
 /**
@@ -123,4 +140,11 @@ export function nothingMade(reasons: string[], summary?: string): string {
   if (!reasons.length) return (summary ?? "").trim() || "There's nothing to do on that right now.";
   const why = reasons.map((r) => r.charAt(0).toLowerCase() + r.slice(1).replace(/[.]$/, "")).join("; ");
   return `I didn't set anything up: ${why}.`;
+}
+
+/** The chat line after a fact was saved: once, without repeating Pyp's own "I'll remember". */
+export function memoryLine(fact: { text: string; status: "active" | "proposed" } | undefined, reply: string): string {
+  if (!fact) return "";
+  if (fact.status === "active") return reply.toLowerCase().includes("remember") ? "" : " I'll remember that.";
+  return ` I noted “${fact.text.trim().replace(/[.!]+$/, "")}”. Confirm it in Pyp's memory and I'll use it from now on.`;
 }
