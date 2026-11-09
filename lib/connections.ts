@@ -4,7 +4,7 @@ import type { ChatTurn } from "@/engine/chat";
 import { answerCard } from "@/jobs/answer-run";
 import { runChatMessage } from "@/jobs/chat-run";
 import { pinnedFetch, postNewCards, type Fetcher } from "@/jobs/connections";
-import { syncSlackDms, type SlackApi } from "@/jobs/slack-bot";
+import { chatInDm, syncSlackDms, type SlackApi } from "@/jobs/slack-bot";
 import { dismiss, undo } from "@/jobs/store";
 import { approveCard } from "@/executor/from-env";
 import { listSkills } from "@/jobs/custom-skills";
@@ -43,9 +43,9 @@ export async function chatOutcomeFromSlack(merchantId: string, text: string, his
   );
 }
 
-/** /pyp <sentence>: Pyp's reply. */
+/** /pyp <sentence>: Pyp's reply. It joins the DM conversation, so follow-ups there make sense. */
 export async function chatFromSlack(merchantId: string, text: string): Promise<string> {
-  const out = await chatOutcomeFromSlack(merchantId, text);
+  const out = await chatInDm(getPool(), merchantId, text, chatOutcomeFromSlack);
   return out.cardIds.length ? `${out.reply}\nOpen your Inbox: ${inboxLink()}` : out.reply;
 }
 

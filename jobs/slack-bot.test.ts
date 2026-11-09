@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { newSlackCode, handleSlash } from "./connections";
-import { APPROVE_IN_SLACK, botBlocks, handleAction, handleMessageEvent, syncSlackDms, type BotCard, type SlackApi } from "./slack-bot";
+import { APPROVE_IN_SLACK, botBlocks, chatInDm, handleAction, handleMessageEvent, syncSlackDms, type BotCard, type SlackApi } from "./slack-bot";
 import { saveNotice } from "./store";
 import { DEMO_MERCHANT, TEST_DB_URL, freshDatabase } from "./test-db";
 
@@ -31,6 +31,14 @@ describe("Slack bot: what each card's DM offers", () => {
       expect(ids(b)).toEqual(["pyp_dismiss", "pyp_open"]);
       expect(JSON.stringify(b)).toContain("you approve it in Pyp");
     }
+  });
+
+  it("a question with no answer buttons asks for a reply, never 'moves money'", () => {
+    const b = botBlocks({ ...base, commandId: "merchant.ask", front: { title: "What's Acme's email?" } }, "x");
+    expect(ids(b)).toEqual(["pyp_dismiss", "pyp_open"]);
+    expect(JSON.stringify(b)).toContain("Pyp has a question");
+    expect(JSON.stringify(b)).toContain("reply here with the answer");
+    expect(JSON.stringify(b)).not.toContain("moves money");
   });
 
   it("a question gets its answers as buttons; an Auto action gets Undo; a decided card gets no buttons", () => {
@@ -144,7 +152,7 @@ describe.skipIf(!TEST_DB_URL)("Slack bot (Postgres)", () => {
     expect(done).toEqual([`approve:${reminder}`, `dismiss:${offer}`]);
   });
 
-  it("talking to Pyp: a DM from the linked person gets a threaded reply, follow-ups carry the thread, resends are ignored", async () => {
+  it("talking to Pyp: a DM is one conversation, follow-ups carry it, /pyp joins it, resends are ignored", async () => {
     await link();
     const { calls, slack } = fakeSlack();
     const seen: { text: string; history: unknown[] }[] = [];
@@ -156,10 +164,11 @@ describe.skipIf(!TEST_DB_URL)("Slack bot (Postgres)", () => {
     };
     const dm = { teamId: "T1", type: "message", channelType: "im", channel: "D1", user: "U1", text: "invoice Acme $450", ts: "1.1", eventId: "Ev1" };
     await (await handleMessageEvent(deps, dm))!();
-    expect(calls[0]).toMatchObject({ method: "chat.postMessage", body: { channel: "D1", thread_ts: "1.1" } });
+    expect(calls[0]).toMatchObject({ method: "chat.postMessage", body: { channel: "D1" } });
+    expect(calls[0].body.thread_ts).toBeUndefined(); // a DM answers like a chat, not in a thread
     expect(await handleMessageEvent(deps, dm)).toBeNull(); // Slack resent it
 
-    await (await handleMessageEvent(deps, { ...dm, eventId: "Ev2", ts: "1.2", threadTs: "1.1", text: "actually make it $500" }))!();
+    await (await handleMessageEvent(deps, { ...dm, eventId: "Ev2", ts: "1.2", text: "actually make it $500" }))!();
     expect(seen[1].history).toEqual([
       { from: "merchant", text: "invoice Acme $450" },
       { from: "pyp", text: "Drafted: invoice Acme $450", waiting: false, cardIds: ["c1"] },
@@ -177,5 +186,10 @@ describe.skipIf(!TEST_DB_URL)("Slack bot (Postgres)", () => {
     await (await handleMessageEvent(deps, { ...dm, eventId: "Ev6", user: "U2" }))!();
     expect(String(calls.at(-1)!.body.text)).toMatch(/Only maya can do this/);
     expect(seen).toHaveLength(3);
+
+    // /pyp joins the DM conversation (its dm_channel is D1 after the first card DM; set it here).
+    await pool.query("update slack_links set dm_channel = 'D1' where merchant_id = $1", [DEMO_MERCHANT]);
+    await chatInDm(pool, DEMO_MERCHANT, "acme@example.com", deps.chat);
+    expect(seen[3].history).toHaveLength(4); // the two DM turns before it
   });
 });

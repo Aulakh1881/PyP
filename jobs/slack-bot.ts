@@ -62,7 +62,9 @@ function button(text: string, actionId: string, value: string, style?: "primary"
 /** The DM for a card: its words, then buttons for what Slack may do, or how it ended. */
 export function botBlocks(card: BotCard, link: string, resolvedNote?: string) {
   const f = card.front;
-  const question = !!f.options?.length && card.state === "awaiting_approval";
+  // A question (merchant.ask): answered with its buttons, or, with none, by replying in the DM.
+  const question = (card.commandId === "merchant.ask" || !!f.options?.length) && card.state === "awaiting_approval";
+  const buttons = question && !!f.options?.length;
   const head = card.state === "scheduled" ? "Pyp will do this unless you tap Undo" : question ? "Pyp has a question" : "Pyp needs your OK";
   const line2 = [f.subtitle, money(f.amount)].filter(Boolean).join(" · ");
   const blocks: Record<string, unknown>[] = [
@@ -86,12 +88,14 @@ export function botBlocks(card: BotCard, link: string, resolvedNote?: string) {
   const v = (extra: Record<string, unknown> = {}) => JSON.stringify({ card: card.id, ...extra });
   const elements: Record<string, unknown>[] = [];
   if (card.state === "scheduled") elements.push(button("Undo", "pyp_undo", v(), "danger"));
-  else if (question) f.options!.slice(0, 4).forEach((o, i) => elements.push(button(o, `pyp_answer_${i}`, v({ option: i }), i === 0 ? "primary" : undefined)));
+  else if (buttons) f.options!.slice(0, 4).forEach((o, i) => elements.push(button(o, `pyp_answer_${i}`, v({ option: i }), i === 0 ? "primary" : undefined)));
   else if (card.commandId && APPROVE_IN_SLACK.has(card.commandId)) elements.push(button(approveLabel(card), "pyp_approve", v(), "primary"));
   if (card.state === "awaiting_approval") elements.push(button("Dismiss", "pyp_dismiss", v()));
   elements.push(open);
   blocks.push({ type: "actions", elements });
-  if (card.state === "awaiting_approval" && !question && !(card.commandId && APPROVE_IN_SLACK.has(card.commandId))) {
+  if (question && !buttons) {
+    blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: "Just reply here with the answer, and I’ll take it from there." }] });
+  } else if (card.state === "awaiting_approval" && !question && !(card.commandId && APPROVE_IN_SLACK.has(card.commandId))) {
     blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: "This one moves money or answers a dispute, so you approve it in Pyp." }] });
   }
   return blocks;
@@ -195,7 +199,8 @@ export async function syncSlackDms(deps: BotDeps): Promise<{ posted: number; upd
       for (const row of moved.rows as Record<string, unknown>[]) {
         const card = toBotCard(row);
         const m = (await deps.pool.query("select channel, ts from slack_messages where card_id = $1", [card.id])).rows[0];
-        const note = WAITING.includes(card.state) ? undefined : (RESOLVED[card.state] ?? `Now: ${card.state}`);
+        const answered = card.commandId === "merchant.ask" && card.state === "executed";
+        const note = WAITING.includes(card.state) ? undefined : answered ? "Answered." : (RESOLVED[card.state] ?? `Now: ${card.state}`);
         try {
           await deps.slack("chat.update", { channel: m.channel, ts: m.ts, text: fallbackText(card), blocks: botBlocks(card, deps.link(), note) });
           out.updated++;
@@ -296,8 +301,52 @@ export interface SlackMessageEvent {
   threadTs?: string;
 }
 
-/** Lines of a thread kept for follow-ups (the chat page sends up to 20). */
+/** Lines of a conversation kept for follow-ups (the chat page sends up to 20). */
 export const THREAD_TURNS = 12;
+
+/**
+ * A DM with Pyp is one ongoing conversation (like the chat page), stored under this
+ * key; a thread inside it, or under an @mention, is its own conversation.
+ */
+export const DM_CONVERSATION = "dm";
+
+type Conversation = { merchantId: string; teamId: string; channel: string; key: string };
+
+export async function loadConversation(db: Db, c: Conversation): Promise<ChatTurn[]> {
+  const r = await db.query("select history from slack_threads where merchant_id = $1 and team_id = $2 and channel = $3 and thread_ts = $4", [c.merchantId, c.teamId, c.channel, c.key]);
+  return ((r.rows[0]?.history ?? []) as ChatTurn[]).slice(-THREAD_TURNS);
+}
+
+export async function saveTurn(db: Db, c: Conversation, history: ChatTurn[], text: string, out: { reply: string; cardIds: string[]; waiting: boolean }): Promise<void> {
+  const next: ChatTurn[] = [
+    ...history,
+    { from: "merchant" as const, text },
+    { from: "pyp" as const, text: out.reply.slice(0, 1000), waiting: out.waiting, cardIds: out.cardIds.slice(0, 5) },
+  ].slice(-THREAD_TURNS);
+  await db.query(
+    `insert into slack_threads (merchant_id, team_id, channel, thread_ts, history) values ($1, $2, $3, $4, $5)
+     on conflict (merchant_id, team_id, channel, thread_ts) do update set history = $5, updated_at = now()`,
+    [c.merchantId, c.teamId, c.channel, c.key, JSON.stringify(next)],
+  );
+}
+
+/**
+ * /pyp from anywhere joins the DM conversation, so a question Pyp asked there
+ * ("What's Acme's email?") is still in view when the answer comes as a DM.
+ */
+export async function chatInDm(
+  db: Db,
+  merchantId: string,
+  text: string,
+  chat: (merchantId: string, text: string, history: ChatTurn[]) => Promise<{ reply: string; cardIds: string[]; waiting: boolean }>,
+) {
+  const link = (await db.query("select team_id, dm_channel from slack_links where merchant_id = $1", [merchantId])).rows[0];
+  const conv = link?.team_id && link?.dm_channel ? { merchantId, teamId: String(link.team_id), channel: String(link.dm_channel), key: DM_CONVERSATION } : null;
+  const history = conv ? await loadConversation(db, conv) : [];
+  const out = await chat(merchantId, text, history);
+  if (conv) await saveTurn(db, conv, history, text, out);
+  return out;
+}
 
 /**
  * Is this a message for Pyp from the linked person? Returns the work to do after
@@ -312,14 +361,16 @@ export async function handleMessageEvent(deps: ChatDeps, e: SlackMessageEvent): 
   const first = await deps.pool.query("insert into slack_events (event_id) values ($1) on conflict do nothing returning event_id", [e.eventId]);
   if (!first.rows[0]) return null; // Slack resent one we already have
 
-  const threadTs = e.threadTs ?? e.ts;
-  // In a DM, a threaded reply. In a channel (an @mention), only the person who asked
-  // sees the answer: it can name clients and amounts.
+  const inDm = e.type === "message";
+  // A DM is one ongoing conversation; a thread (in the DM, or under an @mention) is its own.
+  const key = e.threadTs ?? (inDm ? DM_CONVERSATION : e.ts);
+  // In a DM, Pyp answers like a chat (in the thread if you wrote in one). In a channel
+  // (an @mention), only the person who asked sees the answer: it can name clients and amounts.
   const user = e.user;
   const say = (text: string) =>
-    e.type === "app_mention"
-      ? deps.slack("chat.postEphemeral", { channel: e.channel, user, thread_ts: e.threadTs, text })
-      : deps.slack("chat.postMessage", { channel: e.channel, thread_ts: threadTs, text, unfurl_links: false });
+    inDm
+      ? deps.slack("chat.postMessage", { channel: e.channel, ...(e.threadTs ? { thread_ts: e.threadTs } : {}), text, unfurl_links: false })
+      : deps.slack("chat.postEphemeral", { channel: e.channel, user, thread_ts: e.threadTs, text });
   const who = await linkedMerchant(deps.pool, e.teamId, e.user);
   if ("refusal" in who) {
     return async () => {
@@ -332,20 +383,14 @@ export async function handleMessageEvent(deps: ChatDeps, e: SlackMessageEvent): 
       await say("Hi! Tell me what you need, like “invoice Acme $450 for product photos”. Anything I propose waits for your OK.");
       return;
     }
-    const prior = await deps.pool.query("select history from slack_threads where merchant_id = $1 and team_id = $2 and channel = $3 and thread_ts = $4", [
-      who.merchantId,
-      e.teamId,
-      e.channel,
-      threadTs,
-    ]);
-    const history = ((prior.rows[0]?.history ?? []) as ChatTurn[]).slice(-THREAD_TURNS);
-    const out = await deps.chat(who.merchantId, text, history).catch((err: Error) => ({ reply: `I couldn't finish that: ${err.message}`, cardIds: [] as string[], waiting: true }));
-    await say(slackText(out.reply) + (out.cardIds.length ? "\nIt's in your DMs from me and in your Pyp Inbox." : ""));
-    const next: ChatTurn[] = [...history, { from: "merchant" as const, text }, { from: "pyp" as const, text: out.reply.slice(0, 1000), waiting: out.waiting, cardIds: out.cardIds.slice(0, 5) }].slice(-THREAD_TURNS);
-    await deps.pool.query(
-      `insert into slack_threads (merchant_id, team_id, channel, thread_ts, history) values ($1, $2, $3, $4, $5)
-       on conflict (merchant_id, team_id, channel, thread_ts) do update set history = $5, updated_at = now()`,
-      [who.merchantId, e.teamId, e.channel, threadTs, JSON.stringify(next)],
-    );
+    const conv = { merchantId: who.merchantId, teamId: e.teamId, channel: e.channel, key };
+    const history = await loadConversation(deps.pool, conv);
+    const out = await deps.chat(who.merchantId, text, history).catch((err: Error) => {
+      console.error(`[pyp slack] chat failed: ${err.message}`);
+      return { reply: "I couldn't finish that. Try again in a moment.", cardIds: [] as string[], waiting: true };
+    });
+    // In a DM the card arrives right below, so the reply doesn't repeat where it is.
+    await say(slackText(out.reply) + (out.cardIds.length && !inDm ? "\nThe card is in your DMs from me and in your Pyp Inbox." : ""));
+    await saveTurn(deps.pool, conv, history, text, out);
   };
 }
