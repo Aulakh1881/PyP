@@ -82,6 +82,7 @@
     var editing = {};     // card id -> true while the merchant rewrites its text
     var loadSeq = 0;      // a slower, older /api/cards answer never overwrites a newer one
     var kicked = {};      // card id -> its undo window ended; we've asked for a fresh look
+    var removing = {};    // card id -> "Remove from Inbox" sent; hidden while it's in flight
     var loadError = null; // why the last /api/cards load failed, shown instead of "all caught up"
     // This chat so far (this page only), sent with each message so Pyp follows up on what you said.
     var chatHistory = [];
@@ -121,8 +122,8 @@
     function toItem(card) {
       var f = card.front || {};
       var skill = skillOf(card);
-      var kind = skill === 'disputes' ? 'dispute' : skill === 'refunds' ? 'refund' : skill === 'insights' ? 'insight' : 'invoice';
-      var label = kind === 'dispute' ? 'Disputes' : kind === 'refund' ? 'Refunds' : kind === 'insight' ? 'Weekly brief' : 'Invoices';
+      var kind = skill === 'disputes' ? 'dispute' : skill === 'refunds' ? 'refund' : skill === 'insights' ? 'insight' : skill === 'collections' ? 'invoice' : 'other';
+      var label = kind === 'dispute' ? 'Disputes' : kind === 'refund' ? 'Refunds' : kind === 'insight' ? 'Weekly brief' : kind === 'invoice' ? 'Invoices' : 'Pyp';
       var sending = card.state === 'executing';
       var state = card.state === 'awaiting_approval' ? 'open' : card.state === 'scheduled' || sending ? 'auto' : card.state === 'executed' ? 'done' : 'closed';
       var amount = f.amount ? money(f.amount.value, f.amount.currency) : '';
@@ -146,7 +147,11 @@
       } else if (state === 'done' && kind === 'insight') {
         // A brief only reads: show what it says and code's numbers, not "sent through PayPal".
         badge = { text: 'Brief', tone: 'green' };
-        box = { tone: 'green', eyebrow: 'This week', title: f.body || f.title, sub: (f.lines || []).map(function (l) { return l.description + ': ' + l.amount; }).join(' · ') };
+        box = { tone: 'green', eyebrow: 'This week', title: f.body || f.title, sub: notes[card.id] || (f.lines || []).map(function (l) { return l.description + ': ' + l.amount; }).join(' · ') };
+      } else if (state === 'done' && /^You answered/.test(f.reason || '')) {
+        // A question you answered: nothing went to PayPal.
+        badge = { text: 'Answered', tone: 'green' };
+        box = { tone: 'green', eyebrow: 'Answered', title: f.reason || 'You answered', sub: notes[card.id] || clock(card.updatedAt || card.createdAt) };
       } else if (state === 'done') {
         badge = { text: 'Done', tone: 'done' };
         box = { tone: 'green', eyebrow: 'Done', title: 'Sent through PayPal', sub: notes[card.id] || clock(card.createdAt) + ' · logged to activity' };
@@ -164,17 +169,22 @@
         : (card.actions || []).map(function (a) {
           // Each answer button carries which option it is: answer:0, answer:1, ...
           var id = a.id === 'answer' ? 'answer:' + answerIndex++ : a.id;
-          return { id: id, label: a.label, style: a.style === 'danger' ? 'outline' : a.style, countdown: a.id === 'undo' };
+          // One look per role: the main action, an answer, a secondary step, or a quiet way out.
+          // The box above already says what Approve does, so its button just says Approve.
+          var role = a.id === 'approve' ? 'primary' : a.id === 'answer' ? 'choice' : a.id === 'undo' ? 'secondary' : 'quiet';
+          return { id: id, label: a.id === 'approve' ? 'Approve' : a.label, style: role, countdown: a.id === 'undo' };
         });
-      if (editField && !busy[card.id]) buttons.push({ id: 'edit', label: 'Edit', style: 'outline' });
-      if (state === 'done' && !busy[card.id] && kind !== 'insight') {
-        buttons = [{ id: 'noop', label: 'Sent ✓', style: 'success', disabled: true }].concat(buttons.filter(function (b) { return b.id === 'clear'; }));
+      if (editField && !busy[card.id]) {
+        // Edit sits right after Approve, before the quiet Dismiss.
+        var at = buttons.findIndex(function (b) { return b.style === 'quiet'; });
+        buttons.splice(at < 0 ? buttons.length : at, 0, { id: 'edit', label: 'Edit', style: 'secondary' });
       }
+      // A finished card: the badge and box already say it was sent, so the only button is Remove.
       var reviewing = !!(editing[card.id] && editField && !busy[card.id]);
       if (reviewing) {
         buttons = [
           { id: 'send', label: 'Approve with my edits', style: 'primary' },
-          { id: 'cancel-edit', label: 'Cancel', style: 'outline' }
+          { id: 'cancel-edit', label: 'Cancel', style: 'quiet' }
         ];
       }
       // A countdown only for an Auto action about to go out; a follow-up days away just says when.
@@ -215,7 +225,8 @@
 
     function items() { return cards.map(toItem); }
     // The Inbox leaves out cards the merchant removed from it; Activity still lists them.
-    function inboxItems() { return cards.filter(function (c) { return !c.clearedAt; }).map(toItem); }
+    // A card being removed leaves at once; it comes back with a note if the server says no.
+    function inboxItems() { return cards.filter(function (c) { return !c.clearedAt && !removing[c.id]; }).map(toItem); }
 
     function emit() {
       var snapshot = inboxItems();
@@ -323,14 +334,17 @@
         return toItem(card);
       }
       busy[id] = path === 'answer' ? 'approve' : path;
+      if (action === 'clear') removing[id] = true;
       emit();
       try {
         var r = await api('/api/cards/' + encodeURIComponent(id) + '/' + path, { method: 'POST', body: body });
         notes[id] = r.body.message || r.body.error || (r.ok ? '' : 'Request failed (' + r.status + ')');
+        if (action === 'clear' && !r.ok) removing[id] = false;
         // Refused or paused: nothing was sent, so keep the merchant's words open to fix.
         if (r.body.status !== 'edit_rejected' && r.body.status !== 'paused') editing[id] = false;
       } catch (e) {
-        notes[id] = action === 'clear' ? 'Couldn’t reach Pyp. Try again in a moment.' : 'Couldn’t reach Pyp, so nothing was sent. Try again in a moment.';
+        notes[id] = action === 'clear' ? 'Couldn’t reach Pyp, so it’s still here. Try again in a moment.' : 'Couldn’t reach Pyp, so nothing was sent. Try again in a moment.';
+        removing[id] = false;
       } finally {
         busy[id] = false;
         delete traces[id]; // a retry or failure adds trace steps without changing the state
@@ -370,7 +384,8 @@
         setTimeout(function () { lastJson = ''; refresh().catch(function () {}); }, 1500);
         if (!r.ok) return { text: r.body.error || 'Something went wrong on my side. Try again in a moment.' };
         var reply = r.body.reply || 'Done. Check your Inbox.';
-        chatHistory.push({ from: 'merchant', text: text.slice(0, 1000) }, { from: 'pyp', text: reply.slice(0, 1000), waiting: r.body.waiting !== false });
+        // The cards a line made go back with the history, so answering a question here closes its card.
+        chatHistory.push({ from: 'merchant', text: text.slice(0, 1000) }, { from: 'pyp', text: reply.slice(0, 1000), waiting: r.body.waiting !== false, cardIds: (r.body.cardIds || []).slice(0, 5) });
         if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
         return { text: reply };
       },
@@ -456,6 +471,17 @@
         return read('/api/paypal/transactions?' + p.toString(), 'PayPal transaction data');
       },
       order: function (id) { return read('/api/paypal/orders/' + encodeURIComponent(id), 'PayPal order data'); },
+      // Pyp's own client list (/api/clients). Saving a client never touches PayPal.
+      clients: function () { return read('/api/clients', 'Your clients'); },
+      saveClient: async function (c, id) {
+        var r = await api('/api/clients' + (id ? '/' + encodeURIComponent(id) : ''), { method: id ? 'PATCH' : 'POST', body: JSON.stringify(c) });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn’t save that client (' + r.status + ').');
+        return r.body.client;
+      },
+      deleteClient: async function (id) {
+        var r = await api('/api/clients/' + encodeURIComponent(id), { method: 'DELETE' });
+        if (!r.ok) throw new Error(r.body.error || 'Couldn’t remove that client (' + r.status + ').');
+      },
       invoices: function (o) {
         o = o || {};
         return read('/api/paypal/invoices?' + new URLSearchParams({ page: String(o.page || 1), page_size: String(o.pageSize || 25) }).toString(), 'PayPal invoice data');

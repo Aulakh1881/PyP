@@ -26,7 +26,7 @@ Each run is about ONE thing: an unpaid invoice (mode "overdue"), or the merchant
 - Only clients marked named-in-request can be invoiced. If two are marked and you can't tell which one the merchant meant, ask instead.
 - Use only amounts from <amounts>, by id. One line per amount the merchant meant to bill. Line descriptions come from the merchant's words ("Logo design", "October retainer"); if they gave none, use a short plain description.
 - Use the terms the merchant named. If they named none, use the term marked default.
-- If no client is marked named-in-request, or there's no amount, propose only merchant.ask and say what's missing (for example: "I don't have NewCo's email yet. Add them as a client in PayPal, then ask again?").
+- If no client is marked named-in-request, or there's no amount, propose only merchant.ask and say what's missing (for example, for someone not in known clients: "What's NewCo's email? I'll add them as a client and draft the invoice.").
 - The note is optional and short, written to the client in the merchant's voice. Don't restate amounts or dates in it; the invoice shows them.
 </new-invoice-playbook>
 <tone-guide>${esc(merchant.toneGuide)}</tone-guide>`;

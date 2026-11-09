@@ -7,6 +7,7 @@ import { cardFor, needsCard, type CardFront, type CardState } from "@/engine/car
 import { getSkill } from "@/engine/registry";
 import type { RunResult } from "@/engine/run-skill";
 import type { CaseFile, CommandId, CommandRule, EngineDb, Hold, Merchant, MerchantRules, SkillId, SubjectRef } from "@/engine/types";
+import { savedClientsForEngine } from "./clients";
 
 type Db = Pick<Pool, "query">;
 
@@ -63,6 +64,9 @@ export function engineDb(db: Db, merchantId: string, executing?: string): Engine
     },
     async merchantNotes() {
       return []; // seeded notes come with client_profiles (db/README.md)
+    },
+    savedClients() {
+      return savedClientsForEngine(db, merchantId);
     },
     async followUps(invoiceId) {
       const res = await db.query(
@@ -531,6 +535,30 @@ export async function dismiss(db: Db, merchantId: string, cardId: string): Promi
   await setCardState(db, cardId, "rejected");
   await addStep(db, res.rows[0].run_id, res.rows[0].id, "merchant", "You dismissed this", true);
   return true;
+}
+
+/**
+ * Questions the merchant answered by typing in chat: each question card in `cardIds`
+ * that is still waiting becomes answered, with their words on it, like tapping an answer.
+ * Only this merchant's waiting questions; anything else is left alone.
+ */
+export async function answerQuestionsInChat(db: Db, merchantId: string, cardIds: string[], answer: string): Promise<number> {
+  if (!cardIds.length) return 0;
+  const reason = `You answered in the chat: ${answer.length > 120 ? `${answer.slice(0, 120)}…` : answer}`;
+  const res = await db.query(
+    `with q as (
+       update proposals p set status = 'answered', decided_by = 'merchant', decided_at = now()
+         from cards c
+        where c.id = any($2::uuid[]) and c.merchant_id = $1 and c.proposal_id = p.id and p.merchant_id = $1
+          and p.command_id = 'merchant.ask' and p.status = 'awaiting_approval'
+       returning c.id
+     )
+     update cards c set state = 'executed', updated_at = now(), front_json = c.front_json || jsonb_build_object('reason', $3::text)
+       from q where c.id = q.id
+     returning c.id`,
+    [merchantId, cardIds, reason],
+  );
+  return res.rowCount ?? 0;
 }
 
 /** States a card can be removed from the Inbox in: nothing is waiting or still running. */

@@ -3,7 +3,8 @@
 import { describe, expect, it } from "vitest";
 import { runSkill } from "@/engine/run-skill";
 import { ScriptedAgentClient } from "@/gateway/scripted";
-import { addDays, mentionsClient, parseAmounts, parseTerms } from "../request-parser";
+import { addDays, clientsNamed, mentionsClient, parseAmounts, parseTerms } from "../request-parser";
+import { knownClients } from "../case-file";
 import { collections } from "../skill";
 import { context, demoClients, rules, type FakeWorld } from "./fixtures";
 
@@ -99,6 +100,48 @@ describe("request parser", () => {
     expect(mentionsClient("Invoice Design Co $500", client(null, "Design Co"))).toBe(true);
     expect(mentionsClient("Invoice Al Wu $500", client("Al Wu", null))).toBe(true);
     expect(mentionsClient("Invoice NewCo $450", client("NewCo", null, ""))).toBe(false);
+  });
+});
+
+describe("Collections: which client a short name means", () => {
+  const pyp = { id: "cl_9", name: null, businessName: "PyP Test", email: "pyp@test.example" };
+  const all = [...demoClients, pyp];
+
+  it("one word that fits exactly one client names it ('Pyp' is PyP Test, 'Priya' is Priya Shah)", () => {
+    expect(clientsNamed("Can you invoice Pyp for $1600", all)).toEqual(["cl_9"]);
+    expect(clientsNamed("bill priya $40", all)).toEqual(["cl_2"]);
+  });
+
+  it("a full match wins; a word two clients share names neither; request words never name anyone", () => {
+    expect(clientsNamed("Invoice Acme $1,200", all)).toEqual(["cl_1"]);
+    const twoSams = [...all, { id: "cl_10", name: "Sam Ortiz", businessName: null, email: "ortiz@example.com" }];
+    expect(clientsNamed("invoice Sam $50", twoSams)).toEqual([]);
+    const bill = { id: "cl_11", name: "Bill Jones", businessName: null, email: "bill@jones.example" };
+    expect(clientsNamed("bill NewCo $50", [bill])).toEqual([]);
+    expect(clientsNamed("Invoice John $100, net 30", [{ id: "n", name: null, businessName: "Net Solutions", email: "n@net.example" }])).toEqual([]);
+  });
+
+  it("a nickname the merchant saved names the client", () => {
+    const john = { id: "cl_12", name: "Jonathan Park", businessName: null, email: "jp@example.com", nicknames: ["JP"] };
+    expect(mentionsClient("invoice JP $100", john)).toBe(true);
+    expect(clientsNamed("invoice jp $100", [...demoClients, john])).toEqual(["cl_12"]);
+  });
+
+  it("a client saved in Pyp (never invoiced in PayPal) can be invoiced; the card shows their email", async () => {
+    const w: FakeWorld = { ...world, savedClients: [{ id: "saved_1", name: "John", businessName: null, email: "john@new.example" }] };
+    const { result } = await run("Invoice John $100", [invoiceAnswer({ clientId: "cl_1", items: [{ description: "Consulting", amountRef: "amt_1" }], note: "" })], w);
+    expect(result.proposals[0]).toMatchObject({ status: "awaiting_approval", resolved: { client: { name: "John", email: "john@new.example" }, totalDisplay: "$100.00" } });
+  });
+
+  it("saved clients come first and win over PayPal's copy of the same email; ids are renumbered", async () => {
+    const saved = [{ id: "saved_1", name: "Sam L.", businessName: "Acme Studio", email: "SAM@acme.example", nicknames: ["Sammy"] }, { id: "saved_2", name: "John", businessName: null, email: "john@new.example" }];
+    const clients = await knownClients(context({ invoices: {}, savedClients: saved }));
+    expect(clients.map((c) => [c.id, c.email, c.name])).toEqual([
+      ["cl_1", "SAM@acme.example", "Sam L."],
+      ["cl_2", "john@new.example", "John"],
+      ["cl_3", "priya@beta.example", "Priya Shah"],
+      ["cl_4", "jordan.kim@example.com", "Jordan Kim"],
+    ]);
   });
 });
 

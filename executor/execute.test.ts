@@ -21,7 +21,7 @@ const NOW = new Date("2026-10-31T16:00:00Z");
 const SENTENCE = "Invoice Jordan Kim $300 for the logo, net 30";
 
 /** The receptionist's answer (engine/chat.ts): chat goes to a new invoice. */
-const ROUTE_NEW_INVOICE = { route: "new_invoice", subjectRef: null, reply: "Drafting that invoice now." };
+const ROUTE_NEW_INVOICE = { route: "new_invoice", subjectRef: null, reply: "Drafting that invoice now.", continues: false, newClient: null };
 
 function invoiceAnswer() {
   return {
@@ -194,7 +194,7 @@ describe.skipIf(!TEST_DB_URL)("demo path: chat, card, approve, PayPal", () => {
     const { cardIds } = await chat();
     pp.dropClients();
     const out = await approve(cardIds[0]);
-    expect(out).toEqual({ status: "obsolete", message: "Not sent: Client no longer found in PayPal" });
+    expect(out).toEqual({ status: "obsolete", message: "Not sent: Client no longer found" });
     expect(pp.calls).toEqual([]);
   });
 
@@ -227,9 +227,20 @@ describe.skipIf(!TEST_DB_URL)("demo path: chat, card, approve, PayPal", () => {
     expect((await listCards(pool, other)).map((c) => c.id)).not.toContain(cardIds[0]);
   });
 
-  it("a sentence that only names a first name makes no invoice card", async () => {
+  it("a first name that fits one client names them; the card still waits for approval", async () => {
     const agent = new ScriptedAgentClient([ROUTE_NEW_INVOICE, invoiceAnswer()]);
     const out = await runChatMessage({ pool, read: pp.read, agent, now: () => NOW }, DEMO_MERCHANT, "Invoice Jordan $300");
+    expect(out.cardIds).toHaveLength(1);
+    expect(pp.calls).toEqual([]);
+  });
+
+  it("a first name two clients share makes no invoice card", async () => {
+    const twoJordans: PayPalReads = {
+      ...pp.read,
+      recentClients: async () => [...(await pp.read.recentClients()), { id: "x", name: "Jordan Lee", businessName: null, email: "jlee@example.com" }],
+    };
+    const agent = new ScriptedAgentClient([ROUTE_NEW_INVOICE, invoiceAnswer()]);
+    const out = await runChatMessage({ pool, read: twoJordans, agent, now: () => NOW }, DEMO_MERCHANT, "Invoice Jordan $300");
     expect(out.cardIds).toHaveLength(0);
   });
 

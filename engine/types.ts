@@ -182,6 +182,8 @@ export interface EngineDb {
   activeHold?(subject: SubjectRef): Promise<Hold | null>;
   /** Follow-ups on an invoice: still waiting, and already run. Optional (the job layer implements it). */
   followUps?(invoiceId: string): Promise<{ pending: number; done: number }>;
+  /** Clients the merchant saved in Pyp (Clients page, or an email given in chat). Optional. */
+  savedClients?(): Promise<Client[]>;
 }
 
 export interface Hold {
@@ -314,6 +316,8 @@ export interface Client {
   name: string | null;
   businessName: string | null;
   email: string;
+  /** Other names the merchant uses for them ("Pyp", "John"), saved in Pyp's client list. */
+  nicknames?: string[];
 }
 
 // ---------- The model's answer ----------
