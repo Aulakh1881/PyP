@@ -7,7 +7,7 @@ A clickable, **UI-only** version of Pyp's three surfaces, running entirely on **
 | Surface | Where | What it does |
 |---|---|---|
 | **Website** | `website/index.html` | Landing page: what Pyp is, the live inbox, the safety rules, install steps. A live Pyp sits in the corner. |
-| **Dashboard** | `website/app/` | Demo sign-in (any password), then **Inbox** (cards with Approve / Review / Dismiss / Undo, filters, flip to "How I got here"), **Activity** (one AG Grid table of live sandbox payments, invoices and disputes plus Pyp's own actions: sort, filter, search, filter by type, export CSV, click a row for details), **Weekly brief**, and **Setup** (Off / Ask me / Auto per skill, limits, **Pause Pyp**, extension connection code, reset demo data). Pyp's chat widget is on every page. |
+| **Dashboard** | `website/app/` | Demo sign-in (any password), then **Inbox** (cards with Approve / Review / Dismiss / Undo, filters, flip to "How I got here"), **Activity** (one AG Grid table of live sandbox payments, invoices and disputes plus Pyp's own actions: sort, filter, search, filter by type, export CSV, click a row for details), **Weekly brief**, and **Settings** (Permissions: Off / Ask me / Auto per skill, limits, **Pause Pyp**, extension connection code, reset demo data). Pyp's chat widget is on every page. |
 | **Chrome extension** | `extension/` | Puts Pyp in the **bottom-right corner of paypal.com**. The toolbar popup has **Open the Pyp web app** and the list of actions **waiting on you**, plus settings (show on PayPal, **Live data** on your real Pyp account, web app address, connection code). |
 
 ## Run it locally, step by step
@@ -85,8 +85,8 @@ If Pyp says you're signed out, sign in at <http://localhost:3001/app/> again and
 - **+ menu:** upload a photo, or take a screenshot of the page (see the troubleshooting note below).
 - **Palette button** in the chat header: change Pyp's color and hat, the chat color and the message box.
 - **Inbox:** Approve the Acme reminder, Review and edit the dispute draft, Undo the refund before the timer ends, or click **How I got here** to flip a card.
-- **Dashboard → Setup:** switch on **Pause Pyp**, then go back to the Inbox; the refund timer freezes.
-- **Start over:** Setup → **Reset demo data** (or the popup's settings → Reset demo data).
+- **Dashboard → Settings:** switch on **Pause Pyp**, then go back to the Inbox; the refund timer freezes.
+- **Start over:** Settings → **Reset demo data** (or the popup's settings → Reset demo data).
 
 ### If something doesn't work
 
