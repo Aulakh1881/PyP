@@ -10,7 +10,7 @@
     "dev": "next dev",
     "live": "node scripts/live-dashboard.mjs",
     "build": "next build",
-    "start": "next start",
+    "start": "node scripts/serve.mjs",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",

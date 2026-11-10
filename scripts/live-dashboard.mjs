@@ -11,63 +11,12 @@
 //
 // Signing in through :3001 lands back on :3001/app/ (app/dashboard/page.tsx).
 
-import { createReadStream, statSync } from "node:fs";
 import http from "node:http";
 import net from "node:net";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { serveDashboardFile } from "./dashboard-files.mjs";
 
 const PORT = Number(process.env.LIVE_PORT ?? 3001);
 const APP = new URL(process.env.LIVE_APP_URL ?? "http://localhost:3000");
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../prototype/website");
-const NODE_MODULES = path.resolve(ROOT, "../../node_modules");
-
-const TYPES = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".png": "image/png",
-  ".svg": "image/svg+xml",
-  ".ico": "image/x-icon",
-  ".json": "application/json",
-};
-
-const RUNTIME_CONFIG = `(function (root) {
-  'use strict';
-  root.PYP_CONFIG = { live: true };
-  root.PypTransport = function () { return root.PypLive.createTransport(); };
-})(window);
-`;
-
-/** A prototype file for this path, or null to hand the request to the app. */
-function staticFile(pathname) {
-  let rel;
-  try {
-    rel = decodeURIComponent(pathname);
-  } catch {
-    return null;
-  }
-  if (rel.endsWith("/")) rel += "index.html";
-  const file = path.resolve(ROOT, "." + rel);
-  if (!file.startsWith(ROOT + path.sep)) return null;
-  try {
-    return statSync(file).isFile() ? file : null;
-  } catch {
-    return null;
-  }
-}
-
-function bryntumFile(pathname) {
-  const match = pathname.match(/^\/vendor\/bryntum\/((?:core|engine|grid|scheduler)-community)\/(.+)$/);
-  if (!match) return null;
-  const file = path.resolve(NODE_MODULES, "@bryntum", match[1], match[2]);
-  if (!file.startsWith(path.resolve(NODE_MODULES, "@bryntum") + path.sep)) return null;
-  try {
-    return statSync(file).isFile() ? file : null;
-  } catch {
-    return null;
-  }
-}
 
 function forward(req, res) {
   const upstream = http.request(
@@ -86,28 +35,7 @@ function forward(req, res) {
 }
 
 const server = http.createServer((req, res) => {
-  const url = new URL(req.url ?? "/", "http://localhost");
-
-  if (url.pathname === "/shared/runtime-config.js") {
-    res.writeHead(200, { "Content-Type": TYPES[".js"], "Cache-Control": "no-store" });
-    res.end(RUNTIME_CONFIG);
-    return;
-  }
-  if (url.pathname === "/app") {
-    res.writeHead(308, { Location: "/app/" + url.search });
-    res.end();
-    return;
-  }
-  // The sign-in callback lands on "/?code=…": that's the app's, not the landing page's.
-  const file = req.method === "GET" && !(url.pathname === "/" && url.searchParams.has("code"))
-    ? bryntumFile(url.pathname) ?? staticFile(url.pathname)
-    : null;
-  if (!file) {
-    forward(req, res);
-    return;
-  }
-  res.writeHead(200, { "Content-Type": TYPES[path.extname(file)] ?? "application/octet-stream", "Cache-Control": "no-store" });
-  createReadStream(file).pipe(res);
+  if (!serveDashboardFile(req, res)) forward(req, res);
 });
 
 // Websockets (Next.js's dev connection at /_next/hmr) aren't plain requests, so the

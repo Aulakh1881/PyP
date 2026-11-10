@@ -10,6 +10,12 @@
     });
   };
 
+  // Sign-in lives on this origin (npm run live on :3001, or the hosted server).
+  // The demo-data copy on :8080 has no app behind it, so send it to :3001.
+  if (location.port === '8080') {
+    document.querySelectorAll('a[data-signin]').forEach(function (a) { a.href = 'http://localhost:3001/login'; });
+  }
+
   draw('brand', { size: 30, mode: 'idle' });
   draw('foot', { size: 26, mode: 'idle' });
   draw('hero', { size: 230, mode: 'idle', className: 'blink' });
