@@ -76,8 +76,8 @@ export function cleanName(name: string): string {
 }
 
 /**
- * Saves and reads one file. The same file (same bytes) already read for this
- * merchant isn't read again. On a subject, a readable file adds its note.
+ * Saves and reads one file. The same file (same bytes) already read well for this
+ * merchant isn't read again (a failed or flagged reading is tried again). On a subject, a readable file adds its note.
  */
 export async function saveDocument(
   deps: { pool: Pool; agent: AgentClient; signal?: AbortSignal },
@@ -88,7 +88,7 @@ export async function saveDocument(
   const sha = createHash("sha256").update(input.bytes).digest("hex");
   const subject = input.subject ? subjectRef(input.subject) : null;
 
-  const prior = (await deps.pool.query(`select ${COLUMNS} from documents where merchant_id = $1 and sha256 = $2 and status <> 'failed' order by created_at desc limit 1`, [merchantId, sha])).rows[0];
+  const prior = (await deps.pool.query(`select ${COLUMNS} from documents where merchant_id = $1 and sha256 = $2 and status = 'read' order by created_at desc limit 1`, [merchantId, sha])).rows[0];
   let status: StoredDocument["status"];
   let facts: DocumentFacts | null = null;
   let reason: string | null = null;

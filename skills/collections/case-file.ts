@@ -3,7 +3,7 @@
 // from chat to create one ("new-invoice", B.1a). Code computes every number;
 // the model only reads them.
 
-import { merchantWords } from "@/engine/document-reader";
+import { FILES_END, FILES_START, merchantWords } from "@/engine/document-reader";
 import { daysBetween, formatMoney, localDate } from "@/engine/format";
 import type { CaseFile, CaseFileOptions, Client, Hold, Invoice, MerchantRules, SkillContext, SubjectRef } from "@/engine/types";
 import { block, tag, textTag } from "@/engine/xml";
@@ -239,7 +239,8 @@ async function newInvoiceCaseFile(ctx: SkillContext, subject: SubjectRef, instru
   const { terms: named, problems: termProblems } = parseTerms(merchantWords(request));
   const problems = [...amountProblems, ...termProblems];
   const terms = (named.length ? named : ALL_TERMS).map((t) => ({ ...t, dueDate: addDays(issueDate, t.days) }));
-  const mentionedClientIds = clientsNamed(request, clients);
+  // Clients can be named by the merchant or a file they attached (a quote's "for"), never by Pyp's own block labels.
+  const mentionedClientIds = clientsNamed(request.split(FILES_START).join(" ").split(FILES_END).join(" "), clients);
   const notes = await ctx.db.merchantNotes(subject, clients.filter((c) => mentionedClientIds.includes(c.id)).map((c) => c.email));
 
   const facts: NewInvoiceFacts = {
