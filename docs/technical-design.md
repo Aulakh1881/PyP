@@ -869,9 +869,9 @@ Credentials are read only inside the PayPal client, used to get a short-lived OA
 
 ### 9.3 Sweeps (scheduled)
 
-Sweeps run on Render cron (or Inngest's cron, if we keep Inngest).
+As built: sweeps run in the worker loop inside the web server (`instrumentation.ts`, ADR-008), not Render cron or Inngest. That's why the Render service runs on a paid plan that doesn't sleep, with exactly one instance (`render.yaml`).
 
-- **08:00 merchant-local, daily** (Render cron runs in UTC, and US daylight saving ends Nov 1, so set the UTC hour after that date)**:** Collections sweep (search unpaid invoices past their due date) and a Disputes deadline sweep (open disputes due within 72 h).
+- **08:00 merchant-local, daily:** Collections sweep (search unpaid invoices past their due date) and a Disputes deadline sweep (open disputes due within 72 h).
 - **Weekly, Friday:** Insights brief.
 - **Nightly reconcile:** list recent invoices, disputes and transactions; repair anything a missed webhook left stale. Webhooks are an optimization; sweeps are the safety net.
 - **Nightly cleanup (`compactOldRuns`):** trim case files and raw answers older than 90 days and raw webhook bodies older than 30 (Section 0.12).

@@ -23,7 +23,7 @@ PayPal AI Hackathon 2026 · feature freeze **Tue Nov 10** · submission **Thu No
 - **Three surfaces on one backend:** a **website** (public landing page), the **dashboard** (Inbox of action cards, Activity tab, setup screen, Pyp widget and chat), and a **Chrome extension** that opens Pyp in Chrome's side panel next to PayPal.
 - **Skills:** Collections (create, send and chase invoices), Disputes (draft evidence, merchant approves), Insights lite (weekly brief). Stretch: Pyp-to-Pyp dispute negotiation.
 - **PayPal:** reads through PayPal's official MCP server (read tools only); writes through our REST client in the executor, the only code that changes anything in PayPal.
-- **Stack:** TypeScript, Next.js on Render, Render Postgres, Claude (Haiku / Sonnet / Opus 5.5) with Ollama for local development, AG Grid for the Activity tab, and Bryntum Scheduler Community for the Disputes deadline timeline.
+- **Stack:** TypeScript, Next.js on Render, Postgres on Supabase, Claude (Haiku / Sonnet / Opus 5.5) with Ollama for local development, AG Grid for the Activity tab, and Bryntum Scheduler Community for the Disputes deadline timeline.
 
 ## Repository map
 
@@ -70,6 +70,7 @@ npm run dev                  # http://localhost:3000 (health check: /api/health)
 | `npm run lint` / `npm run typecheck` | Each check on its own |
 | `npm run eval:live` | The Collections cases against a real model (Claude, or Ollama with `PYP_MODEL_PROVIDER=ollama`); see `gateway/README.md` |
 | `npm run build` | Production build, as Render runs it |
+| `npm start` | The production server (`scripts/serve.mjs`): site, dashboard, API and worker on one port |
 
 ### Running the app day to day
 
@@ -96,6 +97,19 @@ After pulling new code:
 4. `npm run dev`, sign in, open `/dashboard`, and type the sentence. Approve the card; "Why?" flips it to the trace.
 
 Pyp only invoices clients PayPal already knows, named in full ("Jordan Kim", not "Jordan"; decision D13). Database tests need `TEST_DATABASE_URL` (see `.env.example`); without it they are skipped.
+
+### Deploying to Render
+
+`render.yaml` is a Render blueprint for one web service on the **Starter** plan (Free sleeps, and a sleeping server runs no sweeps, Auto actions, Undo windows or Slack posts). `npm start` runs `scripts/serve.mjs`, which serves the dashboard files and the Next.js app on one origin, the hosted version of `npm run dev` + `npm run live`.
+
+1. Render: New → Blueprint, pick this repo. Fill in the `sync: false` values from `.env.local` **before the first deploy** (the `NEXT_PUBLIC_*` ones are baked in at build time). Keep one instance: the worker loop must not run twice.
+2. Once it's live, set `PYP_PUBLIC_DASHBOARD_URL` to `https://<service>.onrender.com/app/`.
+3. Supabase: Authentication → URL Configuration: add the Render URL to the redirect URLs.
+4. PayPal developer dashboard: add a webhook on the sandbox app pointing at `https://<service>.onrender.com/api/webhooks/paypal`, and put its id in `PAYPAL_WEBHOOK_ID`.
+5. Slack: run `node scripts/slack-manifest.mjs https://<service>.onrender.com` and update the app's URLs.
+6. The Chrome extension: set its server to the Render URL in the popup.
+
+Only one worker should talk to the shared database at a time, so stop local `npm run dev` workers (`PYP_WORKER=off`) while the hosted one runs.
 
 ### Bryntum dispute schedule
 

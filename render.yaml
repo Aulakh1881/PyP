@@ -1,0 +1,55 @@
+# Render blueprint: one web service runs the site, the API, sign-in and the worker loop.
+# Starter plan, not Free: Free sleeps, and a sleeping server runs no sweeps, Auto
+# actions, Undo windows, follow-ups, custom skills or Slack posts (instrumentation.ts).
+# Keep ONE instance: the worker loop must not run twice.
+#
+# Values marked sync: false are entered in the Render dashboard, never in Git.
+services:
+  - type: web
+    name: pyp
+    runtime: node
+    plan: starter
+    region: oregon
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: false
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      # PayPal sandbox
+      - key: PAYPAL_ENVIRONMENT
+        value: SANDBOX
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      - key: PAYPAL_WEBHOOK_MERCHANT_ID
+        sync: false
+      # Supabase (NEXT_PUBLIC_* are read at build time, so set them before the first deploy)
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      # Models
+      - key: PYP_MODEL_PROVIDER
+        value: anthropic
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SPEND_CAP_USD
+        value: "5"
+      # Slack and "Open in Pyp" links: set PYP_PUBLIC_DASHBOARD_URL to https://<service>.onrender.com/app/
+      - key: SLACK_SIGNING_SECRET
+        sync: false
+      - key: SLACK_BOT_TOKEN
+        sync: false
+      - key: PYP_PUBLIC_DASHBOARD_URL
+        sync: false
