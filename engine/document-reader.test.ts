@@ -89,6 +89,17 @@ describe("reading a file", () => {
     }
   });
 
+  it("a value longer than its limit is cut, not a reason to fail the whole file", async () => {
+    const status = "Delivered · Nov 7, 2026, 2:14 PM · San Jose, CA · Signed by J. DOE";
+    const lines = Array.from({ length: 20 }, (_, i) => ({ description: `Item ${i + 1}`, amount: "1.00" }));
+    const answer = { ...quote, kind: "shipping_proof", lineItems: lines, tracking: [{ carrier: "UPS", number: "1Z999AA10123456784", status }] };
+    const out = await readDocument(new ScriptedAgentClient([answer]), { bytes: PNG, mediaType: "image/png", name: "receipt.png" });
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.facts.tracking[0]).toEqual({ carrier: "UPS", number: "1Z999AA10123456784", status: status.slice(0, 60) });
+    expect(out.facts.lineItems).toHaveLength(15);
+  });
+
   it("never throws: a bad answer or a refusal says why", async () => {
     expect(await readDocument(new ScriptedAgentClient(["not json"]), { bytes: PNG, mediaType: "image/png", name: "a.png" })).toMatchObject({ ok: false });
     expect(await readDocument(new ScriptedAgentClient([{ raw: "", stopReason: "refusal" }]), { bytes: PNG, mediaType: "image/png", name: "a.png" })).toMatchObject({ ok: false, reason: "Pyp couldn't read that file. Try a clearer photo or a PDF." });
@@ -132,6 +143,22 @@ describe("code's pass over what the model read", () => {
     expect(c.amounts).toEqual([{ label: "Total", amount: "1,200.00", currency: null }]);
     expect(c.dates).toEqual([{ label: "Sent", date: "2026-11-02" }]);
     expect(c.tracking).toEqual([{ carrier: "UPS", number: "1Z999AA10123456784", status: "Delivered" }]);
+  });
+
+  it("keeps an amount printed with its currency sign or code, as written otherwise", () => {
+    const c = clean({
+      ...quote,
+      amounts: [
+        { label: "Total", amount: "$600.00", currency: "USD" },
+        { label: "Fee", amount: "US$ 38.20", currency: null },
+        { label: "Refund", amount: "-$5.00", currency: null },
+        { label: "Deposit", amount: "1,200.00 USD", currency: "USD" },
+        { label: "Bad", amount: "$ about 600", currency: null },
+      ],
+      lineItems: [{ description: "Photo shoot", amount: "$450.00" }, { description: "Retouching", amount: "twelve" }],
+    });
+    expect(c.amounts.map((a) => a.amount)).toEqual(["600.00", "38.20", "-5.00", "1,200.00"]);
+    expect(c.lineItems).toEqual([{ description: "Photo shoot", amount: "450.00" }, { description: "Retouching", amount: null }]);
   });
 
   it("says what a file shows in one line, within the notes limit", () => {
