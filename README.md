@@ -105,7 +105,7 @@ Pyp only invoices clients PayPal already knows, named in full ("Jordan Kim", not
 1. Render: New → Blueprint, pick this repo. Fill in the `sync: false` values from `.env.local` **before the first deploy** (the `NEXT_PUBLIC_*` ones are baked in at build time). Keep one instance: the worker loop must not run twice.
 2. Once it's live, set `PYP_PUBLIC_DASHBOARD_URL` to `https://<service>.onrender.com/app/`.
 3. Supabase: Authentication → URL Configuration: add the Render URL to the redirect URLs.
-4. PayPal developer dashboard: add a webhook on the sandbox app pointing at `https://<service>.onrender.com/api/webhooks/paypal`, and put its id in `PAYPAL_WEBHOOK_ID`.
+4. Check the deploy and its PayPal webhook: `node --env-file=.env.local scripts/deploy-check.mjs https://<service>.onrender.com`. It probes the routes and lists the sandbox app's webhooks; add `--create` to register one at `/api/webhooks/paypal`, then put its id in `PAYPAL_WEBHOOK_ID` on Render and redeploy.
 5. Slack: run `node scripts/slack-manifest.mjs https://<service>.onrender.com` and update the app's URLs.
 6. The Chrome extension: set its server to the Render URL in the popup.
 
