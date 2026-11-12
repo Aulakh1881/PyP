@@ -51,6 +51,10 @@ body {
 .auth-form { display: flex; flex-direction: column; gap: 10px; }
 .auth-submit { margin-top: 6px; }
 .auth-submit:disabled { cursor: wait; opacity: .7; }
+.auth-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; }
+.auth-link { background: none; border: 0; padding: 2px 0; color: #1f6bff; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.auth-link:hover { text-decoration: underline; }
+.auth-link:disabled { cursor: wait; opacity: .6; }
 .auth-message, .auth-error { margin: 0; font-size: 13px; font-weight: 600; text-align: center; }
 .auth-message { color: #0b6b47; }
 .auth-error { color: #a3261b; }
