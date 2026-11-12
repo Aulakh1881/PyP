@@ -1,11 +1,27 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-type Mode = "sign-in" | "sign-up";
+// sign-in / sign-up: the two tabs. forgot: email a reset link. update: set a new
+// password after following that link (Supabase signs you in from the link first).
+type Mode = "sign-in" | "sign-up" | "forgot" | "update";
+
+const TITLES: Record<Mode, string> = {
+  "sign-in": "Sign in to Pyp",
+  "sign-up": "Create your Pyp account",
+  forgot: "Reset your password",
+  update: "Choose a new password",
+};
+
+const INTROS: Record<Mode, string> = {
+  "sign-in": "The dashboard for Maya’s Ceramics, a demo PayPal sandbox business.",
+  "sign-up": "Create an account to access your Pyp dashboard.",
+  forgot: "Enter your email and we’ll send you a link to set a new password.",
+  update: "Enter a new password for your account.",
+};
 
 function PypFigure() {
   return (
@@ -25,6 +41,25 @@ export default function LoginPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // Offer "Resend confirmation email" after a sign-up, or when sign-in says the email isn't confirmed.
+  const [canResend, setCanResend] = useState(false);
+
+  // The reset link lands on /login?mode=update. Creating the client reads the code in
+  // the link and signs the person in; PASSWORD_RECOVERY confirms it was a reset link.
+  useEffect(() => {
+    const fromResetLink = new URLSearchParams(window.location.search).get("mode") === "update";
+    const { data } = createClient().auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY" || (fromResetLink && session)) setMode("update");
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  function switchMode(next: Mode) {
+    setMode(next);
+    setError("");
+    setMessage("");
+    setCanResend(false);
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -33,79 +68,155 @@ export default function LoginPage() {
     setMessage("");
 
     const supabase = createClient();
-    const result =
-      mode === "sign-in"
-        ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({ email, password });
+    const origin = window.location.origin;
 
-    if (result.error) {
-      setError(result.error.message);
+    if (mode === "sign-in") {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (!error) return router.push("/paypal-setup");
+      setError(error.message);
+      setCanResend(/not confirmed/i.test(error.message));
     } else if (mode === "sign-up") {
-      setMessage("Check your email to confirm your account, then sign in.");
-      setMode("sign-in");
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { emailRedirectTo: `${origin}/login` },
+      });
+      if (error) {
+        setError(error.message);
+      } else if (data.session) {
+        // Email confirmation is off: the account is ready and already signed in.
+        return router.push("/paypal-setup");
+      } else {
+        setMessage("Check your email to confirm your account, then sign in.");
+        setCanResend(true);
+        setMode("sign-in");
+      }
+    } else if (mode === "forgot") {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${origin}/login?mode=update`,
+      });
+      if (error) setError(error.message);
+      else setMessage("If that email has an account, a reset link is on its way. Open it in this browser.");
     } else {
-      router.push("/paypal-setup");
+      const { error } = await supabase.auth.updateUser({ password });
+      if (!error) return router.push("/paypal-setup");
+      setError(
+        /session/i.test(error.message)
+          ? "This reset link has expired or was opened in another browser. Ask for a new one."
+          : error.message,
+      );
     }
 
     setBusy(false);
   }
 
+  async function resend() {
+    if (!email) {
+      setError("Enter your email first.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    const { error } = await createClient().auth.resend({
+      type: "signup",
+      email,
+      options: { emailRedirectTo: `${window.location.origin}/login` },
+    });
+    if (error) setError(error.message);
+    else setMessage("Confirmation email sent again. Check your inbox and spam folder.");
+    setBusy(false);
+  }
+
+  const tabs = mode === "sign-in" || mode === "sign-up";
+  const needsEmail = mode !== "update";
+  const needsPassword = mode !== "forgot";
+  const submitLabel = {
+    "sign-in": "Sign in",
+    "sign-up": "Create account",
+    forgot: "Send reset link",
+    update: "Save new password",
+  }[mode];
+
   return (
     <main className="signin">
       <section className="signcard" aria-labelledby="auth-title">
         <Link className="signin-figure-link" href="/" aria-label="Pyp home"><PypFigure /></Link>
-        <h1 id="auth-title">{mode === "sign-in" ? "Sign in to Pyp" : "Create your Pyp account"}</h1>
-        <p className="muted">
-          {mode === "sign-in"
-            ? "The dashboard for Maya’s Ceramics, a demo PayPal sandbox business."
-            : "Create an account to access your Pyp dashboard."}
-        </p>
+        <h1 id="auth-title">{TITLES[mode]}</h1>
+        <p className="muted">{INTROS[mode]}</p>
 
-        <div className="auth-tabs" role="tablist" aria-label="Account access">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === "sign-in"}
-            className={mode === "sign-in" ? "active" : ""}
-            onClick={() => setMode("sign-in")}
-          >
-            Sign in
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === "sign-up"}
-            className={mode === "sign-up" ? "active" : ""}
-            onClick={() => setMode("sign-up")}
-          >
-            Sign up
-          </button>
-        </div>
+        {tabs && (
+          <div className="auth-tabs" role="tablist" aria-label="Account access">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === "sign-in"}
+              className={mode === "sign-in" ? "active" : ""}
+              onClick={() => switchMode("sign-in")}
+            >
+              Sign in
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === "sign-up"}
+              className={mode === "sign-up" ? "active" : ""}
+              onClick={() => switchMode("sign-up")}
+            >
+              Sign up
+            </button>
+          </div>
+        )}
 
         <form className="auth-form" onSubmit={submit}>
-          <label htmlFor="email">Email</label>
-          <input
-            id="email"
-            type="email"
-            autoComplete="email"
-            required
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-          <label htmlFor="password">Password</label>
-          <input
-            id="password"
-            type="password"
-            autoComplete={mode === "sign-in" ? "current-password" : "new-password"}
-            minLength={6}
-            required
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
+          {needsEmail && (
+            <>
+              <label htmlFor="email">Email</label>
+              <input
+                id="email"
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
+            </>
+          )}
+          {needsPassword && (
+            <>
+              <label htmlFor="password">{mode === "update" ? "New password" : "Password"}</label>
+              <input
+                id="password"
+                type="password"
+                autoComplete={mode === "sign-in" ? "current-password" : "new-password"}
+                minLength={6}
+                required
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </>
+          )}
           <button className="btn auth-submit" type="submit" disabled={busy}>
-            {busy ? "Working..." : mode === "sign-in" ? "Sign in" : "Create account"}
+            {busy ? "Working..." : submitLabel}
           </button>
         </form>
+
+        <div className="auth-links">
+          {mode === "sign-in" && (
+            <button type="button" className="auth-link" onClick={() => switchMode("forgot")}>
+              Forgot password?
+            </button>
+          )}
+          {canResend && (mode === "sign-in" || mode === "sign-up") && (
+            <button type="button" className="auth-link" onClick={resend} disabled={busy}>
+              Resend confirmation email
+            </button>
+          )}
+          {(mode === "forgot" || mode === "update") && (
+            <button type="button" className="auth-link" onClick={() => switchMode("sign-in")}>
+              Back to sign in
+            </button>
+          )}
+        </div>
 
         {message && <p className="auth-message" role="status">{message}</p>}
         {error && <p className="auth-error" role="alert">{error}</p>}
