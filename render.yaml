@@ -10,7 +10,8 @@ services:
     runtime: node
     plan: starter
     region: oregon
-    buildCommand: npm ci && npm run build
+    # --include=dev: NODE_ENV=production would make npm ci skip TypeScript, which next build needs.
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     autoDeploy: false
