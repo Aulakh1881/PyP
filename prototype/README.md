@@ -77,7 +77,7 @@ The extension uses your **real Pyp account** by default (the popup's pill says *
 
 To use made-up demo data instead (no server needed), open the popup's settings and switch off **Live data**.
 
-If Pyp says you're signed out, sign in at <http://localhost:3001/app/> again and reload the PayPal tab. The extension's requests go through its background worker, which sends your Pyp sign-in cookie; it only talks to `/api/` on the Pyp server address in settings (default `http://localhost:3001`). Once the app is hosted on Render, put its address (e.g. `https://pyp.onrender.com`) in **Pyp server**; `*.onrender.com` is already allowed.
+If Pyp says you're signed out, sign in at <http://localhost:3001/app/> again and reload the PayPal tab. The extension's requests go through its background worker, which sends your Pyp sign-in cookie; it only talks to `/api/` on the Pyp server address in settings (default `http://localhost:3001`). Once the app is hosted on Render, put its address (`https://pyp-agent.onrender.com`) in **Pyp server**; `*.onrender.com` is already allowed.
 
 ### Things to try
 

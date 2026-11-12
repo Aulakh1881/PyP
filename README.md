@@ -17,9 +17,35 @@
 - **Chat and documents.** Ask Pyp in plain language, and upload a PDF or image (a quote, a shipping receipt) for it to read and use, for example as dispute proof.
 - **Custom skills and workflows.** Teach Pyp your own routines and run them on a schedule.
 - **Connections.** Pyp as a Slack bot (DMs with buttons, `/pyp`), Discord, or any app through Zapier, Make or n8n.
-- **Three surfaces on one backend:** a website, the dashboard, and a Chrome extension that opens Pyp in Chrome's side panel next to PayPal.
+- **Three surfaces on one backend:** a website, the dashboard, and a Chrome extension that puts Pyp in the corner of paypal.com.
 
 **Stack:** TypeScript, Next.js, Postgres on Supabase, and Claude, with Ollama for local development. Hosted on Render. AG Grid powers the Activity tab and Bryntum Scheduler Community the disputes timeline.
+
+## Use Pyp
+
+Pyp is hosted on Render at **<https://pyp-agent.onrender.com>**. It runs on one shared PayPal **sandbox** business ("Pyp Demo Business"), so no real money moves. Everyone who signs in sees that same business and Inbox, and anything you approve really happens in the sandbox.
+
+### Sign in
+
+1. Open <https://pyp-agent.onrender.com/login>.
+2. **First time:** click **Sign up**, enter your email and a password (6 characters or more), and click **Create account**. You're signed straight in.
+3. **Next time:** **Sign in** with your email and password. Forgot it? Click **Forgot password?** under the Sign in button.
+4. On **Connect a sandbox PayPal Business account**, click **Check sandbox connection**. Pyp checks its shared sandbox merchant; you never enter PayPal credentials. Then click **Open dashboard**.
+5. The dashboard is at <https://pyp-agent.onrender.com/app/>. **Sign out** is in its menu.
+
+### Install the Chrome extension
+
+The extension isn't in the Chrome Web Store, so you load it from this repository. It works in Chrome and other Chromium browsers (Edge, Brave).
+
+1. Get the code: `git clone https://github.com/Aulakh1881/PyP`, or on GitHub click **Code → Download ZIP** and unzip it.
+2. In Chrome, go to `chrome://extensions` and switch on **Developer mode** (top right).
+3. Click **Load unpacked** and choose the **`prototype/extension`** folder (the one that contains `manifest.json`).
+4. Click the puzzle-piece icon in the toolbar and pin **Pyp**.
+5. Click the Pyp icon, then the gear (**Settings**). Leave **Live data** on, and set **Pyp server** to `https://pyp-agent.onrender.com`. It saves when you leave the field.
+6. In the **same Chrome profile**, sign in at <https://pyp-agent.onrender.com/login>. The extension uses that sign-in.
+7. Open <https://www.paypal.com> (any page). Pyp's bubble is in the bottom-right corner: click it to chat or to see your **Inbox**. The toolbar popup lists what's **waiting on you** and has **Open the Pyp web app**.
+
+If Pyp says you're signed out, sign in again and reload the PayPal tab. If the bubble doesn't appear, reload the tab and check that **Show Pyp on PayPal** is on in the popup's settings. After pulling new code, click the reload icon on Pyp's card in `chrome://extensions`. To try it with made-up data and no server, switch off **Live data**. More detail is in [`prototype/README.md`](prototype/README.md).
 
 ## Design rules
 
@@ -104,7 +130,7 @@ Use a plan that doesn't sleep (Starter or above). A sleeping server runs no swee
 3. Supabase: Authentication → URL Configuration, and add the Render URL to the redirect URLs.
 4. Check the deploy and its PayPal webhook: `node --env-file=.env.local scripts/deploy-check.mjs https://<service>.onrender.com`. It probes the routes and lists the sandbox app's webhooks. Add `--create` to register one at `/api/webhooks/paypal`, then put its id in `PAYPAL_WEBHOOK_ID` on Render and redeploy.
 5. Slack (optional): run `node scripts/slack-manifest.mjs https://<service>.onrender.com` and create or update the Slack app from that manifest.
-6. The Chrome extension: set its server to the Render URL in the popup.
+6. The Chrome extension: in the popup's settings, set **Pyp server** to the Render URL (see [Install the Chrome extension](#install-the-chrome-extension)).
 
 If a local server shares the hosted database, run it with `PYP_WORKER=off` so only one worker claims work.
 
